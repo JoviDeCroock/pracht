@@ -1,7 +1,11 @@
 import { DEFAULT_LOADER_TIMEOUT_MS, resolveApp } from "./app.ts";
 import { applyTrailingSlash, withBase } from "./base.ts";
 import { buildPathFromSegments } from "./route-matching.ts";
-import { isDangerousPrerenderHeader, normalizeRouteRevalidate } from "./revalidation.ts";
+import {
+  isDangerousPrerenderHeader,
+  isgPathKey,
+  normalizeRouteRevalidate,
+} from "./revalidation.ts";
 import { hasMarkdownRepresentation, MARKDOWN_MEDIA_TYPE } from "./runtime-negotiation.ts";
 import { NOT_FOUND_ROUTE_ID, ROUTE_STATE_REQUEST_HEADER } from "./runtime-constants.ts";
 import { routeNeedsServerFetch, routeNeedsShellData } from "./runtime-client-fetch.ts";
@@ -229,6 +233,8 @@ async function prerenderAppPages(
   // Collect all work items first, then render them through a bounded pool
   const work: {
     pathname: string;
+    /** Where the page is written and keyed: an ISG page's `isgPathKey()`. */
+    outputPath: string;
     render: string;
     revalidate?: RouteRevalidate;
     route: ResolvedRoute;
@@ -247,7 +253,10 @@ async function prerenderAppPages(
       if (render === "isg" && route.revalidate) {
         normalizeRouteRevalidate(route.revalidate);
       }
-      work.push({ pathname, render, revalidate: route.revalidate, route });
+      // An ISG page is keyed the way every adapter looks it up, so an escape
+      // written in lower case in the route path still finds its entry.
+      const outputPath = render === "isg" ? isgPathKey(pathname) : pathname;
+      work.push({ pathname, outputPath, render, revalidate: route.revalidate, route });
     }
   }
 
@@ -256,7 +265,7 @@ async function prerenderAppPages(
     throw new Error("prerenderApp({ concurrency }) expects a positive integer.");
   }
 
-  await options.onPaths?.(work.map((item) => ({ path: item.pathname, render: item.render })));
+  await options.onPaths?.(work.map((item) => ({ path: item.outputPath, render: item.render })));
 
   // Without `onPage`, pages are returned in render order; with it, none are
   // kept. ISG entries are recorded by position so the manifest's key order
@@ -422,7 +431,7 @@ async function prerenderAppPages(
     const result = await renderPage(work[index]!);
     if (!result) return;
     const page: PrerenderResult = {
-      path: result.item.pathname,
+      path: result.item.outputPath,
       html: result.html,
       headers: result.headers,
       markdown: result.markdown,
@@ -442,7 +451,7 @@ async function prerenderAppPages(
   });
 
   for (const [index, entry] of isgEntries.entries()) {
-    if (entry) isgManifest[work[index]!.pathname] = entry;
+    if (entry) isgManifest[work[index]!.outputPath] = entry;
   }
   const results = pages.filter((page): page is PrerenderResult => page !== undefined);
 

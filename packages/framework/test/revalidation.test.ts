@@ -16,6 +16,8 @@ import {
 } from "@pracht/core";
 import { setServerEnv } from "@pracht/core/env/server";
 
+import { captureISGSnapshot, isgPathKey } from "../src/revalidation.ts";
+
 describe("revalidation policies", () => {
   it("supports combining time and webhook revalidation", () => {
     const policy = [timeRevalidate(60), webhookRevalidate()] as const;
@@ -151,6 +153,33 @@ describe("revalidation endpoint auth", () => {
     );
     expect(parsed).toEqual({ ok: true, paths: ["/docs/v1..2/notes.txt"] });
   });
+
+  it("names the entry that is not a path", async () => {
+    const parsed = await readRevalidationRequest(
+      new Request("https://app.example/__pracht/revalidate", {
+        body: JSON.stringify({ paths: ["/ok", "/isg?x=1"] }),
+        headers: { authorization: "Bearer secret" },
+        method: "POST",
+      }),
+      "secret",
+    );
+    expect(parsed.ok).toBe(false);
+    if (parsed.ok) return;
+    expect(parsed.response.status).toBe(400);
+    expect((await parsed.response.json()).error).toContain('"/isg?x=1"');
+  });
+});
+
+describe("isgPathKey", () => {
+  it.each([
+    ["/posts/café", "/posts/caf%C3%A9"],
+    ["/posts/a b", "/posts/a%20b"],
+    ["/posts/caf%c3%a9/", "/posts/caf%C3%A9"],
+    ["/posts/caf%C3%A9", "/posts/caf%C3%A9"],
+    ["/a|b^c", "/a|b^c"],
+  ])("keys the webhook path %s as %s", (path, key) => {
+    expect(isgPathKey(path)).toBe(key);
+  });
 });
 
 describe("createRevalidationSingleFlight", () => {
@@ -230,6 +259,15 @@ describe("isCacheableISGResponse", () => {
       isCacheableISGResponse(new Response("x", { headers: { vary: "Accept, Authorization" } })),
     ).toBe(false);
     expect(isCacheableISGResponse(new Response("x", { headers: { vary: "*" } }))).toBe(false);
+  });
+
+  it.each([
+    [{ "cache-control": "private, max-age=60" }, "Cache-Control: private, max-age=60"],
+    [{ "set-cookie": "session=abc" }, "a cookie (Set-Cookie)"],
+    [{ vary: "Accept, Authorization" }, "varies on authorization"],
+  ])("names what makes %j uncacheable", async (headers, cause) => {
+    const rejection = await captureISGSnapshot(new Response("x", { headers }), { pathname: "/" });
+    expect(rejection).toEqual({ reason: "uncacheable", detail: expect.stringContaining(cause) });
   });
 });
 
