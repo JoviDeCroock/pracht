@@ -22,4 +22,23 @@ describe("one source-analysis reader", () => {
       "route-loader-hints.ts",
     ]);
   });
+
+  it("reads the app manifest in one place", () => {
+    // Codegen, the app root and every other consumer take `manifest()` facts.
+    // Besides it, only the pages scanner (page value exports) and the client
+    // transform (which rewrites the code it parses) parse source.
+    expect(filesMatching(/\bparseAst\(/).sort()).toEqual([
+      "analysis.ts",
+      "client-module-transform.ts",
+      "pages-router.ts",
+    ]);
+    expect(filesMatching(/\bfunction (?:collectPositionalRefs|collectManifestStrings)\b/)).toEqual([
+      "analysis.ts",
+    ]);
+    expect(filesMatching(/\bsameFileStamp\(/).sort()).toEqual([
+      "analysis.ts",
+      "pages-router.ts",
+      "route-loader-hints.ts",
+    ]);
+  });
 });

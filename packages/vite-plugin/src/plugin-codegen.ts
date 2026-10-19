@@ -1,12 +1,7 @@
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { dirname, extname, join, resolve } from "node:path";
-import { parseAst } from "vite";
-import { getRolldownLang, PRACHT_CLIENT_MODULE_QUERY } from "./client-module-query.ts";
-import {
-  GENERATED_PAGES_LAYOUT_EXPORT,
-  generatePagesManifestSource,
-  scanPagesDirectory,
-} from "./pages-router.ts";
+import { PRACHT_CLIENT_MODULE_QUERY } from "./client-module-query.ts";
+import { generatePagesManifestSource, scanPagesDirectory } from "./pages-router.ts";
 import {
   CLIENT_BROWSER_PATH,
   ISLANDS_CLIENT_BROWSER_PATH,
@@ -19,15 +14,8 @@ import {
   type PrachtPluginOptions,
   type ResolvedPrachtPluginOptions,
 } from "./plugin-options.ts";
-import {
-  createRouteHints,
-  createRouteLoaderHints,
-  fileStamp,
-  sameFileStamp,
-  type FileStamp,
-  type RouteHints,
-} from "./route-loader-hints.ts";
-import { fileModuleId } from "./module-id.ts";
+import { createRouteHints, createRouteLoaderHints, type RouteHints } from "./route-loader-hints.ts";
+import { fileModuleId, getAnalysisSession, isWithinRoot, moduleIdPath } from "./analysis.ts";
 import { findAppRootModule } from "./plugin-app-root.ts";
 import { createWebmcpBootstrapSource, hasWebmcpCapabilities } from "./plugin-capabilities.ts";
 import {
@@ -43,8 +31,6 @@ import {
   moduleGlob,
   nonModuleExcludes,
 } from "./source-files.ts";
-
-const PAGES_NON_FULL_HYDRATION_RE = /export\s+const\s+HYDRATION\s*=\s*["'](?:islands|none)["']/;
 
 function toPosixPath(path: string): string {
   return path.replace(/\\/g, "/");
@@ -74,591 +60,33 @@ function scanFiles(dir: string, files: string[], extensions: Set<string>): void 
   }
 }
 
-/** Per page file, by stamp: whether its source declares non-full hydration. */
-const pageNonFullHydrationCache = new Map<string, { stamp: FileStamp; nonFull: boolean }>();
-
-function pageDeclaresNonFullHydration(file: string): boolean {
-  const stamp = fileStamp(statSync(file));
-  const cached = pageNonFullHydrationCache.get(file);
-  if (cached && sameFileStamp(cached.stamp, stamp)) return cached.nonFull;
-  const nonFull = PAGES_NON_FULL_HYDRATION_RE.test(readFileSync(file, "utf-8"));
-  pageNonFullHydrationCache.set(file, { stamp, nonFull });
-  return nonFull;
-}
-
+/**
+ * Route modules left out of the client registry: a module whose every ref
+ * belongs to a route that provably does not hydrate fully. One module can
+ * back a full route and an islands route, and the full route needs it in the
+ * browser; a ref whose hydration is unknown, a ref from another position, or
+ * a path the manifest merely mentions keeps it in. An incomplete read could
+ * be hiding a full route's ref, so it excludes nothing.
+ */
 function createNonFullHydrationExcludes(
   resolved: ResolvedPrachtPluginOptions,
   root: string = process.cwd(),
 ): string[] {
-  const excludes = new Set<string>();
-
-  if (resolved.pagesDir) {
-    const files: string[] = [];
-    scanFiles(
-      resolve(root, resolved.pagesDir.replace(/^\//, "")),
-      files,
-      withAdditionalExtensions(DEFAULT_ROUTE_EXTENSIONS, resolved.additionalExtensions),
-    );
-    for (const file of files) {
-      try {
-        if (pageDeclaresNonFullHydration(file)) {
-          excludes.add(
-            `!/${toPosixPath(file).replace(toPosixPath(root).replace(/\/$/, "") + "/", "")}`,
-          );
-        }
-      } catch {}
-    }
-    return [...excludes];
-  }
-
-  // A ref the scan cannot see could be a full route's, so a partial scan
-  // excludes nothing.
-  const scan = scanManifestModules(resolved, root);
-  if (!scan.complete) return [];
-
-  const appDir = dirname(resolve(root, resolved.appFile.replace(/^\//, "")));
-  const resolveRef = (ref: string): string =>
-    toPosixPath(ref.startsWith("/") ? resolve(root, ref.slice(1)) : resolve(appDir, ref));
-  // One module can back a full route and an islands route, and the full route
-  // needs it in the browser. A file is left out only when every ref to it in
-  // the manifest belongs to a non-full route; a ref this scan cannot attribute
-  // (a full route, a shared constant, a `notFound` component) keeps it in.
-  const nonFullRefs = new Map<string, number>();
-  for (const ref of scan.nonFullRefs) {
-    const file = resolveRef(ref);
-    nonFullRefs.set(file, (nonFullRefs.get(file) ?? 0) + 1);
-  }
-  if (nonFullRefs.size === 0) return [];
-
-  const allRefs = new Map<string, number>();
-  for (const value of scan.strings) {
-    if (!value.startsWith(".") && !value.startsWith("/")) continue;
-    const file = resolveRef(value);
-    if (nonFullRefs.has(file)) allRefs.set(file, (allRefs.get(file) ?? 0) + 1);
-  }
-
-  const rootPrefix = `${toPosixPath(root).replace(/\/$/, "")}/`;
-  for (const [file, count] of nonFullRefs) {
-    if ((allRefs.get(file) ?? 0) > count) continue;
-    excludes.add(`!/${file.replace(rootPrefix, "")}`);
-  }
-
-  return [...excludes];
-}
-
-const IMPORTING_NODE_TYPES = new Set([
-  "ExportAllDeclaration",
-  "ExportNamedDeclaration",
-  "ImportDeclaration",
-  "ImportExpression",
-]);
-
-/** Every string the manifest holds, and where it imports from. */
-function collectManifestStrings(program: StaticProgramNode): {
-  localImports: string[];
-  valueImports: string[];
-  eagerDynamicImport: boolean;
-  strings: string[];
-} {
-  const strings: string[] = [];
-  const localImports: string[] = [];
-  // Static imports that bring values (not just types) into the manifest.
-  const valueImports: string[] = [];
-  // `() => import("./x")` written where a module ref goes (a call argument,
-  // an object property value, an array element) is a lazy module ref. Any
-  // other literal `import()`, including one behind a named helper the manifest
-  // can call, hands the manifest values this scan never reads.
-  const lazyImports = new WeakSet<object>();
-  const markLazy = (candidate: unknown): void => {
-    const arrow = asStaticProgramNode(candidate);
-    if (arrow?.type !== "ArrowFunctionExpression") return;
-    const body = asStaticProgramNode(arrow.body);
-    if (body?.type === "ImportExpression") lazyImports.add(body);
-  };
-  let eagerDynamicImport = false;
-
-  const walk = (value: unknown): void => {
-    if (Array.isArray(value)) {
-      for (const item of value) walk(item);
-      return;
-    }
-    const node = asStaticProgramNode(value);
-    if (!node) return;
-
-    if (node.type === "CallExpression" && Array.isArray(node.arguments)) {
-      for (const argument of node.arguments) markLazy(argument);
-    } else if (node.type === "ArrayExpression" && Array.isArray(node.elements)) {
-      for (const element of node.elements) markLazy(element);
-    } else if (node.type === "Property" || node.type === "ObjectProperty") {
-      markLazy(node.value);
-    }
-
+  const facts = getAnalysisSession(resolved, root).manifest();
+  if (!facts.complete) return [];
+  const all = new Map<string, number>();
+  const nonFull = new Map<string, number>();
+  for (const ref of facts.refs) {
+    if (ref.id === null) continue;
+    all.set(ref.id, (all.get(ref.id) ?? 0) + 1);
     if (
-      typeof node.value === "string" &&
-      (node.type === "Literal" || node.type === "StringLiteral")
-    )
-      strings.push(node.value);
-    // `\`./routes/a.tsx\`` is a ref like "./routes/a.tsx", and counts as one.
-    if (node.type === "TemplateLiteral") {
-      const value = staticRefValue(node);
-      if (value !== null) strings.push(value);
-    }
-
-    // A module ref can only be a plain string, so `import("./" + name)` never
-    // contributes one — and a specifier that is not a literal is read below as
-    // a reason to distrust the whole scan. `export const app = …` carries no
-    // source at all and is not one of them.
-    if (IMPORTING_NODE_TYPES.has(node.type) && node.source != null) {
-      const specifier = asStaticProgramNode(node.source);
-      const value = typeof specifier?.value === "string" ? specifier.value : "";
-      // A literal `import("./x")` is a module ref (a route, middleware, or
-      // capability the runtime loads), not manifest data: it is read as a
-      // string above and never followed.
-      if (node.type !== "ImportExpression" || value === "") localImports.push(value);
-      if (node.type === "ImportExpression") {
-        if (value !== "" && !lazyImports.has(node)) eagerDynamicImport = true;
-      } else if (node.importKind !== "type" && node.exportKind !== "type") {
-        valueImports.push(value);
-      }
-    }
-
-    for (const key of Object.keys(node)) {
-      if (key === "type") continue;
-      walk(node[key]);
-    }
-  };
-
-  walk(program.body);
-  return { localImports, valueImports, eagerDynamicImport, strings };
-}
-
-/**
- * Refs written where the runtime reads a module from them, by registry:
- * `route()` components and `notFound` (route modules), `shells` entries,
- * and the server-only `defineApp({ middleware })` entries and route `loader`
- * files. Each value is the ref exactly as written.
- */
-interface PositionalManifestRefs {
-  routes: string[];
-  shells: string[];
-  middleware: string[];
-  loaders: string[];
-}
-
-/** The string a plain literal (or a template literal without expressions) holds. */
-function staticStringValue(value: unknown): string | null {
-  const node = unwrapStaticExpression(value);
-  if (!node) return null;
-  if ((node.type === "Literal" || node.type === "StringLiteral") && typeof node.value === "string")
-    return node.value;
-  if (node.type === "TemplateLiteral") {
-    const quasis = Array.isArray(node.quasis) ? node.quasis : [];
-    const expressions = Array.isArray(node.expressions) ? node.expressions : [];
-    if (expressions.length !== 0 || quasis.length !== 1) return null;
-    const cooked = (asStaticProgramNode(quasis[0])?.value as { cooked?: unknown } | undefined)
-      ?.cooked;
-    return typeof cooked === "string" ? cooked : null;
-  }
-  return null;
-}
-
-/** The literal a ref position holds: a string, or `() => import("…")`. */
-function staticRefValue(value: unknown): string | null {
-  const literal = staticStringValue(value);
-  if (literal !== null) return literal;
-  const node = unwrapStaticExpression(value);
-  if (node?.type === "ArrowFunctionExpression") {
-    const params = Array.isArray(node.params) ? node.params : [];
-    const body = unwrapStaticExpression(node.body);
-    if (params.length === 0 && body?.type === "ImportExpression")
-      return staticRefValue(body.source);
-  }
-  return null;
-}
-
-function staticPropertyName(value: unknown): string | null {
-  const property = asStaticProgramNode(value);
-  if (property?.type !== "Property" && property?.type !== "ObjectProperty") return null;
-  if (property.computed === true) return null;
-  return getStaticProgramName(asStaticProgramNode(property.key));
-}
-
-function staticObjectProperties(value: unknown): Array<{ name: string; value: unknown }> {
-  const node = unwrapStaticExpression(value);
-  if (node?.type !== "ObjectExpression") return [];
-  const properties = Array.isArray(node.properties) ? node.properties : [];
-  const result: Array<{ name: string; value: unknown }> = [];
-  for (const property of properties) {
-    const name = staticPropertyName(property);
-    if (name !== null) result.push({ name, value: asStaticProgramNode(property)!.value });
-  }
-  return result;
-}
-
-function calleeName(value: unknown): string | null {
-  const callee = unwrapStaticExpression(value);
-  if (callee?.type === "Identifier" && typeof callee.name === "string") return callee.name;
-  if (callee?.type === "MemberExpression" && callee.computed !== true)
-    return getStaticProgramName(asStaticProgramNode(callee.property));
-  return null;
-}
-
-/** Whether an object literal hides properties behind a spread or computed key. */
-function hasOpaqueProperties(value: unknown): boolean {
-  const node = unwrapStaticExpression(value);
-  if (node?.type !== "ObjectExpression") return true;
-  const properties = Array.isArray(node.properties) ? node.properties : [];
-  return properties.some((property) => staticPropertyName(property) === null);
-}
-
-/**
- * The refs a manifest module writes in a position the runtime reads a module
- * from. A ref held in a variable is not seen here; the build's registry check
- * reports it if the registry cannot serve it.
- *
- * Returns false when a route or shell ref position holds something other than
- * a literal (`"./routes/" + name + ".tsx"`, a variable, a spread): the module
- * it names cannot be known, so the scan must not be trusted to list them all.
- */
-function collectPositionalRefs(program: StaticProgramNode, refs: PositionalManifestRefs): boolean {
-  let literal = true;
-  const push = (list: string[], value: unknown, required: boolean): void => {
-    const ref = staticRefValue(value);
-    if (ref !== null) list.push(ref);
-    else if (required) literal = false;
-  };
-  const readComponentConfig = (value: unknown): void => {
-    if (staticRefValue(value) !== null) {
-      push(refs.routes, value, true);
-      return;
-    }
-    if (hasOpaqueProperties(value)) {
-      literal = false;
-      return;
-    }
-    let component = false;
-    for (const property of staticObjectProperties(value)) {
-      if (property.name === "component") {
-        component = true;
-        push(refs.routes, property.value, true);
-      }
-      if (property.name === "loader") push(refs.loaders, property.value, false);
-    }
-    if (!component) literal = false;
-  };
-
-  const walk = (value: unknown): void => {
-    if (Array.isArray(value)) {
-      for (const item of value) walk(item);
-      return;
-    }
-    const node = asStaticProgramNode(value);
-    if (!node) return;
-
-    if (node.type === "CallExpression" && calleeName(node.callee) === "route") {
-      const args = Array.isArray(node.arguments) ? node.arguments : [];
-      if (args.some((arg) => asStaticProgramNode(arg)?.type === "SpreadElement")) literal = false;
-      else readComponentConfig(args[1]);
-    } else if (node.type === "ObjectExpression") {
-      for (const property of staticObjectProperties(node)) {
-        if (property.name === "shells") {
-          if (hasOpaqueProperties(property.value)) literal = false;
-          for (const shell of staticObjectProperties(property.value))
-            push(refs.shells, shell.value, true);
-        } else if (property.name === "middleware") {
-          for (const entry of staticObjectProperties(property.value))
-            push(refs.middleware, entry.value, false);
-        } else if (property.name === "notFound") {
-          readComponentConfig(property.value);
-        }
-      }
-    }
-
-    for (const key of Object.keys(node)) {
-      if (key === "type") continue;
-      walk(node[key]);
-    }
-  };
-
-  walk(program.body);
-  return literal;
-}
-
-type HydrationMode = "full" | "nonFull" | "unknown";
-
-/**
- * The hydration mode a `route()`/`group()` meta argument gives, or `inherited`
- * when it sets none. Anything this cannot read for certain — a meta held in a
- * variable, a spread, a computed key, a non-literal value — is "unknown".
- */
-function metaHydrationMode(meta: unknown, inherited: HydrationMode): HydrationMode {
-  if (meta === undefined) return inherited;
-  const node = unwrapStaticExpression(meta);
-  if (node?.type !== "ObjectExpression") return "unknown";
-  let mode = inherited;
-  for (const property of Array.isArray(node.properties) ? node.properties : []) {
-    const name = staticPropertyName(property);
-    if (name === null) return "unknown";
-    if (name !== "hydration") continue;
-    const value = staticStringValue(asStaticProgramNode(property)!.value);
-    mode =
-      value === "full" ? "full" : value === "islands" || value === "none" ? "nonFull" : "unknown";
-  }
-  return mode;
-}
-
-/** A `route()` second argument's component ref: the module itself or `{ component }`. */
-function componentRef(value: unknown): string | null {
-  const direct = staticRefValue(value);
-  if (direct !== null) return direct;
-  for (const property of staticObjectProperties(value)) {
-    if (property.name === "component") return staticRefValue(property.value);
-  }
-  return null;
-}
-
-/**
- * Component refs of `route()` calls whose hydration is provably `"islands"` or
- * `"none"`: their own literal mode or, without one, the innermost enclosing
- * `group()`'s. A route whose mode this cannot read for certain counts as full,
- * so its module stays in the client registry — dropping a module a route needs
- * breaks client navigation to it.
- */
-function collectNonFullRouteRefs(program: StaticProgramNode, refs: string[]): void {
-  const walk = (value: unknown, inherited: HydrationMode): void => {
-    if (Array.isArray(value)) {
-      for (const item of value) walk(item, inherited);
-      return;
-    }
-    const node = asStaticProgramNode(value);
-    if (!node) return;
-
-    if (node.type === "CallExpression") {
-      const name = calleeName(node.callee);
-      const args = Array.isArray(node.arguments) ? node.arguments : [];
-      if (name === "group") {
-        const mode = metaHydrationMode(args[0], inherited);
-        for (const arg of args.slice(1)) walk(arg, mode);
-        return;
-      }
-      if (name === "route") {
-        // `route(path, { component, …meta })` reads its options from the
-        // config object and ignores a third argument.
-        const config = unwrapStaticExpression(args[1]);
-        const meta = config?.type === "ObjectExpression" ? args[1] : args[2];
-        if (metaHydrationMode(meta, inherited) === "nonFull") {
-          const ref = componentRef(args[1]);
-          if (ref !== null) refs.push(ref);
-        }
-        return;
-      }
-    }
-
-    for (const key of Object.keys(node)) {
-      if (key === "type") continue;
-      walk(node[key], inherited);
-    }
-  };
-  walk(program.body, "full");
-}
-
-/** At most this many modules are read while following a manifest's imports. */
-const MANIFEST_MODULE_LIMIT = 64;
-const MANIFEST_IMPORT_EXTENSIONS = [".ts", ".tsx", ".mts", ".js", ".jsx", ".mjs"];
-
-/** The file a relative import specifier loads, or null when it cannot tell. */
-function resolveManifestImport(specifier: string, importer: string, root: string): string | null {
-  const base = specifier.startsWith("/")
-    ? resolve(root, specifier.slice(1))
-    : resolve(dirname(importer), specifier);
-  const candidates = [
-    base,
-    // TypeScript lets a `.js` specifier name the `.ts` source.
-    ...(/\.[mc]?js$/.test(base)
-      ? [base.replace(/js$/, "ts"), base.replace(/\.([mc]?)js$/, ".$1tsx")]
-      : []),
-    ...MANIFEST_IMPORT_EXTENSIONS.map((extension) => `${base}${extension}`),
-    ...MANIFEST_IMPORT_EXTENSIONS.map((extension) => join(base, `index${extension}`)),
-  ];
-  for (const candidate of candidates) {
-    try {
-      if (statSync(candidate).isFile()) return candidate;
-    } catch {}
-  }
-  return null;
-}
-
-/**
- * What the app manifest and the local modules it imports say about module refs.
- *
- * `strings` holds every string literal in those modules, `refs` the ones
- * written in a ref position. Refs resolve against the app manifest's directory
- * wherever they are written — that is how the runtime reads them.
- *
- * `complete` is false as soon as a ref could live somewhere this scan cannot
- * see: a route or shell ref that is not a literal, an import specifier
- * assembled at runtime, a local import that does not resolve to a parseable
- * module, or more imports than the scan follows.
- */
-interface ManifestScan {
-  complete: boolean;
-  strings: string[];
-  refs: PositionalManifestRefs;
-  /** Absolute paths of the manifest and every local module the scan read. */
-  files: string[];
-  /** Component refs of routes whose hydration is provably not `"full"`. */
-  nonFullRefs: string[];
-  /**
-   * Whether a route may set `streaming`: some scanned module names it, the
-   * manifest imports a package other than pracht's, or the scan is incomplete.
-   */
-  mayStream: boolean;
-}
-
-/** What one manifest module says, independent of where the scan started. */
-interface ManifestModuleFacts {
-  localImports: string[];
-  strings: string[];
-  refs: PositionalManifestRefs;
-  nonFullRefs: string[];
-  /** Every route and shell ref position holds a literal. */
-  literalRefs: boolean;
-  mentionsStreaming: boolean;
-  /** Static value imports, which may supply route options. */
-  valueImports: string[];
-  /** A literal `import()` that is not a lazy `() => import(...)` ref. */
-  eagerDynamicImport: boolean;
-}
-
-/**
- * Parsed facts per manifest module, checked against the file's stamp. The
- * client, server, and dev modules each scan the manifest several times per
- * regeneration; a file that has not changed is parsed once.
- */
-const manifestModuleFactsCache = new Map<
-  string,
-  { stamp: FileStamp; facts: ManifestModuleFacts }
->();
-
-/** Forget cached manifest facts for `file`, or for every file. */
-export function invalidateManifestModuleFacts(file?: string): void {
-  if (file === undefined) {
-    manifestModuleFactsCache.clear();
-    pageNonFullHydrationCache.clear();
-  } else {
-    manifestModuleFactsCache.delete(file);
-    pageNonFullHydrationCache.delete(file);
-  }
-}
-
-function readManifestModuleFacts(file: string): ManifestModuleFacts | null {
-  let stamp: FileStamp;
-  try {
-    stamp = fileStamp(statSync(file));
-  } catch {
-    manifestModuleFactsCache.delete(file);
-    return null;
-  }
-  const cached = manifestModuleFactsCache.get(file);
-  if (cached && sameFileStamp(cached.stamp, stamp)) return cached.facts;
-
-  try {
-    const source = readFileSync(file, "utf-8");
-    const program = parseAst(source, {
-      lang: getRolldownLang(file),
-    }) as unknown as StaticProgramNode;
-    const collected = collectManifestStrings(program);
-    const facts: ManifestModuleFacts = {
-      localImports: collected.localImports,
-      strings: collected.strings,
-      refs: { routes: [], shells: [], middleware: [], loaders: [] },
-      nonFullRefs: [],
-      literalRefs: true,
-      mentionsStreaming: /\bstreaming\b/.test(source),
-      valueImports: collected.valueImports,
-      eagerDynamicImport: collected.eagerDynamicImport,
-    };
-    facts.literalRefs = collectPositionalRefs(program, facts.refs);
-    collectNonFullRouteRefs(program, facts.nonFullRefs);
-    manifestModuleFactsCache.set(file, { stamp, facts });
-    return facts;
-  } catch {
-    manifestModuleFactsCache.delete(file);
-    return null;
-  }
-}
-
-function scanManifestModules(resolved: ResolvedPrachtPluginOptions, root: string): ManifestScan {
-  const refs: PositionalManifestRefs = { routes: [], shells: [], middleware: [], loaders: [] };
-  const strings: string[] = [];
-  const nonFullRefs: string[] = [];
-  const appFile = resolve(root, resolved.appFile.replace(/^\//, ""));
-  const ownedDirectories = [resolved.routesDir, resolved.shellsDir].map((directory) =>
-    toPosixPath(resolve(root, directory.replace(/^\//, ""))),
-  );
-  const isOwned = (path: string): boolean =>
-    ownedDirectories.some((directory) => toPosixPath(path).startsWith(`${directory}/`));
-
-  const queue = [appFile];
-  const seen = new Set(queue);
-  let complete = true;
-  let mayStream = false;
-  while (queue.length > 0) {
-    const file = queue.shift()!;
-    const facts = readManifestModuleFacts(file);
-    // An unreadable or unparseable manifest is the dev server's error to
-    // report, not a reason to reorganize the bundle.
-    if (!facts) {
-      return { complete: false, strings, refs, files: [...seen], nonFullRefs, mayStream: true };
-    }
-    mayStream ||= facts.mentionsStreaming || facts.eagerDynamicImport;
-    strings.push(...facts.strings);
-    for (const kind of ["routes", "shells", "middleware", "loaders"] as const) {
-      refs[kind].push(...facts.refs[kind]);
-    }
-    nonFullRefs.push(...facts.nonFullRefs);
-    if (!facts.literalRefs) complete = false;
-
-    for (const specifier of facts.localImports) {
-      if (specifier === "") {
-        complete = false;
-        continue;
-      }
-      if (!specifier.startsWith(".") && !specifier.startsWith("/")) {
-        // A package can hand the manifest route options this scan never reads.
-        if (!specifier.startsWith("@pracht/")) mayStream = true;
-        continue;
-      }
-      const target = resolveManifestImport(specifier, file, root);
-      if (target === null) {
-        complete = false;
-        continue;
-      }
-      // A route or shell module is a leaf: it holds components, not refs. A
-      // value imported from one may still be route options this scan never
-      // reads.
-      if (isOwned(target)) {
-        if (facts.valueImports.includes(specifier)) mayStream = true;
-        continue;
-      }
-      if (seen.has(target)) continue;
-      if (seen.size >= MANIFEST_MODULE_LIMIT || !/\.[mc]?[jt]sx?$/.test(target)) {
-        complete = false;
-        continue;
-      }
-      seen.add(target);
-      queue.push(target);
+      (ref.kind === "route" || ref.kind === "not-found") &&
+      (ref.hydration === "islands" || ref.hydration === "none")
+    ) {
+      nonFull.set(ref.id, (nonFull.get(ref.id) ?? 0) + 1);
     }
   }
-
-  return {
-    complete,
-    strings,
-    refs,
-    files: [...seen],
-    nonFullRefs,
-    mayStream: mayStream || !complete,
-  };
+  return [...nonFull].filter(([id, count]) => (all.get(id) ?? 0) <= count).map(([id]) => `!${id}`);
 }
 
 /**
@@ -671,7 +99,7 @@ export function collectManifestModuleFiles(
   root: string = process.cwd(),
 ): string[] {
   if (resolved.pagesDir) return [];
-  return scanManifestModules(resolved, root).files.map(toPosixPath);
+  return [...getAnalysisSession(resolved, root).manifest().files];
 }
 
 /**
@@ -680,15 +108,7 @@ export function collectManifestModuleFiles(
  * Answers `true` whenever it cannot tell.
  */
 export function appMayStream(resolved: ResolvedPrachtPluginOptions, root: string): boolean {
-  if (!resolved.pagesDir) return scanManifestModules(resolved, root).mayStream;
-  try {
-    return scanPagesDirectory(
-      resolve(root, resolved.pagesDir.replace(/^\//, "")),
-      resolved.additionalExtensions,
-    ).some((page) => page.streaming !== false && page.streaming !== undefined);
-  } catch {
-    return true;
-  }
+  return getAnalysisSession(resolved, root).manifest().mayStream;
 }
 
 /**
@@ -704,7 +124,7 @@ export function appMayStream(resolved: ResolvedPrachtPluginOptions, root: string
  * a module the app already ships.
  *
  * `complete` is false as soon as a ref could live somewhere the scan cannot
- * see (see `scanManifestModules`). Callers must then leave the registry as it
+ * see (see `ManifestFacts.complete`). Callers must then leave the registry as it
  * was — dropping a module a route needs breaks navigation to it, which is far
  * worse than shipping one nothing reaches.
  */
@@ -715,27 +135,23 @@ export function collectManifestModuleRefs(
   const files = new Set<string>();
   if (resolved.pagesDir) return { complete: false, files };
 
-  const scan = scanManifestModules(resolved, root);
-  const appDir = dirname(resolve(root, resolved.appFile.replace(/^\//, "")));
-  const ownedDirectories = [resolved.routesDir, resolved.shellsDir].map((directory) =>
-    toPosixPath(resolve(root, directory.replace(/^\//, ""))),
+  const facts = getAnalysisSession(resolved, root).manifest();
+  const ownedDirectories = [resolved.routesDir, resolved.shellsDir].map(
+    (directory) => `${fileModuleId(root, resolve(root, directory.replace(/^\//, "")))}/`,
   );
-  const isOwned = (path: string): boolean =>
-    ownedDirectories.some((directory) => toPosixPath(path).startsWith(`${directory}/`));
-
-  for (const value of scan.strings) {
-    if (!value.startsWith(".") && !value.startsWith("/")) continue;
-    const abs = value.startsWith("/") ? resolve(root, value.slice(1)) : resolve(appDir, value);
-    if (!isOwned(abs)) continue;
+  for (const ref of facts.refs) {
+    if (ref.id === null || !ownedDirectories.some((directory) => ref.id!.startsWith(directory)))
+      continue;
+    const file = toPosixPath(moduleIdPath(root, ref.id));
     try {
-      if (statSync(abs).isFile()) files.add(toPosixPath(abs));
+      if (statSync(file).isFile()) files.add(file);
     } catch {
       // A ref to a file that is not there fails `pracht build`; it cannot be
       // excluded from anything either way.
     }
   }
 
-  return { complete: scan.complete, files };
+  return { complete: facts.complete, files };
 }
 
 /**
@@ -775,35 +191,31 @@ export function collectExternalManifestModules(
   const external: ExternalManifestModules = { routes: [], shells: [], middleware: [], loaders: [] };
   if (resolved.pagesDir) return external;
 
-  const scan = scanManifestModules(resolved, root);
-  const rootPosix = toPosixPath(root).replace(/\/$/, "");
-  const appDir = dirname(resolve(root, resolved.appFile.replace(/^\//, "")));
+  const facts = getAnalysisSession(resolved, root).manifest();
   const directoryOf = (directory: string): string =>
-    `${toPosixPath(resolve(root, directory.replace(/^\//, "")))}/`;
-  const globbed = {
-    routes: [directoryOf(resolved.routesDir)],
-    shells: [directoryOf(resolved.shellsDir)],
-    middleware: [directoryOf(resolved.middlewareDir)],
-    loaders: [directoryOf(resolved.serverDir)],
-  };
+    `${fileModuleId(root, resolve(root, directory.replace(/^\//, "")))}/`;
+  const registries = {
+    routes: { kinds: ["route", "not-found"], globbed: directoryOf(resolved.routesDir) },
+    shells: { kinds: ["shell"], globbed: directoryOf(resolved.shellsDir) },
+    middleware: { kinds: ["middleware"], globbed: directoryOf(resolved.middlewareDir) },
+    loaders: { kinds: ["loader"], globbed: directoryOf(resolved.serverDir) },
+  } as const;
 
-  for (const kind of ["routes", "shells", "middleware", "loaders"] as const) {
+  for (const [registry, { kinds, globbed }] of Object.entries(registries) as Array<
+    [keyof ExternalManifestModules, (typeof registries)[keyof typeof registries]]
+  >) {
     const found = new Set<string>();
-    for (const ref of scan.refs[kind]) {
-      if (!ref.startsWith(".") && !ref.startsWith("/")) continue;
-      const abs = toPosixPath(
-        ref.startsWith("/") ? resolve(root, ref.slice(1)) : resolve(appDir, ref.split("?")[0]!),
-      );
-      if (globbed[kind].some((directory) => abs.startsWith(directory))) continue;
-      if (!abs.startsWith(`${rootPosix}/`)) continue;
+    for (const ref of facts.refs) {
+      if (ref.id === null || !(kinds as readonly string[]).includes(ref.kind)) continue;
+      if (ref.id.startsWith(globbed) || !isWithinRoot(ref.id)) continue;
       try {
-        if (!statSync(abs).isFile()) continue;
+        if (!statSync(moduleIdPath(root, ref.id)).isFile()) continue;
       } catch {
         continue;
       }
-      found.add(abs.slice(rootPosix.length));
+      found.add(ref.id);
     }
-    external[kind] = [...found].sort();
+    external[registry] = [...found].sort();
   }
 
   return external;
@@ -1121,119 +533,7 @@ function hasRootPagesAppShell(
 
 export function isEjectedPagesLayout(resolved: ResolvedPrachtPluginOptions, root: string): boolean {
   if (resolved.pagesDir) return false;
-
-  try {
-    const appFile = resolve(root, resolved.appFile.replace(/^\//, ""));
-    const manifestSource = readFileSync(appFile, "utf-8");
-    return hasTrueConstExport(manifestSource, appFile, GENERATED_PAGES_LAYOUT_EXPORT);
-  } catch {
-    return false;
-  }
-}
-
-type StaticProgramNode = {
-  type: string;
-  [key: string]: unknown;
-};
-
-function hasTrueConstExport(source: string, file: string, name: string): boolean {
-  const program = parseAst(source, { lang: getRolldownLang(file) }) as unknown as StaticProgramNode;
-  const statements = (Array.isArray(program.body) ? program.body : [])
-    .map(asStaticProgramNode)
-    .filter((statement): statement is StaticProgramNode => statement !== null);
-  const trueConstBindings = new Set<string>();
-
-  for (const statement of statements) {
-    const declaration =
-      statement.type === "ExportNamedDeclaration"
-        ? asStaticProgramNode(statement.declaration)
-        : statement;
-    if (declaration?.type !== "VariableDeclaration" || declaration.kind !== "const") continue;
-
-    const declarators = Array.isArray(declaration.declarations) ? declaration.declarations : [];
-    for (const declaratorValue of declarators) {
-      const declarator = asStaticProgramNode(declaratorValue);
-      if (declarator?.type !== "VariableDeclarator") continue;
-      const identifier = asStaticProgramNode(declarator.id);
-      if (identifier?.type !== "Identifier" || typeof identifier.name !== "string") continue;
-      const initializer = unwrapStaticExpression(declarator.init);
-      if (
-        (initializer?.type === "BooleanLiteral" || initializer?.type === "Literal") &&
-        initializer.value === true
-      ) {
-        trueConstBindings.add(identifier.name);
-      }
-    }
-  }
-
-  for (const statement of statements) {
-    if (statement.type !== "ExportNamedDeclaration") continue;
-    const declaration = asStaticProgramNode(statement.declaration);
-    if (declaration?.type === "VariableDeclaration") {
-      const declarators = Array.isArray(declaration.declarations) ? declaration.declarations : [];
-      if (
-        declarators.some((declaratorValue) => {
-          const declarator = asStaticProgramNode(declaratorValue);
-          const identifier = asStaticProgramNode(declarator?.id);
-          return identifier?.type === "Identifier" && identifier.name === name;
-        }) &&
-        trueConstBindings.has(name)
-      ) {
-        return true;
-      }
-      continue;
-    }
-    if (statement.source) continue;
-
-    const specifiers = Array.isArray(statement.specifiers) ? statement.specifiers : [];
-    for (const specifierValue of specifiers) {
-      const specifier = asStaticProgramNode(specifierValue);
-      if (specifier?.type !== "ExportSpecifier" || specifier.exportKind === "type") continue;
-      const local = asStaticProgramNode(specifier.local);
-      const exported = asStaticProgramNode(specifier.exported);
-      const localName = getStaticProgramName(local);
-      if (
-        localName !== null &&
-        getStaticProgramName(exported) === name &&
-        trueConstBindings.has(localName)
-      ) {
-        return true;
-      }
-    }
-  }
-
-  return false;
-}
-
-function unwrapStaticExpression(value: unknown): StaticProgramNode | null {
-  let node = asStaticProgramNode(value);
-  while (
-    node &&
-    new Set([
-      "ParenthesizedExpression",
-      "TSAsExpression",
-      "TSNonNullExpression",
-      "TSSatisfiesExpression",
-      "TSTypeAssertion",
-      "TypeCastExpression",
-    ]).has(node.type)
-  ) {
-    node = asStaticProgramNode(node.expression);
-  }
-  return node;
-}
-
-function asStaticProgramNode(value: unknown): StaticProgramNode | null {
-  if (!value || typeof value !== "object" || !("type" in value)) return null;
-  return typeof (value as { type?: unknown }).type === "string"
-    ? (value as StaticProgramNode)
-    : null;
-}
-
-function getStaticProgramName(value: StaticProgramNode | null): string | null {
-  if (value?.type === "Identifier" && typeof value.name === "string") return value.name;
-  if (value?.type === "Literal" && typeof value.value === "string") return value.value;
-  return null;
+  return getAnalysisSession(resolved, root).manifest().ejectedLayout;
 }
 
 function createUnderscoreReservedExcludes(directory: string): string[] {

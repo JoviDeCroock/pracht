@@ -50,6 +50,11 @@ function write(root: string, name: string, content: string): void {
   writeFileSync(join(root, name), `// file:${name}\n${content}`);
 }
 
+/** Parses of any part of the app manifest: the whole module, or its `defineApp()` body. */
+function manifestParses(): number {
+  return astSources.filter((source) => source.includes('route("/external"')).length;
+}
+
 function parsesOf(sources: string[], name: string): number {
   return sources.filter((source) => source.includes(`// file:${name}\n`)).length;
 }
@@ -69,6 +74,22 @@ function regenerate(options: Record<string, unknown>, root: string): void {
 
 const ROUTE =
   "export async function loader() { return {}; }\nexport function Component() { return null; }\n";
+const MANIFEST = [
+  'import { defineApp, group, route } from "@pracht/core";',
+  "export const app = defineApp({",
+  '  shells: { site: "./shells/site.tsx" },',
+  "  routes: [",
+  '    group({ shell: "site" }, [',
+  '      route("/", "./routes/home.tsx"),',
+  '      route("/about", "./routes/about.tsx", { hydration: "islands" }),',
+  '      route("/docs", "./routes/docs.md"),',
+  '      route("/external", "./features/external.tsx"),',
+  "    ]),",
+  "  ],",
+  "});",
+  "",
+].join("\n");
+
 const MODULES = [
   "src/routes/home.tsx",
   "src/routes/about.tsx",
@@ -80,21 +101,7 @@ const MODULES = [
 describe("one parse per file per regeneration", () => {
   it("parses each module of a manifest app at most once, and only the edited one again", () => {
     const root = project({
-      "src/routes.ts": [
-        'import { defineApp, group, route } from "@pracht/core";',
-        "export const app = defineApp({",
-        '  shells: { site: "./shells/site.tsx" },',
-        "  routes: [",
-        '    group({ shell: "site" }, [',
-        '      route("/", "./routes/home.tsx"),',
-        '      route("/about", "./routes/about.tsx", { hydration: "islands" }),',
-        '      route("/docs", "./routes/docs.md"),',
-        '      route("/external", "./features/external.tsx"),',
-        "    ]),",
-        "  ],",
-        "});",
-        "",
-      ].join("\n"),
+      "src/routes.ts": MANIFEST,
       "src/routes/home.tsx": ROUTE,
       "src/routes/about.tsx": ROUTE,
       "src/routes/docs.md": "# Docs\n\n```ts\nexport async function loader() {}\n```\n",
@@ -108,6 +115,9 @@ describe("one parse per file per regeneration", () => {
     for (const file of MODULES) expect(parsesOf(babelSources, file), file).toBeLessThanOrEqual(1);
     // A format no parser reads goes straight to the lexical reader.
     expect(parsesOf(babelSources, "src/routes/docs.md")).toBe(0);
+    // R505-2: the registries, the app root and the ejected-layout check read
+    // one parse of the manifest, not one each.
+    expect(manifestParses()).toBe(1);
 
     babelSources.length = 0;
     astSources.length = 0;
@@ -117,6 +127,12 @@ describe("one parse per file per regeneration", () => {
     for (const file of MODULES.filter((file) => !file.endsWith("about.tsx"))) {
       expect(parsesOf(babelSources, file), file).toBe(0);
     }
+    expect(manifestParses()).toBe(0);
+
+    astSources.length = 0;
+    write(root, "src/routes.ts", MANIFEST.replace('"/about"', '"/about-us"'));
+    regenerate({}, root);
+    expect(manifestParses()).toBe(1);
   });
 
   it("parses each page of a pages app at most once, and only the edited one again", () => {

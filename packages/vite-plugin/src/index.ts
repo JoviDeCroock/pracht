@@ -74,7 +74,6 @@ import {
   routeHintsHaveSearch,
   createServerLoaderHintsForHotUpdates,
   createPrachtServerModuleSource,
-  invalidateManifestModuleFacts,
   isEjectedPagesLayout,
 } from "./plugin-codegen.ts";
 import {
@@ -738,7 +737,6 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       // The analysis caches check file stamps on every read; dropping the
       // saved file as well covers filesystems with coarse timestamps.
       getAnalysisSession(resolved, root).invalidate(file);
-      invalidateManifestModuleFacts(file);
       const serverRoot = toPosixPath(server.config.root);
       const normalizedFile = toPosixPath(file);
       const relative = normalizedFile.startsWith(serverRoot)

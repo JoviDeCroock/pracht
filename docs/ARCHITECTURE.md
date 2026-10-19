@@ -511,6 +511,19 @@ lexical reader, and Markdown is read with fenced code masked.
 file per regeneration across the client, server and dev modules, in manifest
 and pages mode, with only the edited file parsed again after a save.
 
+`session.manifest()` returns the app's `ManifestFacts`: every ref the manifest
+and the local modules it imports write, each with its kind (route, not-found,
+shell, middleware, capability, loader, or a path-shaped `mention`), its id
+(`null` for a computed ref) and its route's hydration; whether that list is
+`complete`; the registered `appRoot`; and whether the manifest is an ejected
+pages layout. In pages mode the same shape comes from the pages scanner. Each
+manifest module is parsed once per file stamp with Vite's `parseAst`. Registry
+codegen (external keyed imports), the non-full-hydration exclusion, the
+unreferenced-module exclusion, external feature hints, the client transform's
+external-route identity and `findAppRootModule()` all read these facts, and
+`test/analysis-seam.test.ts` fails when another module parses the manifest or
+re-derives route exports.
+
 ### Route hint tables
 
 `createRouteHints()` (`route-loader-hints.ts`) answers, per route and shell

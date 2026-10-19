@@ -100,3 +100,88 @@ describe("hint table keys", () => {
     expect(table).not.toContain("..");
   });
 });
+
+describe("AnalysisSession.manifest", () => {
+  function manifestFacts(files: Record<string, string>) {
+    const root = project(files);
+    return getAnalysisSession(resolveOptions({}), root).manifest();
+  }
+  const refsTo = (facts: ReturnType<typeof manifestFacts>, id: string) =>
+    facts.refs.filter((ref) => ref.id === id).map(({ kind, hydration }) => ({ kind, hydration }));
+
+  // R499-1: the config overload carries its own hydration; a third argument is ignored.
+  it("reads a config-object route's hydration over its group's", () => {
+    const facts = manifestFacts({
+      "src/routes.ts": `import { defineApp, group, route } from "@pracht/core";
+export const app = defineApp({ routes: [group({ hydration: "islands" }, [
+  route("/full", { component: "./routes/full.tsx", hydration: "full" }),
+  route("/maybe", { component: "./routes/maybe.tsx", hydration: FLAG ? "full" : "none" }),
+  route("/meta", { component: "./routes/meta.tsx" }, { hydration: "full" }),
+])] });
+`,
+    });
+    expect(refsTo(facts, "/src/routes/full.tsx")).toEqual([{ kind: "route", hydration: "full" }]);
+    expect(refsTo(facts, "/src/routes/maybe.tsx")).toEqual([
+      { kind: "route", hydration: "unknown" },
+    ]);
+    expect(refsTo(facts, "/src/routes/meta.tsx")).toEqual([
+      { kind: "route", hydration: "islands" },
+    ]);
+  });
+
+  // R499-2: a template literal is the same ref as the string it spells.
+  it("reads an expression-free template literal as a ref", () => {
+    const facts = manifestFacts({
+      "src/routes.ts": `import { defineApp, route } from "@pracht/core";
+export const app = defineApp({ routes: [
+  route("/a", "./routes/shared.tsx"),
+  route("/b", \`./routes/shared.tsx\`, { hydration: "none" }),
+] });
+`,
+    });
+    expect(refsTo(facts, "/src/routes/shared.tsx")).toEqual([
+      { kind: "route", hydration: "full" },
+      { kind: "route", hydration: "none" },
+    ]);
+  });
+
+  // R490-2: a computed ref in an imported module makes the read incomplete.
+  it("records a computed ref in an imported module as unknown", () => {
+    const facts = manifestFacts({
+      "src/routes.ts": `import { defineApp } from "@pracht/core";
+import { pages } from "./manifest/pages.ts";
+export const app = defineApp({ routes: pages });
+`,
+      "src/manifest/pages.ts": `import { route } from "@pracht/core";
+export const pages = ["a"].map((name) => route("/" + name, "./routes/" + name + ".tsx"));
+`,
+    });
+    expect(facts.complete).toBe(false);
+    expect(facts.refs.some((ref) => ref.kind === "route" && ref.id === null)).toBe(true);
+  });
+
+  // R490-1/3/5: every spelling of an external module is one id, whichever
+  // registry, hint table or transform asks, and glob syntax in a name stays literal.
+  it("gives every spelling of an external ref one id", () => {
+    const facts = manifestFacts({
+      "src/routes.ts": `import { defineApp, route } from "@pracht/core";
+import { more } from "./manifest/more.ts";
+export const app = defineApp({
+  shells: { side: "/src/layouts/side.tsx" },
+  routes: [
+    route("/a", "./features/a.tsx?raw", { shell: "side" }),
+    route("/:id", "features/[id].tsx"),
+    ...more,
+  ],
+});
+`,
+      "src/manifest/more.ts": `import { route } from "@pracht/core";
+export const more = [route("/b", "./features/../features/a.tsx")];
+`,
+    });
+    expect(facts.complete).toBe(true);
+    expect(refsTo(facts, "/src/features/a.tsx")).toHaveLength(2);
+    expect(refsTo(facts, "/src/features/[id].tsx")).toEqual([{ kind: "route", hydration: "full" }]);
+    expect(refsTo(facts, "/src/layouts/side.tsx").map(({ kind }) => kind)).toEqual(["shell"]);
+  });
+});
