@@ -4,6 +4,7 @@ import {
 } from "@pracht/capabilities";
 
 import { ROUTE_STATE_CACHE_CONTROL, ROUTE_STATE_REQUEST_HEADER } from "./runtime-constants.ts";
+import { canonicalizePercentEscapes } from "./static-path.ts";
 import type { LoaderCache } from "./types.ts";
 
 const HEADER_CRLF_RE = /[\r\n]/;
@@ -407,19 +408,26 @@ export function getManifestHeaders(
 ): Record<string, string> | undefined {
   const withoutIndex = pathname.replace(/\/index\.html$/, "") || "/";
   const withoutSlash = pathname.replace(/\/$/, "") || "/";
+  const keys = [pathname, withoutSlash, withoutIndex];
+  // The build records paths with upper-case percent-escapes; a request may
+  // spell the same path in lower case.
+  const canonical = canonicalizePercentEscapes(pathname);
+  if (canonical !== pathname) {
+    keys.push(
+      canonical,
+      canonical.replace(/\/$/, "") || "/",
+      canonical.replace(/\/index\.html$/, "") || "/",
+    );
+  }
 
   if (isSharedHeadersManifest(headersManifest)) {
     const { paths, sets } = headersManifest;
-    const key = [pathname, withoutSlash, withoutIndex].find((candidate) =>
-      Object.hasOwn(paths, candidate),
-    );
+    const key = keys.find((candidate) => Object.hasOwn(paths, candidate));
     return key === undefined ? undefined : sets[paths[key]!];
   }
 
-  return (
-    headersManifest[pathname] ??
-    headersManifest[withoutSlash] ??
-    headersManifest[withoutIndex] ??
-    undefined
-  );
+  for (const key of keys) {
+    if (Object.hasOwn(headersManifest, key)) return headersManifest[key];
+  }
+  return undefined;
 }

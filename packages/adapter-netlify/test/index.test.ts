@@ -649,6 +649,13 @@ describe("createNetlifyHandler", () => {
     expect(response.headers.get("netlify-cdn-cache-control")).toContain("durable");
     expect(await response.text()).toBe("<html>café post</html>");
 
+    // Escape case is not significant (#471): a lower-case spelling finds the
+    // upper-case file the build wrote instead of re-rendering uncached.
+    const lowerCase = await handler(new Request("https://example.com/posts/caf%c3%a9"), {});
+    expect(lowerCase.status).toBe(200);
+    expect(lowerCase.headers.get("netlify-cdn-cache-control")).toContain("durable");
+    expect(await lowerCase.text()).toBe("<html>café post</html>");
+
     const traversal = await handler(new Request("https://example.com/posts/%2E%2E%2Fguide"), {});
     expect(await traversal.text()).not.toBe("<html>static guide</html>");
   });

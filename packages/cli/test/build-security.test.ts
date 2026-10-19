@@ -95,6 +95,19 @@ describe("resolvePrerenderOutputPath", () => {
   it("rejects NUL bytes before calling filesystem APIs", () => {
     expect(() => resolvePrerenderOutputPath(clientDir, "/safe\0evil")).toThrow(/NUL byte/);
   });
+
+  it("rejects a dot segment that stays inside dist/client", () => {
+    // `/posts/..` would otherwise overwrite the home page.
+    expect(() => resolvePrerenderOutputPath(clientDir, "/posts/..")).toThrow(
+      /outside dist\/client/i,
+    );
+  });
+
+  it("writes an encoded route path exactly as the manifests record it", () => {
+    expect(resolvePrerenderOutputPath(clientDir, "/posts/caf%c3%a9")).toBe(
+      resolve(clientDir, "posts/caf%c3%a9/index.html"),
+    );
+  });
 });
 
 describe("resolveGeneratedArtifactOutputPath", () => {
