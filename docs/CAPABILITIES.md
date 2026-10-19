@@ -716,7 +716,12 @@ pracht verify webmcp --browser /pinned/path/to/chrome
 Pracht locates an installed Chrome/Chromium build but never downloads an
 unpinned browser. The current runtime requires Chrome 150+ because Pracht
 targets `document.modelContext`; CI should install a pinned build and pass
-`--browser`. JSON distinguishes app startup, browser startup, unsupported API,
+`--browser`. Tool execution (`executeBrowserTool` in
+`packages/cli/src/webmcp-browser.ts`) handles both `executeTool()` input
+signatures: Chrome 146-153 takes a JSON string, Chrome 155+ takes the input
+object the draft specifies. It sends the string first and retries with the
+object only when the browser rejects the string before the tool runs.
+JSON distinguishes app startup, browser startup, unsupported API,
 registry failure, and graph drift, and includes browser/version, route,
 expected/observed descriptors, and focused mismatches. Dynamic route patterns
 use deterministic example segments. `--start` owns the server process group;

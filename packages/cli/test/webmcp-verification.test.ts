@@ -7,6 +7,7 @@ import {
   type ExpectedWebmcpTool,
 } from "../src/webmcp-verification.js";
 import {
+  executeBrowserTool,
   findWebmcpBrowser,
   readWebmcpSupport,
   type BrowserToolDescriptor,
@@ -87,6 +88,75 @@ describe("WebMCP browser compatibility", () => {
       detail: expect.stringContaining("Chrome 150+"),
       methods: [],
     });
+  });
+
+  // A page whose evaluate() runs the callback here, against a fake
+  // `document.modelContext` that implements one executeTool() signature.
+  function fakePage(executeTool: (tool: unknown, input: unknown) => Promise<unknown>): Page {
+    const tool = { name: "notes.search" };
+    return {
+      evaluate: async (fn: (arg: unknown) => unknown, arg: unknown) => {
+        const previous = (globalThis as { document?: unknown }).document;
+        (globalThis as { document?: unknown }).document = {
+          modelContext: { getTools: async () => [tool], executeTool },
+        };
+        try {
+          return await fn(arg);
+        } finally {
+          (globalThis as { document?: unknown }).document = previous;
+        }
+      },
+    } as unknown as Page;
+  }
+
+  it("executes tools through the JSON-string signature of Chrome 146-153", async () => {
+    const calls: unknown[] = [];
+    const page = fakePage(async (_tool, input) => {
+      calls.push(input);
+      if (typeof input !== "string") {
+        throw new DOMException("Failed to parse input arguments", "UnknownError");
+      }
+      return JSON.stringify({ ok: true, data: JSON.parse(input) });
+    });
+
+    await expect(executeBrowserTool(page, "notes.search", { query: "a" })).resolves.toEqual({
+      error: null,
+      value: { ok: true, data: { query: "a" } },
+    });
+    expect(calls).toEqual(['{"query":"a"}']);
+  });
+
+  it("executes tools through the input-object signature of Chrome 155", async () => {
+    const calls: unknown[] = [];
+    const page = fakePage(async (_tool, input) => {
+      calls.push(input);
+      if (typeof input !== "object" || input === null) {
+        throw new TypeError(
+          "Failed to execute 'executeTool' on 'ModelContext': invalid input object: value is not an object",
+        );
+      }
+      return JSON.stringify({ ok: true, data: input });
+    });
+
+    await expect(executeBrowserTool(page, "notes.search", { query: "a" })).resolves.toEqual({
+      error: null,
+      value: { ok: true, data: { query: "a" } },
+    });
+    expect(calls).toEqual(['{"query":"a"}', { query: "a" }]);
+  });
+
+  it("does not re-run a tool whose own execution failed", async () => {
+    let runs = 0;
+    const page = fakePage(async () => {
+      runs += 1;
+      throw new TypeError("value is not an object");
+    });
+
+    await expect(executeBrowserTool(page, "notes.search", { query: "a" })).resolves.toEqual({
+      error: "TypeError: value is not an object",
+      value: null,
+    });
+    expect(runs).toBe(1);
   });
 
   it("rejects a missing explicitly configured browser without downloading one", () => {
