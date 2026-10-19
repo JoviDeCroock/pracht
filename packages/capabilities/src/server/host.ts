@@ -126,6 +126,14 @@ export interface CreateCapabilityHostOptions<TContext = Record<string, unknown>>
    * the host produces. Default `true`.
    */
   securityHeaders?: boolean;
+  /**
+   * Request budget in milliseconds, the `defineApp({ loaderTimeoutMs })`
+   * equivalent. Middleware, `run()`, composed invocations, and `waitUntil()`
+   * work share one signal per request, which aborts when the budget runs out
+   * or the client disconnects. `invoke()` uses it when no `signal` is passed.
+   * Default `30000`.
+   */
+  loaderTimeoutMs?: number;
 }
 
 export interface CapabilityHostFetchInit<TContext> {
@@ -231,6 +239,7 @@ export function createCapabilityHost<TContext = Record<string, unknown>>(
     middleware: middlewareFilesByName,
   };
 
+  const timeoutMs = resolveHostTimeoutMs(options.loaderTimeoutMs);
   const exposeErrors = options.exposeErrors ?? false;
   const requireSameOrigin = options.requireSameOrigin ?? true;
   const securityHeaders = options.securityHeaders ?? true;
@@ -440,7 +449,7 @@ export function createCapabilityHost<TContext = Record<string, unknown>>(
 
       // One budget per owned request, as a pracht app makes: middleware,
       // `run()`, composed invocations, and `waitUntil()` work share its signal.
-      const budget = createRequestBudget(request.signal, CAPABILITY_TIMEOUT_MS);
+      const budget = createRequestBudget(request.signal, timeoutMs);
       let response: Response | null;
       try {
         response = await serveOwned(request, url, init, isMcpRequest, match, budget);
@@ -465,6 +474,7 @@ export function createCapabilityHost<TContext = Record<string, unknown>>(
         registry,
         onAudit: options.onAudit,
         waitUntil: createWaitUntil(invokeOptions.waitUntil, logWaitUntilFailure),
+        timeoutMs,
       };
       const request = invokeOptions.request ?? new Request(`${HOST_INVOKE_ORIGIN}/`);
       const context =
@@ -496,6 +506,15 @@ function couldBeCapabilityPath(
     if (typeof path === "string" && normalizeCapabilityHttpPath(path) === normalized) return true;
   }
   return false;
+}
+
+/** Validate the request budget the way `defineApp({ loaderTimeoutMs })` does. */
+function resolveHostTimeoutMs(value: number | undefined): number {
+  if (value === undefined) return CAPABILITY_TIMEOUT_MS;
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) return value;
+  throw new TypeError(
+    `createCapabilityHost({ loaderTimeoutMs }) must be a positive number of milliseconds, received ${JSON.stringify(value)}.`,
+  );
 }
 
 function resolveHostAgents(

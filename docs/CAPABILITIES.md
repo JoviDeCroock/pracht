@@ -194,8 +194,11 @@ request budget in [DATA_LOADING.md](DATA_LOADING.md)). The dispatch holds it
 while `waitUntil()` work runs, and a failed dispatch (status 500 and up, before
 MCP turns it into a 200 tool error) keeps it until the timer fires; a rejected
 call (bad input, wrong method) releases it. `createCapabilityHost` makes one
-budget per request it owns (30 s), shared by the MCP or HTTP dispatch, composed
-invocations, and `waitUntil()` work. A direct `handleCapabilityRequest()` call
+budget per request it owns, of its own `loaderTimeoutMs` option (30 s by
+default, validated like `defineApp`'s), shared by the MCP or HTTP dispatch,
+composed invocations, and `waitUntil()` work; `host.invoke()` without a
+`signal` uses the same length through `CapabilityHost.timeoutMs`. A direct
+`handleCapabilityRequest()` call
 without `budget`, and `invokeCapability()` without a `signal`, get their own of
 `timeoutMs` (30 s) with the same holds. All of them are `createRequestBudget`;
 there is no second implementation. The `api.middleware` chain and capability
@@ -713,7 +716,12 @@ pracht verify webmcp --browser /pinned/path/to/chrome
 Pracht locates an installed Chrome/Chromium build but never downloads an
 unpinned browser. The current runtime requires Chrome 150+ because Pracht
 targets `document.modelContext`; CI should install a pinned build and pass
-`--browser`. JSON distinguishes app startup, browser startup, unsupported API,
+`--browser`. Tool execution (`executeBrowserTool` in
+`packages/cli/src/webmcp-browser.ts`) handles both `executeTool()` input
+signatures: Chrome 146-153 takes a JSON string, Chrome 155+ takes the input
+object the draft specifies. It sends the string first and retries with the
+object only when the browser rejects the string before the tool runs.
+JSON distinguishes app startup, browser startup, unsupported API,
 registry failure, and graph drift, and includes browser/version, route,
 expected/observed descriptors, and focused mismatches. Dynamic route patterns
 use deterministic example segments. `--start` owns the server process group;

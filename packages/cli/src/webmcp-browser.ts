@@ -274,9 +274,13 @@ export async function executeBrowserTool(
         try {
           let raw: unknown;
           try {
-            // Chrome 146-152 expects the testing input as a JSON string. The
-            // current draft accepts the object itself, so retry that shape only
-            // when the browser rejects the string before dispatch.
+            // Chrome 146-153 takes the input as a JSON string. Chrome 155 follows
+            // the draft (https://webmachinelearning.github.io/webmcp/, 16 October
+            // 2026: `executeTool(RegisteredTool tool, optional object
+            // inputObject, ...)`) and its IDL binding rejects a string with a
+            // TypeError ("invalid input object: value is not an object"). Both
+            // rejections happen before the tool runs, so retry with the object
+            // only on those two messages.
             raw = await context.executeTool(
               tool,
               JSON.stringify(toolInput),
@@ -285,7 +289,11 @@ export async function executeBrowserTool(
           } catch (firstError) {
             if (controller?.signal.aborted) throw firstError;
             const detail = firstError instanceof Error ? firstError.message : String(firstError);
-            if (!/parse input arguments/i.test(detail)) throw firstError;
+            const rejectedString =
+              /parse input arguments/i.test(detail) ||
+              (firstError instanceof TypeError &&
+                /executeTool.*invalid input object/i.test(detail));
+            if (!rejectedString) throw firstError;
             raw = await context.executeTool(
               tool,
               toolInput,

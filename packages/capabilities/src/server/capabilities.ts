@@ -1538,6 +1538,11 @@ export interface CapabilityHost {
    * back to detached work.
    */
   waitUntil?: WaitUntil;
+  /**
+   * Budget, in milliseconds, of the signal a direct invocation creates when
+   * the caller passes none (default 30000).
+   */
+  timeoutMs?: number;
 }
 
 // Bind each host to the incoming Request rather than a process-global slot.
@@ -1716,7 +1721,7 @@ export async function invokeCapabilityOnHost<T = unknown>(
   // its `waitUntil()` work and, when it fails, until the timer fires.
   const own = ctx.signal
     ? undefined
-    : createRequestBudget(ctx.request.signal, CAPABILITY_TIMEOUT_MS);
+    : createRequestBudget(ctx.request.signal, host.timeoutMs ?? CAPABILITY_TIMEOUT_MS);
   const waitUntil = own
     ? holdingWaitUntil(own, host.waitUntil ?? detachedWaitUntil)
     : (host.waitUntil ?? detachedWaitUntil);
