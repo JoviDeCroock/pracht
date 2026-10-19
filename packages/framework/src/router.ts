@@ -251,6 +251,83 @@ function isBlocked(
   return window.__PRACHT_BLOCK_NAVIGATION__?.(currentHref, nextHref, historyAction, retry) === true;
 }
 
+/** Clears the route fonts of the page being left; read-only, so one object serves. */
+const NO_FONT_HEAD: FontHeadFragments = { preloadLinks: [], css: "" };
+
+// Why the router handed a URL to the browser as a document load. A const enum,
+// so a production bundle carries only the number; development logs the name.
+// The order matters: every reason after `MpaRoute` reloads the navigation's own
+// URL, which is what a static host's fallback document must refuse.
+const enum LeaveReason {
+  /** Not an in-app URL: another origin, or outside the deploy base. */
+  External,
+  /** A loader redirect to another origin, or to a URL with a fragment. */
+  Redirect,
+  /** No client route matches. */
+  Unmatched,
+  /** An islands or no-hydration route, which only renders as a document. */
+  MpaRoute,
+  /** More loader redirects than `MAX_REDIRECT_HOPS`: the browser follows the rest. */
+  RedirectOverflow,
+  /** `redirect: "manual"` hid the destination, so the browser follows the 3xx. */
+  OpaqueRedirect,
+  /** A loader 404 the route has no `ErrorBoundary` for: the server renders the not-found page. */
+  NotFound,
+  /** The route-state request failed (a network error). */
+  FetchFailed,
+  /** A route or shell chunk failed to load, typically one a newer deploy removed. */
+  ChunkFailed,
+  /** A render error no app `ErrorBoundary` caught while a navigation committed. */
+  RenderError,
+}
+
+/** Indexed by `LeaveReason`; read only by the development log. */
+const LEAVE_REASON_NAMES = [
+  "not an in-app URL",
+  "redirect",
+  "no client route matches",
+  "islands or no-hydration route",
+  "too many redirects",
+  "opaque redirect",
+  "404 without an ErrorBoundary",
+  "route state request failed",
+  "route chunk failed to load",
+  "render error",
+];
+
+/**
+ * The only way the router hands a URL to the browser. Every exit gets the same
+ * three rules, which used to be repeated, or missing, at each one:
+ *
+ * - `replace: true` and a back/forward traversal replace the current entry, so
+ *   a fallback never adds a history entry the navigation would not have.
+ * - A static host's fallback document (`200.html`) answers a reload of its own
+ *   URL with itself, so a fallback boot refuses every reason that reloads the
+ *   navigation's own URL and gets `false` back; the caller decides what to
+ *   render instead.
+ * - Development logs why the router left.
+ *
+ * A render error reloads the document on screen, whose URL `url` is.
+ */
+function leaveToDocument(
+  url: string,
+  reason: LeaveReason,
+  opts?: InternalNavigateOptions,
+): boolean {
+  if (IS_STATIC_TARGET && opts?._staticFallback && reason > LeaveReason.MpaRoute) {
+    console.error(`[pracht] ${url} would only load this fallback page again`);
+    return false;
+  }
+  if (import.meta.env?.DEV) {
+    console.debug(`[pracht] loading ${url} as a document: ${LEAVE_REASON_NAMES[reason]}`);
+  }
+  // The URL is already committed, and a fragment would make it a same-document jump.
+  if (reason === LeaveReason.RenderError) window.location.reload();
+  else if (opts?.replace || opts?._popstate) window.location.replace(url);
+  else window.location.href = url;
+  return true;
+}
+
 export interface NavigateFn {
   (to: string, options?: NavigateOptions): Promise<void>;
   <TRoute extends RouteId>(to: RouteTarget<TRoute>, options?: NavigateOptions): Promise<void>;
@@ -268,7 +345,8 @@ interface InternalNavigateOptions extends NavigateOptions {
   /**
    * Static-export fallback boot (`200.html`): a failed route-state fetch must
    * render without loader data instead of reloading the document — the host
-   * would answer the reload with this same fallback document and loop.
+   * would answer the reload with this same fallback document and loop. For
+   * the same reason `leaveToDocument` refuses any load of the URL it serves.
    */
   _staticFallback?: boolean;
   /**
@@ -385,11 +463,16 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     );
   }
 
-  // Which navigation is the live one. `latestNavigationId` is compared at every
-  // await point in `navigate()` — a superseded navigation must not commit — and
-  // the controller aborts the route-state fetch the one it replaced started.
-  let latestNavigationId = 0;
+  // The live navigation's controller. The next navigation aborts it, which
+  // cancels the route-state fetch it started and marks it stale.
   let activeNavigationAbort: AbortController | null = null;
+
+  /**
+   * Whether a newer navigation superseded this one. Checked after every await
+   * in `navigate()` — `if (stale(navigation)) return;` — because a superseded
+   * navigation must neither commit nor hand its URL to the browser.
+   */
+  const stale = (navigation: AbortSignal): boolean => navigation.aborted;
 
   // --- History-entry bookkeeping -------------------------------------------
   // Four values that have to stay in step: the scroll key of the entry on
@@ -585,9 +668,9 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
   // outgoing page's height would clamp the restored position).
   let afterCommitCallback: (() => void) | null = null;
 
-  // Whether the committing navigation boots a static host's SPA fallback,
-  // which a reload would only serve again.
-  let committingStaticFallback = false;
+  // The committing navigation's options, on a static host only: a render
+  // error while a fallback boot commits must not reload into the fallback.
+  let committingOpts: InternalNavigateOptions | undefined;
 
   // Outermost, so it sees only what every app ErrorBoundary (route, shell,
   // one in `Root`) let through. A render error while a client navigation
@@ -603,15 +686,14 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     componentDidCatch(error: unknown): void {
       if (
         !afterCommitCallback ||
-        (IS_STATIC_TARGET && committingStaticFallback) ||
-        typeof (error as { then?: unknown })?.then === "function"
+        typeof (error as { then?: unknown })?.then === "function" ||
+        !leaveToDocument(window.location.href, LeaveReason.RenderError, committingOpts)
       ) {
         throw error;
       }
       afterCommitCallback = null;
       window.reportError?.(error);
       this.setState({ v: this.props.v });
-      window.location.reload();
     }
 
     render(
@@ -846,8 +928,8 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     const navigationTarget =
       typeof to === "string" ? to : buildHrefUntyped(app.routes, to.route, to);
 
-    // Before anything is aborted or superseded: a guard that runs after
-    // `latestNavigationId` moves would cancel the navigation already on screen
+    // Before anything is aborted or superseded: a guard that runs after the
+    // live navigation is aborted would cancel the navigation already on screen
     // in order to refuse the one replacing it. Traversals are guarded in the
     // `popstate` handler instead, which knows how far to put the entry back.
     if (
@@ -865,16 +947,16 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     // app moves on its own is left alone, and a title it sets is announced.
     const focused = ACCESSIBLE_NAVIGATION_ENABLED ? document.activeElement : null;
     const title = ACCESSIBLE_NAVIGATION_ENABLED ? document.title : "";
-    const navigationId = ++latestNavigationId;
     const generation = prefetchGeneration;
     activeNavigationAbort?.abort();
     const abortController = new AbortController();
     activeNavigationAbort = abortController;
+    const navigation = abortController.signal;
     const target = resolveBrowserRouteTarget(navigationTarget);
     if (!target) {
       const safeUrl = parseSafeNavigationUrl(navigationTarget, window.location.href);
       if (safeUrl) {
-        window.location.href = safeUrl.toString();
+        leaveToDocument(safeUrl.toString(), LeaveReason.External, opts);
       } else if (navigationTarget) {
         console.error(`[pracht] refused to navigate to unsafe URL: ${navigationTarget}`);
       }
@@ -883,8 +965,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
 
     const match = matchResolvedRoute(app, target.pathname);
     if (!match) {
-      // No client route — fall back to full page load
-      window.location.href = target.browserUrl;
+      leaveToDocument(target.browserUrl, LeaveReason.Unmatched, opts);
       return;
     }
     // A page URL takes its `pracht({ trailingSlash })` spelling before it is
@@ -902,13 +983,18 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       // (MPA-style): their pages never load the client runtime, so client
       // rendering them here would produce a page that loses its islands
       // bootstrap. Full document navigation keeps both worlds consistent.
-      window.location.href = target.browserUrl;
+      leaveToDocument(target.browserUrl, LeaveReason.MpaRoute, opts);
       return;
     }
 
     // Expose pending state through useNavigation(). The token makes the
     // finally-settle a no-op when a newer navigation supersedes this one.
     const navigationToken = beginLoadingNavigation(createNavigationLocation(target.browserUrl));
+    // A mutation landed while this navigation waited, so the state it holds
+    // (prefetched, or fetched before the change) may predate it: fetch it
+    // again rather than act on it. The reload navigation does not retry.
+    const outdated = () =>
+      PREFETCH_ENABLED && !opts?._reloadRouteState && generation !== prefetchGeneration;
     try {
       // Staying inside the shell whose data is on screen keeps that data, and
       // tells the server so it can skip the shell loader. A reload (the
@@ -934,7 +1020,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
         statePromise = opts?._reloadRouteState
           ? fetchPrachtRouteState(target.requestUrl, {
               cache: "reload",
-              signal: abortController.signal,
+              signal: navigation,
             })
           : ((PREFETCH_ENABLED
               ? getCachedRouteState(
@@ -945,15 +1031,13 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
               : undefined) ??
             fetchPrachtRouteState(
               target.requestUrl,
-              SHELL_LOADERS_ENABLED
-                ? { signal: abortController.signal, heldShell }
-                : { signal: abortController.signal },
+              SHELL_LOADERS_ENABLED ? { signal: navigation, heldShell } : { signal: navigation },
             ));
       } else {
         statePromise = Promise.resolve({
           type: "data" as const,
           data: undefined,
-          fontHead: { preloadLinks: [], css: "" },
+          fontHead: NO_FONT_HEAD,
         });
       }
       const routeModPromise = startRouteImport(match);
@@ -966,57 +1050,51 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
         ...(SHELL_LOADERS_ENABLED ? { shell: reusedShellState } : null),
       };
       let fontHead: FontHeadFragments | undefined =
-        match.route.hasHead === false ? { preloadLinks: [], css: "" } : undefined;
+        match.route.hasHead === false ? NO_FONT_HEAD : undefined;
       try {
         const result = await statePromise;
-        if (navigationId !== latestNavigationId) return;
+        if (stale(navigation)) return;
+        // Before a redirect is followed: signing in outdates "log in first".
+        if (outdated()) {
+          return navigate(to, { ...opts, _blockerChecked: true, _reloadRouteState: true });
+        }
         if (result.type === "redirect") {
-          if (result.location) {
-            const hop = (opts?._redirectHop ?? 0) + 1;
-            if (hop > MAX_REDIRECT_HOPS) {
-              // Let the browser follow the rest of the chain: it lands on the
-              // destination, or a loop ends on the browser's error page,
-              // instead of the old page staying put.
-              console.error(`[pracht] too many redirects: ${result.location}`);
-              window.location.href = target.browserUrl;
-              return;
-            }
-            const redirect = resolveRedirectTarget(result.location);
-            if (redirect.unsafe) {
-              console.error(`[pracht] refused to navigate to unsafe URL: ${result.location}`);
-              return;
-            }
-            if (redirect.externalUrl) {
-              window.location.href = redirect.externalUrl;
-              return;
-            }
-
-            if (redirect.isCurrentLocation) {
-              return;
-            }
-
-            if (redirect.documentUrl) {
-              window.location.href = redirect.documentUrl;
-              return;
-            }
-
-            if (redirect.internalPath) {
-              await navigate(redirect.internalPath, {
-                ...opts,
-                _blockerChecked: true,
-                _redirectHop: hop,
-              });
-              return;
-            }
-
-            window.location.href = target.browserUrl;
-            return;
-          }
           // An opaque redirect: `redirect: "manual"` hid both the status and
           // the destination, so the client cannot resolve it. Hand the URL
           // back to the browser and let it follow the 3xx as a document
           // navigation.
-          window.location.href = target.browserUrl;
+          if (!result.location) {
+            leaveToDocument(target.browserUrl, LeaveReason.OpaqueRedirect, opts);
+            return;
+          }
+          const hop = (opts?._redirectHop ?? 0) + 1;
+          if (hop > MAX_REDIRECT_HOPS) {
+            // Let the browser follow the rest of the chain: it lands on the
+            // destination, or a loop ends on the browser's error page,
+            // instead of the old page staying put.
+            console.error(`[pracht] too many redirects: ${result.location}`);
+            leaveToDocument(target.browserUrl, LeaveReason.RedirectOverflow, opts);
+            return;
+          }
+          const redirect = resolveRedirectTarget(result.location);
+          if (redirect.unsafe) {
+            console.error(`[pracht] refused to navigate to unsafe URL: ${result.location}`);
+            return;
+          }
+          if (redirect.isCurrentLocation) return;
+          if (redirect.documentUrl) {
+            leaveToDocument(redirect.documentUrl, LeaveReason.Redirect, opts);
+            return;
+          }
+          // A traversal's redirect target is a new page on the entry the
+          // traversal landed on, so it replaces that entry.
+          await navigate(redirect.internalPath!, {
+            ...opts,
+            _blockerChecked: true,
+            _popstate: false,
+            _redirectHop: hop,
+            replace: opts?.replace || opts?._popstate,
+          });
           return;
         }
 
@@ -1025,9 +1103,9 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
             const routeModule = (await routeModPromise?.catch(() => null)) as {
               ErrorBoundary?: unknown;
             } | null;
-            if (navigationId !== latestNavigationId) return;
+            if (stale(navigation)) return;
             if (!routeModule?.ErrorBoundary) {
-              window.location.href = target.browserUrl;
+              leaveToDocument(target.browserUrl, LeaveReason.NotFound, opts);
               return;
             }
           }
@@ -1037,7 +1115,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
             error: result.error,
             ...(SHELL_LOADERS_ENABLED ? { shell: reusedShellState ?? result.shell } : null),
           };
-          fontHead = result.fontHead ?? { preloadLinks: [], css: "" };
+          fontHead = result.fontHead ?? NO_FONT_HEAD;
         } else {
           state = {
             data: result.data,
@@ -1047,23 +1125,31 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
           if (result.fontHead) fontHead = result.fontHead;
         }
       } catch {
-        if (abortController.signal.aborted || navigationId !== latestNavigationId) return;
-        if (!(IS_STATIC_TARGET && (opts?._staticFallback || match.route.render === "spa"))) {
-          // Network error — full page load as fallback. On a static host that
-          // reload lands on the real prerendered document (or the host's 404
-          // page), so it is safe there too — with two exceptions that fall
-          // through and render without loader data instead:
-          // - a 200.html fallback boot, where the reload would re-serve the
-          //   fallback document itself and loop;
-          // - a matched `render: "spa"` route, whose dynamic paths have no
-          //   prerendered document or state file at all — a reload would land
-          //   in-app navigation on the host's 404 page (or bounce through the
-          //   fallback document) even though the client can render the route.
-          window.location.href = target.browserUrl;
+        if (stale(navigation)) return;
+        // Network error — full page load as fallback. On a static host that
+        // reload lands on the real prerendered document (or the host's 404
+        // page), so it is safe there too — with two exceptions that fall
+        // through and render without loader data instead:
+        // - a 200.html fallback boot, where the reload would re-serve the
+        //   fallback document itself and loop (`leaveToDocument` refuses it);
+        // - a matched `render: "spa"` route, whose dynamic paths have no
+        //   prerendered document or state file at all — a reload would land
+        //   in-app navigation on the host's 404 page (or bounce through the
+        //   fallback document) even though the client can render the route.
+        // Off a static host the leave always happens; spelling that out lets
+        // the bundler drop the static fall-through below.
+        if (!IS_STATIC_TARGET) {
+          leaveToDocument(target.browserUrl, LeaveReason.FetchFailed, opts);
+          return;
+        }
+        if (
+          match.route.render !== "spa" &&
+          leaveToDocument(target.browserUrl, LeaveReason.FetchFailed, opts)
+        ) {
           return;
         }
         if (!opts?._staticFallback) {
-          fontHead = { preloadLinks: [], css: "" };
+          fontHead = NO_FONT_HEAD;
         }
       }
 
@@ -1071,8 +1157,6 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       // it rewrites. A loaderless/headless SPA route takes the no-fetch branch
       // above, so preserve those document fonts outside the catch path too.
       if (opts?._staticFallback) fontHead = undefined;
-
-      if (navigationId !== latestNavigationId) return;
 
       // Module imports started above are already in-flight. History moves only
       // once they have resolved, so the URL bar never shows a page that is not
@@ -1084,27 +1168,17 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
         routeModPromise,
         shellModPromise,
       ).catch(() => null);
-      if (navigationId !== latestNavigationId) return;
+      if (stale(navigation)) return;
 
-      // A mutation landed while this navigation waited, so the state it holds
-      // (prefetched, or fetched before the change) may predate it. Fetch it
-      // again rather than commit it; the reload navigation does not retry.
-      if (PREFETCH_ENABLED && !opts?._reloadRouteState && generation !== prefetchGeneration) {
+      if (outdated()) {
         return navigate(to, { ...opts, _blockerChecked: true, _reloadRouteState: true });
       }
 
       if (!routeState) {
         // A route or shell chunk failed to load — typically one a newer deploy
         // removed — or the module renders nothing. A document navigation loads
-        // the current build. The static fallback document is exempt: the host
-        // would answer with that same document, which would try again.
-        if (IS_STATIC_TARGET && opts?._staticFallback) {
-          console.error(`[pracht] could not load the route module for ${target.browserUrl}`);
-        } else if (opts?.replace) {
-          window.location.replace(target.browserUrl);
-        } else {
-          window.location.href = target.browserUrl;
-        }
+        // the current build.
+        leaveToDocument(target.browserUrl, LeaveReason.ChunkFailed, opts);
         return;
       }
 
@@ -1122,14 +1196,16 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
         } else {
           pushHistoryEntry(target.browserUrl);
         }
-        const hashIndex = target.browserUrl.indexOf("#");
-        currentDocumentPath =
-          hashIndex === -1 ? target.browserUrl : target.browserUrl.slice(0, hashIndex);
+        // The browser URL without its fragment.
+        currentDocumentPath = target.requestUrl;
         if (BLOCKER_ENABLED) currentBrowserHref = target.browserUrl;
       }
 
       const commit = () => {
-        if (IS_STATIC_TARGET) committingStaticFallback = !!opts?._staticFallback;
+        // A view transition runs this later: a newer navigation or a mutation
+        // may have landed meanwhile.
+        if (stale(navigation) || outdated()) return;
+        if (IS_STATIC_TARGET) committingOpts = opts;
         afterCommitCallback = () => {
           restoreOrResetScroll(opts, target.browserUrl);
           // Another page, not a query or fragment change on this one.
@@ -1143,6 +1219,17 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       };
       const useViewTransition = opts?.viewTransition ?? app.viewTransitions === true;
       await commitWithOptionalViewTransition(commit, useViewTransition);
+      if (stale(navigation)) return;
+      // History already shows the target, so the refetch replaces that entry.
+      // A mutation after the commit refetches too: what is on screen predates it.
+      if (outdated()) {
+        return navigate(to, {
+          ...opts,
+          _blockerChecked: true,
+          _reloadRouteState: true,
+          replace: true,
+        });
+      }
     } finally {
       settleNavigation(navigationToken);
     }
@@ -1299,12 +1386,9 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     }
 
     currentDocumentPath = nextDocumentPath;
-    if (BLOCKER_ENABLED) {
-      currentBrowserHref = window.location.pathname + window.location.search + window.location.hash;
-    }
-    navigate(window.location.pathname + window.location.search + window.location.hash, {
-      _popstate: true,
-    });
+    const nextHref = nextDocumentPath + window.location.hash;
+    if (BLOCKER_ENABLED) currentBrowserHref = nextHref;
+    navigate(nextHref, { _popstate: true });
   }
 
   // Static-export SPA fallback document (200.html): the host serves it for
@@ -1391,7 +1475,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
           if (!result.location) {
             // Opaque redirect — destination unreadable. Reload the document so
             // the browser follows the 3xx itself.
-            window.location.href = initialBrowserUrl;
+            leaveToDocument(initialBrowserUrl, LeaveReason.OpaqueRedirect);
             return;
           }
           const safeRedirect = parseSafeNavigationUrl(result.location, window.location.href);
@@ -1399,7 +1483,9 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
             console.error(`[pracht] refused to navigate to unsafe URL: ${result.location}`);
             return;
           }
-          window.location.href = safeRedirect.toString();
+          // Like a server redirect, it takes over the redirecting page's entry,
+          // so Back does not land on the redirect again.
+          leaveToDocument(safeRedirect.toString(), LeaveReason.Redirect, { replace: true });
           return;
         }
 
@@ -1409,7 +1495,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
             error: result.error,
             ...(SHELL_LOADERS_ENABLED ? { shell: result.shell } : null),
           };
-          applyFontHeadFragments(result.fontHead ?? { preloadLinks: [], css: "" });
+          applyFontHeadFragments(result.fontHead ?? NO_FONT_HEAD);
         } else {
           state = {
             data: result.data,
@@ -1420,7 +1506,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
         }
       } catch {
         if (!IS_STATIC_TARGET) {
-          window.location.href = initialBrowserUrl;
+          leaveToDocument(initialBrowserUrl, LeaveReason.FetchFailed);
           return;
         }
         // Static export: the route-state file is missing (for example a

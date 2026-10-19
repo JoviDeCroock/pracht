@@ -719,13 +719,31 @@ scan (`matchResolvedRoute`), and so does the public `matchAppRoute`, which is
 also exported to the browser. The request pipeline (`runtime.ts`, the server
 island endpoint) calls `matchIndexedResolvedRoute` in `route-matching.ts`; it is
 a separate export, not a flag, so client bundles never contain it
-(`package-tree-shaking.test.ts` checks a browser `matchAppRoute` import). That
-builds an index per
-route table on first use: a map of fully static paths, plus the dynamic routes
-bucketed by static first segment and a list of those starting with a parameter
-or catch-all. It tries the dynamic candidates in declaration order and stops at
-the static hit's position, so the result is the scan's. At 1,000 routes a late
-match or a miss drops from tens of microseconds to about one.
+(`package-tree-shaking.test.ts` checks a browser `matchAppRoute` import). It
+builds an `indexSegments()` index per route table on first use and tries only
+the candidates it returns, in declaration order, with `matchRouteSegments`, so
+the result is the scan's.
+
+`route-matching.ts` holds the route-pattern algebra the server-side consumers
+share, all over parsed segments and all following `matchRouteSegments` exactly
+(a parameter or catch-all rejects a segment that does not percent-decode;
+segments after a catch-all never take part):
+
+- `routeCovers(earlier, later)` — every path `later` matches, `earlier` matches
+  too (the conflict warnings below);
+- `routesOverlap(a, b)` — some path matches both (the islands-navigation table,
+  see ISLANDS.md);
+- `indexSegments(routes)` — patterns indexed per position by static value and
+  parameter, by length, and with catch-alls listed apart. `candidates(path)`
+  and `overlapping(pattern)` return a superset of the patterns that could match
+  or overlap, in id order, taken from the narrowest list a query's segments
+  pick. A query with only parameters before a catch-all gets every id.
+
+`route-pattern-algebra.test.ts` checks all three against the matcher run over
+every path of up to four segments: exhaustively for every pattern pair, and
+with seeded random tables for the index, the server match, the conflict
+warnings and the islands table. At 5,000 routes `resolveApp` takes about 250 ms
+and the islands table about 230 ms on a loaded machine.
 
 Because order is the rule, `resolveApp` warns (dev server and plain Node only,
 never in the browser or a production bundle, so `pracht build` does not print
@@ -739,11 +757,11 @@ it) about what order makes silent:
 
 Both are warnings, not errors: neither fails at runtime today, and turning them
 into build failures would break apps that work. Each message prints once per
-process. A fully static route only covers its own path, so static routes are
-looked up by path; routes with a parameter or catch-all are bucketed by first
-segment, so the check stays close to linear even for thousands of static
-routes. A parameter or catch-all does not cover a static segment that fails to
-percent-decode (`/download/100%`), because matching rejects it there.
+process. Each route is compared with `routeCovers` only against the earlier
+routes an `indexSegments` index returns for it, so the check stays close to
+linear even for thousands of routes. A parameter or catch-all does not cover a
+static segment that fails to percent-decode (`/download/100%`), because
+matching rejects it there.
 
 ### What reaches the client bundle
 
@@ -1059,10 +1077,14 @@ Client side (`router.ts`, `runtime-shell-data.ts`):
   data it was fetched against: `revalidateRouteData()` (so `useRevalidate()`
   and capability revalidation), a non-`GET`/`HEAD` `apiFetch()`, a successful
   non-read `CAPABILITY_SETTLED_EVENT` (even with `revalidate: false`), and a
-  `<Form>` submission. Each clear bumps `prefetchGeneration`; a navigation
-  whose generation moved before it commits (it may hold a promise taken from
-  the cache, or a response fetched before the mutation) re-runs once as a
-  `_reloadRouteState` navigation instead of rendering that state.
+  `<Form>` submission. `test/prefetch-invalidation-seam.test.ts` makes a new
+  mutation path fail until it is classified and clears the cache. Each clear
+  bumps `prefetchGeneration`; a navigation whose generation moved (it may hold
+  a promise taken from the cache, or a response fetched before the mutation)
+  re-runs once as a `_reloadRouteState` navigation instead of acting on that
+  state. It checks after the route-state await, before a redirect is followed,
+  again before history moves, and inside the commit, which a view transition
+  defers; a re-run from there replaces the entry the navigation already pushed.
 - `hasShellLoader` is a build-time route hint (the loader bit of the shell's
   row in the client hint table, which scans shells and pages `_app` files too). A
   loaderless, headless, middleware-free route skips the route-state request
