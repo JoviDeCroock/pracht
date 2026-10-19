@@ -161,7 +161,10 @@ export function createDevMcpPreflightMiddleware(
 export function useBeforeViteCors(server: ViteDevServer, handle: Connect.NextHandleFunction): void {
   server.middlewares.use(handle);
   const stack = server.middlewares.stack;
-  const cors = stack.findIndex((layer) => layer.handle.name === "corsMiddleware");
+  if (!Array.isArray(stack)) return;
+  const cors = stack.findIndex(
+    (layer) => (layer.handle as { name?: string }).name === "corsMiddleware",
+  );
   if (cors === -1) return;
   stack.splice(cors, 0, ...stack.splice(stack.length - 1, 1));
 }
