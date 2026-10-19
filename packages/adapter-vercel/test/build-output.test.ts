@@ -462,6 +462,7 @@ describe("writeVercelBuildOutput", () => {
       launcherType: "Nodejs",
       runtime: expect.stringMatching(/^nodejs\d+\.x$/),
       shouldAddHelpers: false,
+      supportsResponseStreaming: true,
     });
     expect(readFileSync(join(functionDir, "_pracht-node-entry.cjs"), "utf-8")).toContain(
       'await import("./server.js")).nodeListener',

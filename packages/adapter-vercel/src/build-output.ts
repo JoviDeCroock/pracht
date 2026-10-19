@@ -599,6 +599,9 @@ function createVercelNodeFunctionConfig({
     launcherType: "Nodejs",
     runtime: VERCEL_NODE_RUNTIME,
     shouldAddHelpers: false,
+    // The handler streams its body; without this flag Vercel buffers the
+    // whole response before sending it.
+    supportsResponseStreaming: true,
   };
 
   // `all` is an Edge-only sentinel. Node functions must name concrete regions;

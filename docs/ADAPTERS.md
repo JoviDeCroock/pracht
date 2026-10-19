@@ -1437,7 +1437,9 @@ cache.
   Node (`nodejs22.x`) while the main handler stays on the edge. Both load the
   same server bundle: it is built against Web APIs only, which Node provides
   natively. The first ISG route materializes the function directory and the
-  rest are symlinks to it, so N ISG paths don't duplicate the bundle. Time
+  rest are symlinks to it, so N ISG paths don't duplicate the bundle. Its
+  `.vc-config.json` sets `supportsResponseStreaming: true`, so a regeneration
+  streams to the client instead of being buffered whole. Time
   policies become Vercel
   `expiration` values, build-time HTML becomes the prerender fallback, and
   `PRACHT_REVALIDATE_TOKEN` is used as the `bypassToken` when present at build
