@@ -1473,10 +1473,14 @@ cache.
   Cloudflare replay. Credential headers (`Set-Cookie`, `Authorization`,
   `WWW-Authenticate`, `Proxy-Authenticate`, secret-shaped `x-*`) are stripped
   with a logged error — the same set
-  build-time prerendering refuses outright — and a response that marks itself
-  uncacheable (`Cache-Control: private`/`no-store`, `Vary: Cookie`/
-  `Authorization`) is logged as a warning, because Vercel's prerender cache
-  stores it regardless. Render such routes as `ssr` instead.
+  build-time prerendering refuses outright. A response that marks itself
+  uncacheable (`Set-Cookie`, `Cache-Control: private`/`no-store`, `Vary:
+  Cookie`/`Authorization`) is answered as a `503` with `Cache-Control:
+  no-store` and `x-pracht-isg-refused: uncacheable`, its body cancelled and the
+  cause logged: no prerender-config field lets a response opt out of being
+  stored, and Vercel keeps the previous render (or the build's fallback) after
+  a failed revalidation and retries about 30 s later. The webhook reports that
+  marker as `failed: "uncacheable_render"`.
 - **Static security headers**: the generated `config.json` includes continuing
   `routes` entries with the baseline security headers for all responses,
   including static assets served by Vercel's CDN. Static prerendered routes also
@@ -1871,15 +1875,22 @@ deployments, since `encodeURIComponent` emits upper case), then the request's
 own spelling when its escape case differs. Escape case (owner decision #471) is
 decided here: `%c3%a9` and `%C3%A9` are one file, and the build never rewrites
 escape case, so `resolvePrerenderOutputPath()` writes the last candidate, the
-route path exactly as the manifests record it. `getManifestHeaders()` applies
+route path exactly as the manifests record it. A `.`/`..` segment is refused
+in every segment before anything is decoded, so a malformed escape earlier in
+the path (`/%ZZ/%2e%2e/x`) cannot hide it. Cloudflare's assets binding decodes
+the request path itself, so `resolveCloudflarePrerenderOutputPath()` writes
+Cloudflare pages at the first candidate, the decoded spelling, and keeps the
+encoded one only for a path that has none. `getManifestHeaders()` applies
 the same upper-casing so the recorded headers follow. `decodeStaticPath()`
 reports why a path has no decoded spelling (`malformed`, `separator`,
 `relative`) for the build's error messages, and `staticContentType()` is the
 single MIME table (Node, Netlify, the preview server, and the dev server's
 asset-extension check). `packages/framework/test/static-path.test.ts` is the
 seam guard: it fails on a `decodeURIComponent` in `packages/adapter-*/src` or
-`packages/cli/src/build-*.ts`, on a second content-type table, and on a
-`bytes=` parser in an adapter.
+`packages/cli/src/build-*.ts`, on a second content-type table (two
+extension-to-type pairs in one file of an adapter, the CLI, the Vite plugin or
+core, as an object literal, a Map or a `switch`), and on a `bytes=` parser in
+an adapter.
 
 **`staticByteRange(requestHeaders, responseHeaders, size)`** is the one
 single-range rule (`206`, `416`, `If-Range` against the response's strong
@@ -1888,19 +1899,26 @@ handler, the Netlify function's static files and the static preview server use
 it.
 
 **`isgPathKey(pathname)`** (`framework/src/revalidation.ts`) follows the same
-escape-case rule for ISG pages: it drops trailing slashes and upper-cases
-percent-escapes, so `/posts/caf%c3%a9/` keys, regenerates and revalidates the
-page the build recorded as `/posts/caf%C3%A9`. Node's ISG file lookup, the
-Netlify handler's path normalizer (and its cache tags) and Cloudflare's cache
-key all go through it.
+escape-case rule for ISG pages: it drops trailing slashes, percent-encodes raw
+characters a URL would carry encoded (a webhook's `/posts/café`), and
+upper-cases percent-escapes, so `/posts/caf%c3%a9/` keys, regenerates and
+revalidates the page the build recorded as `/posts/caf%C3%A9`. Prerendering
+keys and writes every ISG page under it, so a route written `/caf%c3%a9` is
+recorded as `/caf%C3%A9`; the server matcher compares static segments in
+either escape case (ROUTING.md), so the canonical regeneration still matches.
+Node's ISG file lookup, the Netlify handler's path normalizer (and its cache
+tags), Cloudflare's cache key and the Vercel webhook all go through it.
 
 **`@pracht/adapter-node/bridge`** is the one `node:http` ↔ Web bridge, used by
 the Node handler and by Vite's dev middleware. `createWebRequest(req, res,
 { maxBodySize, trustProxy, canonicalOrigin, base })` resolves to a `Request`
 whose `signal` is the client-disconnect signal only (the framework's request
 budget adds deadlines), or to a `Response`: 413 for a body over `maxBodySize`
-(a declared `Content-Length` is refused before reading) and 400 for a target or
-`Host` that does not form a URL, both with the default security headers.
+(a declared `Content-Length` is refused before reading) and 400, never logged,
+for anything that does not form a `Request`: a target or `Host` that is no URL,
+a `Host` holding whitespace, controls or `/ ? # @ \` (which `new URL()` would
+read as userinfo, path or query), a target with credentials, or a method a
+`Request` refuses. Both carry the default security headers.
 `base` restores a deploy base an upstream middleware stripped (dev); forwarded
 headers count only with `trustProxy`. `writeWebResponse(res, response)` keeps
 every `Set-Cookie`, streams with backpressure, and cancels the body when the
@@ -2204,10 +2222,11 @@ not type-check until every row places it):
 Divergent cells carry a `// seams step <C|D>` comment naming the rewrite step
 expected to converge them. The `baseline` test pins their count (20 when the
 suite landed: 10 ISG-snapshot cells for step C, 10 static/MIME/Range/413 cells
-for step D). Step D converged all 10 and step C 7, so it is 3: Vercel's
-prerender cache stores cookie and private ISG renders, and Netlify serves an
-ISG page's `index.html` spelling from the build file. Lower it in the change
-that converges a cell. A new divergence is fixed, not recorded. The escape-case
+for step D). It is 0: Vercel now answers a cookie or private ISG render with a
+`503` its prerender cache does not store, and the Netlify `index.html` alias is
+`na` (a Netlify build writes no ISG HTML). A new divergence is fixed, not
+recorded. The Cloudflare `ASSETS` mock decodes the request path, as the real
+binding does. The escape-case
 rows prove the rule only on a case-sensitive filesystem (CI on Linux); locally,
 point `TMPDIR` at a case-sensitive volume to run them for real.
 

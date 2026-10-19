@@ -26,9 +26,13 @@ Platform request (Node / CF / Vercel)
 Prerendered pages are served with the same document headers their route and
 shell would set on a dynamic response.
 
+Node, Netlify, and `pracht preview` answer a `Range` request for a static file
+with `206`, or `416` past its end.
+
 ISG pages render on a sanitized request — path only, with no cookies,
 credentials, query string, or body — because the result is cached and served
 to every visitor. Anything that depends on the visitor belongs on an SSR route.
+A render that sets a cookie or marks itself private is never cached.
 
 On Node, Cloudflare, and Netlify, a prerendered route that exports `markdown`
 (or sets `markdown: true` when middleware handles negotiation) is served as
@@ -148,9 +152,8 @@ with `"always"`. `pracht verify` warns when the two disagree.
 
 ### Composing the Worker
 
-When the Worker needs more than pracht's request handling, such as Durable
-Objects, Cron Triggers, Queue consumers, or code around each request, write the
-Worker module yourself and point `workerEntry` at it:
+For Durable Objects, Cron Triggers, Queue consumers, or code around each
+request, write the Worker module yourself and point `workerEntry` at it:
 
 ```ts [vite.config.ts]
 cloudflareAdapter({ workerEntry: "/src/worker.ts" });
@@ -219,8 +222,8 @@ npx wrangler dev --config wrangler.local.jsonc --port 3000
 
 ### WebSockets
 
-Cloudflare is the one adapter that can serve WebSocket upgrades, because a
-Durable Object can own a connection for longer than a request. Serve the
+Only Cloudflare serves WebSocket upgrades, because a Durable Object can own a
+connection longer than a request. Serve the
 handshake from an [API route](/docs/api-routes#websockets) and forward it to the
 object:
 
@@ -259,7 +262,7 @@ default, the same way cross-origin mutations are.
 
 ### Accessing Cloudflare bindings
 
-The `env` object is passed through to your loaders and API routes via the context:
+Loaders and API routes receive `env` on the context:
 
 ```ts
 // src/routes/dashboard.tsx
@@ -385,8 +388,7 @@ Pro deployment; `pracht build` warns near that limit.
 
 ### Preview and generated functions
 
-`pracht preview` cannot emulate Vercel and exits with guidance: use
-`vercel build` and `vercel dev` instead.
+`pracht preview` cannot emulate Vercel; use `vercel build` and `vercel dev`.
 
 The Edge Function is named `render`; set
 `vercelAdapter({ functionName: "app" })` if an ISG route collides with it. A custom Vercel server entry must export `nodeListener`, built with
@@ -439,7 +441,7 @@ stay out of the function bundle too — but never exclude page URLs.
   API responses, set `Netlify-CDN-Cache-Control` to control CDN caching; a
   `public` `Cache-Control` is otherwise copied into it.
 - An ISG URL in its non-canonical spelling redirects to the canonical one
-  (slashless unless `trailingSlash: "always"`), so only one copy is cached. Unrelated query parameters, such as tracking tags, share the
+  (slashless unless `trailingSlash: "always"`), so only one copy is cached. Unrelated query parameters share the
   page's cache entry. A custom `Netlify-Vary` header replaces pracht's default
   key.
 
@@ -455,8 +457,8 @@ pracht build && netlify dev
 netlify deploy --build --prod
 ```
 
-`pracht preview` does not emulate Netlify's Functions or CDN cache. Build first,
-then use `netlify dev` for a platform-shaped local runtime.
+`pracht preview` does not emulate Netlify's Functions or CDN cache; build, then
+run `netlify dev`.
 
 ---
 

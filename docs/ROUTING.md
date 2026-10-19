@@ -722,7 +722,10 @@ a separate export, not a flag, so client bundles never contain it
 (`package-tree-shaking.test.ts` checks a browser `matchAppRoute` import). It
 builds an `indexSegments()` index per route table on first use and tries only
 the candidates it returns, in declaration order, with `matchRouteSegments`, so
-the result is the scan's.
+the result is the scan's. On the server (`import.meta.env.SSR`, folded away in
+client builds) a static segment matches in either percent-escape case, and the
+index keys static values in upper case, so an ISG page regenerated under its
+canonical `/caf%C3%A9` key still matches a route written `/caf%c3%a9`.
 
 `route-matching.ts` holds the route-pattern algebra the server-side consumers
 share, all over parsed segments and all following `matchRouteSegments` exactly
@@ -738,6 +741,12 @@ segments after a catch-all never take part):
   and `overlapping(pattern)` return a superset of the patterns that could match
   or overlap, in id order, taken from the narrowest list a query's segments
   pick. A query with only parameters before a catch-all gets every id.
+
+`route-pattern-seam.test.ts` is the seam guard: a framework source outside
+`route-matching.ts` that classifies a pattern segment by its text
+(`startsWith(":")`, `=== "*"`) or defines a covers, overlap or index function
+fails it. Its exceptions name why (route-id naming, constraint globs, the
+islands client table) and fail once stale.
 
 `route-pattern-algebra.test.ts` checks all three against the matcher run over
 every path of up to four segments: exhaustively for every pattern pair, and
