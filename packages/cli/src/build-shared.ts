@@ -8,7 +8,11 @@ import {
   resolveMcpEndpoint,
   type PrachtAgentsConfig,
 } from "@pracht/core";
-import { getTimeRevalidateSeconds, type ISGManifestEntry } from "@pracht/core/server";
+import {
+  decodeStaticPath,
+  getTimeRevalidateSeconds,
+  type ISGManifestEntry,
+} from "@pracht/core/server";
 import { VERSION } from "./constants.js";
 
 const ROUTE_STATE_REQUEST_HEADER = "x-pracht-route-state-request";
@@ -583,19 +587,15 @@ function resolveVercelStaticDeployDir(staticDir: string, base: string): string {
     .slice(1, -1)
     .split("/")
     .map((segment) => {
-      let decoded: string;
-      try {
-        decoded = decodeURIComponent(segment);
-      } catch {
+      const result = decodeStaticPath(segment);
+      if (!result.ok && result.reason === "malformed") {
         throw new Error(
           `Vercel deploy base contains invalid percent-encoding: ${JSON.stringify(base)}.`,
         );
       }
+      const decoded = result.ok ? result.path : "";
       if (
-        decoded === "." ||
-        decoded === ".." ||
-        decoded.includes("/") ||
-        decoded.includes("\\") ||
+        !result.ok ||
         [...decoded].some((character) => {
           const codePoint = character.codePointAt(0);
           return (

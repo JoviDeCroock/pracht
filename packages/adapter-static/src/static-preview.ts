@@ -3,6 +3,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { resolve } from "node:path";
 
 import { getCacheControl, resolveStaticFile } from "@pracht/adapter-node";
+import { decodeStaticPath, staticPathCandidates } from "@pracht/core/server";
 
 export interface StaticPreviewHandlerOptions {
   /** Directory to serve, usually `dist/client`. */
@@ -44,10 +45,12 @@ export function createStaticPreviewHandler(
   const fallback = options.fallback ?? null;
   const base = normalizePreviewBase(options.base);
   const trailingSlash = options.trailingSlash ?? "ignore";
-  // Vite percent-encodes non-ASCII and spaces in `config.base`, while request
-  // paths are decoded below to match the filesystem. Compare like with like,
-  // but retain `base` itself for the encoded Location header.
-  const decodedBase = decodeStaticPreviewPathname(new URL(base, "http://localhost").pathname);
+  // Vite percent-encodes non-ASCII and spaces in `config.base`, and a request
+  // may spell the same base differently. Compare decoded segments, but retain
+  // `base` itself for the encoded Location header.
+  const decodedBase = decodePathSegments(new URL(base, "http://localhost").pathname);
+  if (!decodedBase) throw new Error(`Unsafe static preview base ${JSON.stringify(base)}.`);
+  const baseSegments = decodedBase.slice(1, -1);
 
   return async function handleStaticPreviewRequest(
     req: IncomingMessage,
@@ -66,29 +69,45 @@ export function createStaticPreviewHandler(
     try {
       const requestUrl = new URL(req.url ?? "/", "http://localhost");
       publicPathname = requestUrl.pathname;
-      pathname = decodeStaticPreviewPathname(requestUrl.pathname);
+      pathname = requestUrl.pathname;
       search = requestUrl.search;
     } catch {
+      pathname = "";
+      search = "";
+      publicPathname = "";
+    }
+    // A static host looks files up by their decoded name, so a path without
+    // one (an encoded separator, a malformed escape) can never name a file in
+    // the export. `staticPathCandidates()` then orders the spellings to try.
+    if (!decodeStaticPath(pathname).ok || staticPathCandidates(pathname) === null) {
       res.writeHead(400, { "content-type": "text/plain; charset=utf-8" });
       res.end("Bad request");
       return;
     }
 
-    if (decodedBase !== "/") {
+    if (baseSegments.length > 0) {
+      const segments = pathname.split("/").slice(1);
+      const decodedSegments = decodePathSegments(pathname)?.slice(1) ?? segments;
       // Hosts serving a sub-path deploy redirect the bare base to its
       // trailing-slash form; mirror that so relative links resolve the same
       // way locally as they will in production.
-      if (pathname === decodedBase.slice(0, -1)) {
+      if (
+        decodedSegments.length === baseSegments.length &&
+        baseSegments.every((segment, index) => decodedSegments[index] === segment)
+      ) {
         res.writeHead(301, { location: `${base}${search}` });
         res.end();
         return;
       }
-      if (!pathname.startsWith(decodedBase)) {
+      if (
+        decodedSegments.length <= baseSegments.length ||
+        !baseSegments.every((segment, index) => decodedSegments[index] === segment)
+      ) {
         res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
         res.end("Not found");
         return;
       }
-      pathname = `/${pathname.slice(decodedBase.length)}`;
+      pathname = `/${segments.slice(baseSegments.length).join("/")}`;
     }
 
     const file = await resolveStaticFile(staticDir, pathname);
@@ -154,26 +173,17 @@ function canonicalPagePathname(pathname: string, base: string, policy: "never" |
 }
 
 /**
- * Decode each URL segment into the filesystem spelling emitted by the static
- * exporter without allowing an escape to introduce path structure.
+ * The decoded segments of a URL path (the first is the empty one before the
+ * leading slash), or `null` when a segment has no decoded spelling.
  */
-function decodeStaticPreviewPathname(pathname: string): string {
-  return pathname
-    .split("/")
-    .map((segment) => {
-      const decoded = decodeURIComponent(segment);
-      if (
-        decoded === "." ||
-        decoded === ".." ||
-        decoded.includes("/") ||
-        decoded.includes("\\") ||
-        decoded.includes("\0")
-      ) {
-        throw new Error("Unsafe encoded static path segment.");
-      }
-      return decoded;
-    })
-    .join("/");
+function decodePathSegments(pathname: string): string[] | null {
+  const segments: string[] = [];
+  for (const segment of pathname.split("/")) {
+    const decoded = decodeStaticPath(segment);
+    if (!decoded.ok) return null;
+    segments.push(decoded.path);
+  }
+  return segments;
 }
 
 async function sendFile(

@@ -1,47 +1,11 @@
 import { lstat, realpath } from "node:fs/promises";
-import { basename, extname, resolve, sep } from "node:path";
+import { basename, resolve, sep } from "node:path";
 import type { ISGManifestEntry } from "@pracht/core/server";
 
-import { getManifestHeaders } from "@pracht/core/server";
+import { getManifestHeaders, staticContentType, staticPathCandidates } from "@pracht/core/server";
 export { applyHeadersManifest, getManifestHeaders } from "@pracht/core/server";
 import type { HeadersManifest } from "@pracht/core/server";
 export type { HeadersManifest } from "@pracht/core/server";
-
-const MIME_TYPES: Record<string, string> = {
-  ".html": "text/html; charset=utf-8",
-  ".js": "application/javascript",
-  ".mjs": "application/javascript",
-  ".map": "application/json",
-  ".css": "text/css",
-  ".json": "application/json",
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".gif": "image/gif",
-  ".webp": "image/webp",
-  ".avif": "image/avif",
-  ".svg": "image/svg+xml",
-  ".ico": "image/x-icon",
-  ".woff": "font/woff",
-  ".woff2": "font/woff2",
-  ".ttf": "font/ttf",
-  ".otf": "font/otf",
-  ".txt": "text/plain; charset=utf-8",
-  ".md": "text/markdown; charset=utf-8",
-  ".markdown": "text/markdown; charset=utf-8",
-  ".xml": "application/xml",
-  ".webmanifest": "application/manifest+json",
-  ".wasm": "application/wasm",
-  ".mp4": "video/mp4",
-  ".webm": "video/webm",
-  ".vtt": "text/vtt; charset=utf-8",
-  ".mp3": "audio/mpeg",
-  ".ogg": "audio/ogg",
-  ".wav": "audio/wav",
-  ".pdf": "application/pdf",
-  ".csv": "text/csv; charset=utf-8",
-  ".zip": "application/zip",
-};
 
 /**
  * Hashed assets (e.g. `assets/chunk-AbCd1234.js`) are safe to cache
@@ -80,7 +44,10 @@ export interface StaticFileResult {
  *
  * Tries the exact path first (e.g. `/assets/chunk-Ab12.js`), then falls back
  * to `{pathname}/index.html` for clean-URL pages (e.g. `/about` →
- * `about/index.html`).  Returns `null` when no matching file is found.
+ * `about/index.html`). Each lookup tries the spellings core's
+ * `staticPathCandidates()` names, so a percent-encoded URL finds both a
+ * decoded `public/` file and an encoded prerendered page. Returns `null` when
+ * no matching file is found.
  */
 export async function resolveStaticFile(
   staticDir: string,
@@ -88,18 +55,18 @@ export async function resolveStaticFile(
   isgManifest: Record<string, ISGManifestEntry> = {},
 ): Promise<StaticFileResult | null> {
   const staticRoot = resolve(staticDir);
-  const exactPath = resolveUrlPath(staticRoot, pathname);
-  if (!exactPath) return null;
+  const exactCandidates = staticPathCandidates(pathname);
+  if (!exactCandidates) return null;
 
-  const exactStat = basename(exactPath).endsWith(ISG_SNAPSHOT_HEADERS_SUFFIX)
-    ? null
-    : await lstat(exactPath).catch(() => null);
-  if (exactStat?.isFile() && !exactStat.isSymbolicLink()) {
+  for (const candidate of exactCandidates) {
+    const exactPath = resolveCandidate(staticRoot, candidate);
+    if (!exactPath || basename(exactPath).endsWith(ISG_SNAPSHOT_HEADERS_SUFFIX)) continue;
+    const exactStat = await lstat(exactPath).catch(() => null);
+    if (!exactStat?.isFile() || exactStat.isSymbolicLink()) continue;
     if (!(await realPathIsInside(staticRoot, exactPath))) return null;
-    const ext = extname(exactPath);
     return {
       filePath: exactPath,
-      contentType: MIME_TYPES[ext] || "application/octet-stream",
+      contentType: staticContentType(exactPath),
       cacheControl: getCacheControl(pathname),
     };
   }
@@ -110,15 +77,11 @@ export async function resolveStaticFile(
     return null;
   }
 
-  const indexPath =
-    pathname === "/"
-      ? resolve(staticRoot, "index.html")
-      : resolveUrlPath(staticRoot, pathname, "index.html");
-
-  if (!indexPath) return null;
-
-  const indexStat = await lstat(indexPath).catch(() => null);
-  if (indexStat?.isFile() && !indexStat.isSymbolicLink()) {
+  for (const candidate of staticPathCandidates(pathname, { index: true }) ?? []) {
+    const indexPath = resolveCandidate(staticRoot, candidate);
+    if (!indexPath) continue;
+    const indexStat = await lstat(indexPath).catch(() => null);
+    if (!indexStat?.isFile() || indexStat.isSymbolicLink()) continue;
     if (!(await realPathIsInside(staticRoot, indexPath))) return null;
     return {
       filePath: indexPath,
@@ -141,12 +104,9 @@ export function toRouteKey(pathname: string): string {
     : pathname;
 }
 
-function resolveUrlPath(staticRoot: string, pathname: string, suffix?: string): string | null {
-  if (pathname.includes("\0") || pathname.includes("\\")) return null;
-  const candidate = suffix
-    ? resolve(staticRoot, `.${pathname}`, suffix)
-    : resolve(staticRoot, `.${pathname}`);
-  return pathIsInside(staticRoot, candidate) ? candidate : null;
+function resolveCandidate(staticRoot: string, candidate: string): string | null {
+  const resolved = resolve(staticRoot, `.${candidate}`);
+  return pathIsInside(staticRoot, resolved) ? resolved : null;
 }
 
 function pathIsInside(root: string, candidate: string): boolean {

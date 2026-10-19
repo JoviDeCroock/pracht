@@ -186,8 +186,10 @@ legitimate route whose base-free path is `/my-project`.
 
 ### Features
 
-- **Static file serving**: reads from `dist/client/` with proper content-type
-  headers. Hashed assets under `/assets/` get `Cache-Control: public,
+- **Static file serving**: reads from `dist/client/`, with the content type
+  from core's `staticContentType()` (the one MIME table). Each lookup tries the
+  spellings `staticPathCandidates()` names (see
+  [Static paths](#static-paths-and-the-node-bridge)). Hashed assets under `/assets/` get `Cache-Control: public,
 max-age=31536000, immutable`; HTML and other files get `public, max-age=0,
 must-revalidate`. Clean URLs (e.g. `/about`) resolve to `about/index.html`.
 Prerendered HTML receives route and shell document headers from
@@ -1265,10 +1267,11 @@ cannot pull bypassed trees back into the bundle.
 An exact exclusion such as `/feed.xml` omits only that exact file; unlike a
 prefix exclusion, it does not also exclude `/feed.xml/` or an `index.html`
 representation that those URLs can still invoke the function to read.
-Bundled static lookup tries the decoded spelling first (public files such as
-`legal terms.txt`), then the raw encoded spelling that `pracht build` uses for
-prerendered pages (`posts/caf%C3%A9/index.html`), and rejects encoded
-separators and traversal segments before filesystem resolution.
+Bundled static lookup tries the spellings core's `staticPathCandidates()` names
+(see [Static paths](#static-paths-and-the-node-bridge)): the decoded one first
+(public files such as `legal terms.txt`), then the encoded one `pracht build`
+writes for prerendered pages (`posts/caf%C3%A9/index.html`), in either escape
+case.
 
 ### SSG and ISG
 
@@ -1832,8 +1835,55 @@ tooling — nothing in it is deployed. Running it (or `pracht preview`) serves
 `dist/client/` with a tiny static file server (`createStaticPreviewHandler`)
 that mirrors a plain host: files, clean URLs, `404.html` for misses, and the
 configured `200.html` rewrite. It reuses `@pracht/adapter-node`'s hardened
-static file resolution (NUL/backslash/symlink/traversal guards) and decodes URL
-segments to the same filesystem spelling used by static-export page output.
+static file resolution (NUL/backslash/symlink/traversal guards), so it tries
+the same `staticPathCandidates()` spellings, and answers 400 for a path with no
+decoded spelling (an encoded separator or a malformed escape), which a static
+export can never contain.
+
+---
+
+## Static paths and the Node bridge
+
+Two rules every adapter used to implement on its own now live in one place each.
+
+**`staticPathCandidates(pathname, { index? })`** (`@pracht/core/server`,
+`framework/src/static-path.ts`) turns a URL path into the root-relative
+filesystem spellings to try, in order, or `null` when the path is unsafe (no
+leading `/`, a backslash, NUL, or a `.`/`..` segment raw or encoded). The order
+is the decoded spelling (static exports and Vite's `public/` copy), then the
+encoded spelling with upper-case escapes (what `pracht build` writes for server
+deployments, since `encodeURIComponent` emits upper case), then the request's
+own spelling when its escape case differs. Escape case (owner decision #471) is
+decided here: `%c3%a9` and `%C3%A9` are one file, and the build never rewrites
+escape case, so `resolvePrerenderOutputPath()` writes the last candidate, the
+route path exactly as the manifests record it. `getManifestHeaders()` applies
+the same upper-casing so the recorded headers follow. `decodeStaticPath()`
+reports why a path has no decoded spelling (`malformed`, `separator`,
+`relative`) for the build's error messages, and `staticContentType()` is the
+single MIME table (Node, Netlify, the preview server, and the dev server's
+asset-extension check). `packages/framework/test/static-path.test.ts` is the
+seam guard: it fails on a `decodeURIComponent` in `packages/adapter-*/src` or
+`packages/cli/src/build-*.ts`, and on a second content-type table.
+
+**`@pracht/adapter-node/bridge`** is the one `node:http` ↔ Web bridge, used by
+the Node handler and by Vite's dev middleware. `createWebRequest(req, res,
+{ maxBodySize, trustProxy, canonicalOrigin, base })` resolves to a `Request`
+whose `signal` is the client-disconnect signal only (the framework's request
+budget adds deadlines), or to a `Response`: 413 for a body over `maxBodySize`
+(a declared `Content-Length` is refused before reading) and 400 for a target or
+`Host` that does not form a URL, both with the default security headers.
+`base` restores a deploy base an upstream middleware stripped (dev); forwarded
+headers count only with `trustProxy`. `writeWebResponse(res, response)` keeps
+every `Set-Cookie`, streams with backpressure, and cancels the body when the
+client leaves. Stand-in `req`/`res` objects that are not streams (Connect test
+fakes) get no signal rather than an error.
+
+Vercel's ISG Node function cannot import it: `createVercelNodeListener` lives in
+the bundle the edge function is built from, which must not pull in
+`node:stream`. It keeps a web-globals-only writer with the same contract
+(`drain` backpressure, body cancelled on `close`), covered by
+`packages/adapter-vercel/test/node-bridge.test.ts`. Range requests stay a
+static-file feature of the Node handler; dev assets are Vite's.
 
 ---
 

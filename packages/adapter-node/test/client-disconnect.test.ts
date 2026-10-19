@@ -8,7 +8,20 @@ import {
 import type { AddressInfo } from "node:net";
 import { describe, expect, it } from "vitest";
 
-import { createClientDisconnectSignal, createWebRequest } from "../src/node-request.ts";
+import { createWebRequest } from "../src/bridge.ts";
+import { createClientDisconnectSignal as createSignal } from "../src/node-request.ts";
+
+function createClientDisconnectSignal(req: IncomingMessage, res: ServerResponse): AbortSignal {
+  const signal = createSignal(req, res);
+  if (!signal) throw new Error("expected a disconnect signal");
+  return signal;
+}
+
+async function webRequest(req: IncomingMessage, res: ServerResponse): Promise<Request> {
+  const request = await createWebRequest(req, res);
+  if (!(request instanceof Request)) throw new Error(`unexpected ${request.status}`);
+  return request;
+}
 
 /**
  * Node emits `close` on both the request and the response for a completed
@@ -81,8 +94,7 @@ describe("createClientDisconnectSignal over a real socket", () => {
   it("stays un-aborted after a POST body is fully read and the response is pending", async () => {
     let observed: boolean | undefined;
     const server = createServer(async (req, res) => {
-      const signal = createClientDisconnectSignal(req, res);
-      const request = await createWebRequest(req, { trustProxy: false, signal });
+      const request = await webRequest(req, res);
       await request.text();
       await new Promise((resolve) => setTimeout(resolve, 20));
       observed = request.signal.aborted;
@@ -109,8 +121,7 @@ describe("createClientDisconnectSignal over a real socket", () => {
     let resolveReady!: () => void;
     const ready = new Promise<void>((resolve) => (resolveReady = resolve));
     const server = createServer(async (req, res) => {
-      const signal = createClientDisconnectSignal(req, res);
-      const request = await createWebRequest(req, { trustProxy: false, signal });
+      const request = await webRequest(req, res);
       await request.text();
       request.signal.addEventListener("abort", () => resolveAborted(true));
       setTimeout(() => resolveAborted(request.signal.aborted), 2000);
@@ -141,9 +152,7 @@ describe("createWebRequest", () => {
       headers: { host: "example.com" },
       socket: {},
     });
-    const signal = createClientDisconnectSignal(req, res);
-
-    const request = await createWebRequest(req, { trustProxy: false, signal });
+    const request = await webRequest(req, res);
 
     // Without this the flagship adapter hands loaders a signal that can only
     // ever fire on the server-side timeout.
@@ -152,15 +161,14 @@ describe("createWebRequest", () => {
     expect(request.signal.aborted).toBe(true);
   });
 
-  it("still builds a request when no signal is supplied", async () => {
-    const req = Object.assign(new EventEmitter(), {
+  it("still builds a request from stand-ins that are not streams", async () => {
+    const req = {
       method: "GET",
       url: "/",
       headers: { host: "example.com" },
-      socket: {},
-    }) as unknown as IncomingMessage;
+    } as unknown as IncomingMessage;
 
-    const request = await createWebRequest(req, { trustProxy: false });
+    const request = await webRequest(req, {} as ServerResponse);
 
     expect(request.url).toBe("http://example.com/");
     expect(request.signal.aborted).toBe(false);

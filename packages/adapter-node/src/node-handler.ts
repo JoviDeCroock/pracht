@@ -61,7 +61,6 @@ import {
   writeISGSnapshot,
 } from "./node-isg.ts";
 import {
-  createClientDisconnectSignal,
   createWebRequest,
   isClientDisconnectError,
   pipeToResponse,
@@ -214,37 +213,11 @@ export function createNodeRequestHandler<TContext = unknown>(
       );
     }
 
-    // Created before the body is read: a client that hangs up mid-upload has
-    // to abort the work its request already started.
-    const clientSignal = createClientDisconnectSignal(req, res);
-
-    let request: Request;
-    try {
-      request = await createWebRequest(req, {
-        canonicalOrigin,
-        trustProxy,
-        maxBodySize,
-        signal: clientSignal,
-      });
-    } catch (err) {
-      if (err instanceof Error && err.message === "Request body too large") {
-        // The rest of the body is never read, so the connection cannot be
-        // reused for another request.
-        res.statusCode = 413;
-        writeNodeResponseHeaders(
-          res,
-          applyDefaultSecurityHeaders(
-            new Headers({
-              "cache-control": "no-store",
-              connection: "close",
-              "content-type": "text/plain; charset=utf-8",
-            }),
-          ),
-        );
-        res.end("Payload Too Large");
-        return;
-      }
-      throw err;
+    const request = await createWebRequest(req, res, { canonicalOrigin, trustProxy, maxBodySize });
+    if (request instanceof Response) {
+      // 413 or 400: the request never reaches the application.
+      await writeWebResponse(res, request);
+      return;
     }
     // A stripped upstream pathname is a route path, not a public URL. Testing
     // it for the bare deploy base would make a route equal to that base segment

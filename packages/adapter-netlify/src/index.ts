@@ -4,7 +4,7 @@ import {
   type SharedHeadersManifest,
 } from "@pracht/core/server";
 import { lstat, readFile, readdir, realpath } from "node:fs/promises";
-import { extname, resolve, sep } from "node:path";
+import { resolve, sep } from "node:path";
 import type { McpAuthConfig } from "@pracht/core";
 import type { PrachtAdapter } from "@pracht/vite-plugin";
 import { URLPattern } from "urlpattern-polyfill";
@@ -32,6 +32,8 @@ import {
   restoreBasePathInRequest,
   resolveRevalidationToken,
   routeSupportsMarkdown,
+  staticContentType,
+  staticPathCandidates,
   stripBase,
   TRAILING_SLASH,
   type HandlePrachtRequestOptions,
@@ -947,7 +949,7 @@ async function resolveStaticFile(
   const exact = await findContainedFile(root, pathname);
   if (exact) {
     return {
-      contentType: MIME_TYPES[extname(exact)] ?? "application/octet-stream",
+      contentType: staticContentType(exact),
       document: exact.endsWith(".html"),
       filePath: exact,
     };
@@ -959,20 +961,20 @@ async function resolveStaticFile(
 }
 
 /**
- * Files Vite copies from `public/` sit at their decoded names, while
- * `pracht build` writes prerendered pages at the encoded route path
- * (`posts/caf%C3%A9/index.html`). Try the decoded spelling first, then the
- * raw one the request carries.
+ * The first file inside `root` among the spellings core's
+ * `staticPathCandidates()` names for `pathname`: the decoded spelling (files
+ * Vite copies from `public/`), then the encoded one `pracht build` writes for
+ * prerendered pages (`posts/caf%C3%A9/index.html`).
  */
 async function findContainedFile(
   root: string,
   pathname: string,
-  suffix?: string,
+  suffix?: "index.html",
 ): Promise<string | null> {
-  const decoded = resolveUrlPath(root, pathname, suffix);
-  if (decoded && (await isContainedFile(root, decoded))) return decoded;
-  const raw = resolveRawUrlPath(root, pathname, suffix);
-  if (raw && raw !== decoded && (await isContainedFile(root, raw))) return raw;
+  for (const candidate of staticPathCandidates(pathname, { index: suffix !== undefined }) ?? []) {
+    const filePath = resolve(root, `.${candidate}`);
+    if (pathIsInside(root, filePath) && (await isContainedFile(root, filePath))) return filePath;
+  }
   return null;
 }
 
@@ -1110,40 +1112,6 @@ function cloneResponse(response: Response, headers: Headers): Response {
   });
 }
 
-function resolveUrlPath(root: string, pathname: string, suffix?: string): string | null {
-  const decodedPathname = decodeStaticPathname(pathname);
-  if (decodedPathname === null) return null;
-  const candidate = suffix
-    ? resolve(root, `.${decodedPathname}`, suffix)
-    : resolve(root, `.${decodedPathname}`);
-  return pathIsInside(root, candidate) ? candidate : null;
-}
-
-function resolveRawUrlPath(root: string, pathname: string, suffix?: string): string | null {
-  if (pathname.includes("\0") || pathname.includes("\\")) return null;
-  if (pathname.split("/").some((segment) => segment === "." || segment === "..")) return null;
-  const candidate = suffix ? resolve(root, `.${pathname}`, suffix) : resolve(root, `.${pathname}`);
-  return pathIsInside(root, candidate) ? candidate : null;
-}
-
-function decodeStaticPathname(pathname: string): string | null {
-  const decodedSegments: string[] = [];
-  for (const segment of pathname.split("/")) {
-    let decoded: string;
-    try {
-      decoded = decodeURIComponent(segment);
-    } catch {
-      return null;
-    }
-    if (decoded === "." || decoded === ".." || decoded.includes("/") || decoded.includes("\\")) {
-      return null;
-    }
-    if (decoded.includes("\0")) return null;
-    decodedSegments.push(decoded);
-  }
-  return decodedSegments.join("/");
-}
-
 async function isContainedFile(root: string, candidate: string): Promise<boolean> {
   const info = await lstat(candidate).catch(() => null);
   if (!info?.isFile() || info.isSymbolicLink()) return false;
@@ -1157,30 +1125,6 @@ async function isContainedFile(root: string, candidate: string): Promise<boolean
 function pathIsInside(root: string, candidate: string): boolean {
   return candidate === root || candidate.startsWith(root.endsWith(sep) ? root : `${root}${sep}`);
 }
-
-const MIME_TYPES: Record<string, string> = {
-  ".atom": "application/atom+xml",
-  ".css": "text/css; charset=utf-8",
-  ".gif": "image/gif",
-  ".html": "text/html; charset=utf-8",
-  ".ico": "image/x-icon",
-  ".jpeg": "image/jpeg",
-  ".jpg": "image/jpeg",
-  ".js": "application/javascript; charset=utf-8",
-  ".json": "application/json; charset=utf-8",
-  ".markdown": "text/markdown; charset=utf-8",
-  ".md": "text/markdown; charset=utf-8",
-  ".otf": "font/otf",
-  ".png": "image/png",
-  ".svg": "image/svg+xml",
-  ".ttf": "font/ttf",
-  ".txt": "text/plain; charset=utf-8",
-  ".webmanifest": "application/manifest+json",
-  ".webp": "image/webp",
-  ".woff": "font/woff",
-  ".woff2": "font/woff2",
-  ".xml": "application/xml; charset=utf-8",
-};
 
 // The contract the factory returns, carried in this package's own declarations
 // so a value of it can be named without importing `@pracht/vite-plugin`.

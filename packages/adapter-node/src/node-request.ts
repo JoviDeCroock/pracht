@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { Readable } from "node:stream";
-import { normalizeResponseHeaders } from "@pracht/core/server";
+import { applyDefaultSecurityHeaders, normalizeResponseHeaders } from "@pracht/core/server";
 
 import {
   COMPRESSION_MIN_SIZE,
@@ -181,7 +181,9 @@ export function pipeToResponse(source: NodeJS.ReadableStream, res: ServerRespons
 export function createClientDisconnectSignal(
   req: IncomingMessage,
   res: ServerResponse,
-): AbortSignal {
+): AbortSignal | undefined {
+  // Connect-style middleware stacks (Vite dev) can hand over non-stream stand-ins.
+  if (typeof req.on !== "function" || typeof res.on !== "function") return undefined;
   const controller = new AbortController();
   const abortIfUnfinished = (): void => {
     if (res.writableFinished || controller.signal.aborted) return;
@@ -194,32 +196,79 @@ export function createClientDisconnectSignal(
   return controller.signal;
 }
 
+/** Options for turning a `node:http` request into a Web `Request`. */
+export interface NodeBridgeOptions {
+  /** Largest request body read, in bytes (default 1 MiB). A larger one is answered with 413. */
+  maxBodySize?: number;
+  /**
+   * Build `request.url` from `Forwarded` / `X-Forwarded-*` headers (default
+   * `false`). Enable only behind a trusted reverse proxy.
+   */
+  trustProxy?: boolean;
+  /** Public origin for `request.url`; wins over `Host` and forwarded headers. */
+  canonicalOrigin?: string;
+  /**
+   * Deploy base an upstream middleware already removed from `req.url` (Vite's
+   * dev server does). It is put back so `request.url` is the URL the visitor
+   * asked for.
+   */
+  base?: string;
+}
+
+/**
+ * Turn a `node:http` request into a Web `Request`, or into the `Response` that
+ * answers it: 413 for a body over `maxBodySize` (checked against a declared
+ * `Content-Length` before any byte is read) and 400 for a request target or
+ * `Host` that does not form a URL. Both carry the default security headers.
+ *
+ * `request.signal` aborts when the client disconnects before `res` finished.
+ * It is the client's signal only; the framework adds its own deadlines.
+ */
 export async function createWebRequest(
   req: IncomingMessage,
-  options: {
-    trustProxy: boolean;
-    canonicalOrigin?: string;
-    maxBodySize?: number;
-    /** Aborts loaders, middleware, and API handlers when the client hangs up. */
-    signal?: AbortSignal;
-  },
-): Promise<Request> {
-  const baseUrl = resolveRequestBase(req, options);
-  const url = new URL(normalizeRequestTarget(req.url, options), baseUrl);
+  res: ServerResponse,
+  options: NodeBridgeOptions = {},
+): Promise<Request | Response> {
+  // Created before the body is read: a client that hangs up mid-upload has
+  // to abort the work its request already started.
+  const signal = createClientDisconnectSignal(req, res);
   const method = req.method ?? "GET";
-  const headers = createHeaders(req.headers);
-  const init: RequestInit = {
-    headers,
-    method,
-    signal: options.signal,
-  };
 
+  let url: URL;
+  try {
+    url = new URL(
+      restoreBase(normalizeRequestTarget(req.url, options), options.base),
+      resolveRequestBase(req, options),
+    );
+  } catch {
+    return createBridgeErrorResponse(400, "Bad Request");
+  }
+
+  const init: RequestInit = { headers: createHeaders(req.headers), method, signal };
   if (!BODYLESS_METHODS.has(method.toUpperCase())) {
     const body = await readRequestBody(req, options.maxBodySize ?? DEFAULT_MAX_BODY_SIZE);
+    // The rest of the body is never read, so the connection cannot be reused.
+    if (body === null) return createBridgeErrorResponse(413, "Payload Too Large", true);
     if (body.byteLength > 0) init.body = body;
   }
 
   return new Request(url, init);
+}
+
+function createBridgeErrorResponse(status: number, body: string, close = false): Response {
+  const headers = applyDefaultSecurityHeaders(
+    new Headers({
+      "cache-control": "no-store",
+      "content-type": "text/plain; charset=utf-8",
+    }),
+  );
+  if (close) headers.set("connection", "close");
+  return new Response(body, { headers, status });
+}
+
+function restoreBase(target: string, base: string | undefined): string {
+  if (!base || base === "/" || !target.startsWith("/")) return target;
+  return `${base.endsWith("/") ? base : `${base}/`}${target.slice(1)}`;
 }
 
 function normalizeRequestTarget(
@@ -442,13 +491,13 @@ function getSetCookieHeaders(headers: Headers): string[] {
  */
 function resolveRequestBase(
   req: IncomingMessage,
-  options: { trustProxy: boolean; canonicalOrigin?: string },
+  options: { trustProxy?: boolean; canonicalOrigin?: string },
 ): URL {
   if (options.canonicalOrigin) {
     return new URL(options.canonicalOrigin);
   }
 
-  const { protocol, host } = resolveOrigin(req, options.trustProxy);
+  const { protocol, host } = resolveOrigin(req, options.trustProxy ?? false);
   return new URL(`${protocol}://${host}`);
 }
 
@@ -456,10 +505,9 @@ function resolveOrigin(
   req: IncomingMessage,
   trustProxy: boolean,
 ): { protocol: string; host: string } {
-  const socketProtocol =
-    "encrypted" in req.socket && (req.socket as { encrypted?: boolean }).encrypted
-      ? "https"
-      : "http";
+  const socketProtocol = (req.socket as { encrypted?: boolean } | undefined)?.encrypted
+    ? "https"
+    : "http";
   const socketHost = getFirstHeaderValue(req.headers.host) ?? "localhost";
 
   if (!trustProxy) {
@@ -527,16 +575,17 @@ function createHeaders(headers: IncomingMessage["headers"]): Headers {
 /**
  * Buffer the request body into one exactly-sized `Uint8Array`: each chunk is
  * copied once, and the result owns its `ArrayBuffer` (a pooled `Buffer` would
- * expose neighbouring bytes through `.buffer`). A declared `Content-Length`
- * over the limit is rejected before any of the body is read.
+ * expose neighbouring bytes through `.buffer`). Returns `null` for a body over
+ * the limit; a declared `Content-Length` over it is rejected before any of the
+ * body is read.
  */
 async function readRequestBody(
   req: IncomingMessage,
   maxBodySize: number,
-): Promise<Uint8Array<ArrayBuffer>> {
+): Promise<Uint8Array<ArrayBuffer> | null> {
   const declaredLength = Number(req.headers["content-length"]);
   if (Number.isFinite(declaredLength) && declaredLength > maxBodySize) {
-    throw new Error("Request body too large");
+    return null;
   }
 
   const chunks: Uint8Array[] = [];
@@ -546,7 +595,7 @@ async function readRequestBody(
     const buf: Uint8Array = typeof chunk === "string" ? Buffer.from(chunk) : chunk;
     totalSize += buf.byteLength;
     if (totalSize > maxBodySize) {
-      throw new Error("Request body too large");
+      return null;
     }
     chunks.push(buf);
   }

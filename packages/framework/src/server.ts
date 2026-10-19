@@ -328,6 +328,14 @@ export type {
 } from "./prerender.ts";
 
 export {
+  decodeStaticPath,
+  staticContentType,
+  staticPathCandidates,
+  type StaticPathCandidateOptions,
+  type StaticPathDecodeFailure,
+  type StaticPathDecodeResult,
+} from "./static-path.ts";
+export {
   applyHeadersManifest,
   expandHeadersManifest,
   getManifestHeaders,

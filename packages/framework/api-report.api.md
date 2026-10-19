@@ -1063,6 +1063,9 @@ SqlApprovalStoreDialect: type
 SqlApprovalStoreExecute: type
 SqlApprovalStoreOptions: interface
 SqlApprovalStoreResult: interface
+StaticPathCandidateOptions: interface
+StaticPathDecodeFailure: type
+StaticPathDecodeResult: type
 TRAILING_SLASH: const
 TimeRevalidatePolicy: interface
 TypedJsonResponse: interface
@@ -1097,6 +1100,7 @@ createRevalidationSingleFlight: function
 createSqlApprovalStore: function
 createTrailingSlashRedirectResponse: function @internal
 createWaitUntilTracker: function
+decodeStaticPath: function
 defineApi: function
 defineApp: function
 describeRenderError: function
@@ -1166,6 +1170,8 @@ setIslandsClientEntryUrl: function
 setServerEnv: function
 setServerIslandsClientEntryUrl: function
 shareHeadersManifest: function
+staticContentType: function
+staticPathCandidates: function
 stripBase: function
 timeRevalidate: function
 useServerIslandData: function
