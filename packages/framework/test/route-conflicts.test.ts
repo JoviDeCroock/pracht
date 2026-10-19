@@ -111,6 +111,10 @@ describe("route declaration-order diagnostics", () => {
         route("/download/100%", "./routes/full.tsx", { id: "full" }),
         route("/files/:name", "./routes/file.tsx", { id: "file" }),
         route("/files/50%off", "./routes/sale.tsx", { id: "sale" }),
+        route("/:lang/about", "./routes/about.tsx", { id: "about" }),
+        route("/100%/about", "./routes/full-about.tsx", { id: "full-about" }),
+        route("/:rest*", "./routes/rest.tsx", { id: "rest" }),
+        route("/tags/%E0%A4%A", "./routes/tag.tsx", { id: "tag" }),
       ],
     });
 

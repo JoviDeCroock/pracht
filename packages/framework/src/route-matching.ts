@@ -189,71 +189,228 @@ export function matchIndexedResolvedRoute(
   return match && { route: match.route, params: match.params, pathname: normalizedPathname };
 }
 
-interface RouteIndex {
-  /** Fully static paths → the first route declaring that path. */
-  exact: Map<string, number>;
-  /** Routes with a parameter, by their static first segment. */
-  byFirstSegment: Map<string, number[]>;
-  /** Routes with a parameter or catch-all first, which any path may match. */
-  anyFirstSegment: number[];
-}
-
-let routeIndexes: WeakMap<readonly RouteDefinitionWithSegments[], RouteIndex> | undefined;
+let routeIndexes: WeakMap<readonly RouteDefinitionWithSegments[], SegmentIndex> | undefined;
 
 type RouteDefinitionWithSegments = ResolvedPrachtApp["routes"][number];
 
-function getRouteIndex(routes: readonly RouteDefinitionWithSegments[]): RouteIndex {
-  const cache = (routeIndexes ??= new WeakMap());
-  let index = cache.get(routes);
-  if (index) return index;
-  index = { exact: new Map(), byFirstSegment: new Map(), anyFirstSegment: [] };
-  for (let position = 0; position < routes.length; position += 1) {
-    const segments = routes[position]!.segments;
-    if (segments.every((segment) => segment.type === "static")) {
-      const path = `/${segments.map((segment) => (segment as { value: string }).value).join("/")}`;
-      if (!index.exact.has(path)) index.exact.set(path, position);
-      continue;
-    }
-    const first = segments[0]!;
-    if (first.type !== "static") {
-      index.anyFirstSegment.push(position);
-      continue;
-    }
-    const bucket = index.byFirstSegment.get(first.value);
-    if (bucket) bucket.push(position);
-    else index.byFirstSegment.set(first.value, [position]);
-  }
-  cache.set(routes, index);
-  return index;
-}
-
 /**
- * First-match semantics without the scan: the earliest of the exact static
- * route and the dynamic routes that could match the first segment, tried in
- * declaration order.
+ * First-match semantics without the scan: the routes the index says could
+ * match, tried in declaration order.
  */
 function matchIndexedRoute(
   routes: readonly RouteDefinitionWithSegments[],
   targetSegments: string[],
 ): { route: RouteDefinitionWithSegments; params: RouteParams } | undefined {
-  const index = getRouteIndex(routes);
-  const exact = index.exact.get(`/${targetSegments.join("/")}`) ?? routes.length;
-  const named =
-    targetSegments.length > 0 ? index.byFirstSegment.get(targetSegments[0]!) : undefined;
-  const any = index.anyFirstSegment;
-  let left = 0;
-  let right = 0;
-  for (;;) {
-    const fromNamed = named !== undefined && left < named.length ? named[left]! : routes.length;
-    const fromAny = right < any.length ? any[right]! : routes.length;
-    const position = fromNamed < fromAny ? fromNamed : fromAny;
-    if (position >= exact) break;
-    if (position === fromNamed) left += 1;
-    else right += 1;
+  const cache = (routeIndexes ??= new WeakMap());
+  let index = cache.get(routes);
+  if (!index) cache.set(routes, (index = indexSegments(routes)));
+  for (const position of index.candidates(targetSegments)) {
     const params = matchRouteSegments(routes[position]!.segments, targetSegments);
     if (params) return { route: routes[position]!, params };
   }
-  return exact < routes.length ? { route: routes[exact]!, params: {} } : undefined;
+  return undefined;
+}
+
+// --- Route-pattern algebra -------------------------------------------------
+// Questions about patterns rather than one URL: does one pattern match every
+// URL another does (manifest conflict warnings), could two match the same URL
+// (the islands-navigation table), and which patterns could match a URL at all
+// (the server's index). Each answer follows `matchRouteSegments` exactly: a
+// static segment matches its own spelling, a parameter one segment that
+// percent-decodes, and a catch-all the rest of the path (none of it, too) if
+// every segment decodes. Segments after a catch-all never take part.
+
+/** Whether `segment` percent-decodes, which a parameter or catch-all requires. */
+function decodes(segment: string): boolean {
+  try {
+    decodeURIComponent(segment);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Whether a URL segment exists that both `a` and `b` match at one position. */
+function segmentsMeet(a: RouteSegment, b: RouteSegment): boolean {
+  if (a.type === "static") return b.type === "static" ? a.value === b.value : decodes(a.value);
+  return b.type !== "static" || decodes(b.value);
+}
+
+/** Whether `segments` from `from` on can match a path of decodable segments only. */
+function restDecodes(segments: readonly RouteSegment[], from: number): boolean {
+  for (let index = from; index < segments.length; index += 1) {
+    const segment = segments[index]!;
+    if (segment.type === "catchall") return true;
+    if (segment.type === "static" && !decodes(segment.value)) return false;
+  }
+  return true;
+}
+
+/** Whether every pathname `later` matches is also matched by `earlier`. */
+export function routeCovers(
+  earlier: readonly RouteSegment[],
+  later: readonly RouteSegment[],
+): boolean {
+  for (let index = 0; ; index += 1) {
+    const segment = earlier[index];
+    const other = later[index];
+    if (segment?.type === "catchall") return restDecodes(later, index);
+    if (segment === undefined || other === undefined) return segment === other;
+    if (other.type === "catchall") return false;
+    if (segment.type === "static") {
+      if (other.type !== "static" || other.value !== segment.value) return false;
+    } else if (other.type === "static" && !decodes(other.value)) {
+      // A parameter rejects a segment that does not percent-decode, which a
+      // static segment such as `100%` still matches literally.
+      return false;
+    }
+  }
+}
+
+/** Whether some pathname matches both `a` and `b`. */
+export function routesOverlap(a: readonly RouteSegment[], b: readonly RouteSegment[]): boolean {
+  for (let index = 0; ; index += 1) {
+    const left = a[index];
+    const right = b[index];
+    if (left?.type === "catchall") return restDecodes(b, index);
+    if (right?.type === "catchall") return restDecodes(a, index);
+    if (left === undefined || right === undefined) return left === right;
+    if (!segmentsMeet(left, right)) return false;
+  }
+}
+
+/**
+ * Patterns indexed by the segment at each position, so a question about one
+ * URL or pattern looks at the few patterns that could answer it instead of
+ * scanning them all. Ids are assigned in the order patterns are added, and
+ * every list of candidates comes back in that order.
+ */
+export interface SegmentIndex {
+  /** Add the next pattern; it gets the next id, starting at 0. */
+  add(segments: readonly RouteSegment[]): void;
+  /**
+   * Every pattern that may match the concrete path `target`: a superset, in id
+   * order, for the caller to check with `matchRouteSegments`.
+   */
+  candidates(target: readonly string[]): number[];
+  /**
+   * Every pattern that may share a pathname with `pattern`: a superset of the
+   * ones `routesOverlap` or `routeCovers` accepts, in id order.
+   */
+  overlapping(pattern: readonly RouteSegment[]): number[];
+}
+
+export function indexSegments(
+  routes: readonly { segments: readonly RouteSegment[] }[] = [],
+): SegmentIndex {
+  // Per position: patterns with that static value there, and patterns with a
+  // parameter there. Catch-all patterns are listed apart, with the position
+  // of their catch-all, since they accept any segment from there on.
+  const staticAt: Map<string, number[]>[] = [];
+  const paramAt: number[][] = [];
+  const byLength: number[][] = [];
+  const catchAlls: number[] = [];
+  const catchAllAt: number[] = [];
+  let count = 0;
+
+  const add = (segments: readonly RouteSegment[]) => {
+    const id = count++;
+    for (let index = 0; index < segments.length; index += 1) {
+      const segment = segments[index]!;
+      if (segment.type === "catchall") {
+        catchAlls.push(id);
+        catchAllAt.push(index);
+        return;
+      }
+      if (segment.type === "param") {
+        (paramAt[index] ??= []).push(id);
+      } else {
+        const statics = (staticAt[index] ??= new Map());
+        const list = statics.get(segment.value);
+        if (list) list.push(id);
+        else statics.set(segment.value, [id]);
+      }
+    }
+    (byLength[segments.length] ??= []).push(id);
+  };
+
+  /**
+   * The narrowest list that holds every pattern able to meet a query of
+   * `length` segments (plus a catch-all, when `rest`) whose static segments
+   * `staticOf` names, and the catch-all patterns that start early enough.
+   */
+  const lookup = (
+    length: number,
+    rest: boolean,
+    staticOf: (index: number) => string | undefined,
+  ): number[] => {
+    let best: number[][] | undefined;
+    let bestSize = Infinity;
+    // Catch-all patterns from position `upTo` on can meet anything there.
+    let upTo = -1;
+    if (!rest) {
+      best = [byLength[length] ?? []];
+      bestSize = best[0]!.length;
+      upTo = length;
+    }
+    for (let index = 0; index < length; index += 1) {
+      const value = staticOf(index);
+      if (value === undefined) continue;
+      const statics = staticAt[index]?.get(value) ?? [];
+      const params = paramAt[index] ?? [];
+      const size = statics.length + params.length;
+      if (size < bestSize) {
+        best = [statics, params];
+        bestSize = size;
+        upTo = index;
+      }
+    }
+    if (!best) {
+      // Only parameters before a catch-all: anything may meet it.
+      return Array.from({ length: count }, (_, id) => id);
+    }
+    const early: number[] = [];
+    for (let position = 0; position < catchAlls.length; position += 1) {
+      if (catchAllAt[position]! <= upTo) early.push(catchAlls[position]!);
+    }
+    return mergeAscending([...best, early]);
+  };
+
+  for (const route of routes) add(route.segments);
+
+  return {
+    add,
+    candidates: (target) => lookup(target.length, false, (index) => target[index]),
+    overlapping(pattern) {
+      let length = pattern.findIndex((segment) => segment.type === "catchall");
+      const rest = length !== -1;
+      if (!rest) length = pattern.length;
+      return lookup(length, rest, (index) => {
+        const segment = pattern[index]!;
+        return segment.type === "static" ? segment.value : undefined;
+      });
+    },
+  };
+}
+
+/** Merge ascending id lists into one ascending list without repeats. */
+function mergeAscending(lists: readonly (readonly number[])[]): number[] {
+  const nonEmpty = lists.filter((list) => list.length > 0);
+  if (nonEmpty.length === 1) return nonEmpty[0] as number[];
+  const merged: number[] = [];
+  const cursors = nonEmpty.map(() => 0);
+  for (;;) {
+    let next = Infinity;
+    for (let list = 0; list < nonEmpty.length; list += 1) {
+      const value = nonEmpty[list]![cursors[list]!];
+      if (value !== undefined && value < next) next = value;
+    }
+    if (next === Infinity) return merged;
+    merged.push(next);
+    for (let list = 0; list < nonEmpty.length; list += 1) {
+      if (nonEmpty[list]![cursors[list]!] === next) cursors[list] = cursors[list]! + 1;
+    }
+  }
 }
 
 export function buildPathFromSegments(

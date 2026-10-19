@@ -205,7 +205,7 @@ describe("published package tree shaking", () => {
       define: { "import.meta.env.DEV": "false" },
     });
     expect(code).toContain("matchAppRoute");
-    expect(code).not.toContain("anyFirstSegment");
+    expect(code).not.toContain("overlapping");
   });
 
   it("drops Web Vitals when another browser export is used", async () => {
