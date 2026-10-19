@@ -81,12 +81,6 @@ describe("matchRoute", () => {
     expect(matchRoute(table, "https://elsewhere.example/blog/hello")).toBeUndefined();
   });
 
-  it("matches a static segment in either percent-escape case, as the server does", () => {
-    expect(matchRoute(["+/caf%C3%A9"], at("/caf%c3%a9"))).toBe("+/caf%C3%A9");
-    expect(matchRoute(["+/caf%c3%a9"], at("/caf%C3%A9"))).toBe("+/caf%c3%a9");
-    expect(matchRoute(["+/caf%C3%A9"], at("/cafe"))).toBeUndefined();
-  });
-
   it("does not match a segment the server could not decode", () => {
     expect(matchRoute(["+/blog/:slug"], at("/blog/%E0%A4%A"))).toBeUndefined();
     expect(matchRoute(["+/docs/*"], at("/docs/a/%E0%A4%A"))).toBeUndefined();

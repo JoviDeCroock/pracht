@@ -453,7 +453,7 @@ function readNavigationData(doc: Document): NavigationData | null {
 
 /**
  * The route table entry the server would answer `href` with, matched the way
- * the server matches: first match wins, statics compare in either escape case, a parameter takes
+ * the server matches: first match wins, statics compare raw, a parameter takes
  * one decodable segment, a catch-all the rest. Undefined for a URL outside the
  * app (another origin, outside the deploy base) or one no entry matches.
  */
@@ -475,10 +475,7 @@ export function matchRoute(table: readonly string[], href: string): string | und
         break;
       }
       const part = target[i];
-      if (
-        part === undefined ||
-        (segment[0] === ":" ? !decodes(part) : segment !== part && !sameEscapes(segment, part))
-      ) {
+      if (part === undefined || (segment[0] === ":" ? !decodes(part) : segment !== part)) {
         matched = false;
         break;
       }
@@ -486,15 +483,6 @@ export function matchRoute(table: readonly string[], href: string): string | und
     if (matched && (segments.length === target.length || entry.endsWith("*"))) return entry;
   }
   return undefined;
-}
-
-/** Equal once every percent-escape is upper case, as the server compares statics. */
-function sameEscapes(segment: string, part: string): boolean {
-  return upperEscapes(segment) === upperEscapes(part);
-}
-
-function upperEscapes(value: string): string {
-  return value.replace(/%[0-9a-f]{2}/gi, (escape) => escape.toUpperCase());
 }
 
 /**
