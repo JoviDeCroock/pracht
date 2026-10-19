@@ -96,7 +96,7 @@ app.use("*", async (context, next) => {
 
 The host owns unknown URLs below `/api/capabilities/` and answers them with a typed 404 envelope. URLs outside its generated and custom capability paths fall through to your router.
 
-The default protections match the framework host: non-GET browser calls require same-origin provenance, errors are redacted, and default security headers are applied. Set `requireSameOrigin`, `exposeErrors`, or `securityHeaders` only when the embedding server deliberately owns that policy.
+The default protections match the framework host: non-GET browser calls require same-origin provenance, errors are redacted, and default security headers are applied. Set `requireSameOrigin`, `exposeErrors`, or `securityHeaders` only when the embedding server deliberately owns that policy. Each request gets a 30-second budget: the `signal` that middleware and `run()` receive aborts when it runs out or the client disconnects. Set `loaderTimeoutMs` to change it, as you would in `defineApp()`.
 
 ## Context, Middleware, and Trust
 

@@ -194,8 +194,11 @@ request budget in [DATA_LOADING.md](DATA_LOADING.md)). The dispatch holds it
 while `waitUntil()` work runs, and a failed dispatch (status 500 and up, before
 MCP turns it into a 200 tool error) keeps it until the timer fires; a rejected
 call (bad input, wrong method) releases it. `createCapabilityHost` makes one
-budget per request it owns (30 s), shared by the MCP or HTTP dispatch, composed
-invocations, and `waitUntil()` work. A direct `handleCapabilityRequest()` call
+budget per request it owns, of its own `loaderTimeoutMs` option (30 s by
+default, validated like `defineApp`'s), shared by the MCP or HTTP dispatch,
+composed invocations, and `waitUntil()` work; `host.invoke()` without a
+`signal` uses the same length through `CapabilityHost.timeoutMs`. A direct
+`handleCapabilityRequest()` call
 without `budget`, and `invokeCapability()` without a `signal`, get their own of
 `timeoutMs` (30 s) with the same holds. All of them are `createRequestBudget`;
 there is no second implementation. The `api.middleware` chain and capability
