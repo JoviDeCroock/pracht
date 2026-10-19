@@ -8,7 +8,6 @@
 export * from "./server/index.ts";
 export {
   createRequestBudget,
-  failureKeepsBudget,
   holdingWaitUntil,
   holdUntilBodySettles,
   releaseBudgetWith,
