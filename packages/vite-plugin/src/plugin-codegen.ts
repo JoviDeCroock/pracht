@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
-import { dirname, extname, join, posix, resolve } from "node:path";
+import { dirname, extname, join, resolve } from "node:path";
 import { parseAst } from "vite";
 import { getRolldownLang, PRACHT_CLIENT_MODULE_QUERY } from "./client-module-query.ts";
 import {
@@ -27,6 +27,7 @@ import {
   type FileStamp,
   type RouteHints,
 } from "./route-loader-hints.ts";
+import { fileModuleId } from "./module-id.ts";
 import { findAppRootModule } from "./plugin-app-root.ts";
 import { createWebmcpBootstrapSource, hasWebmcpCapabilities } from "./plugin-capabilities.ts";
 import {
@@ -1617,13 +1618,11 @@ function createClientRouteHintTable(
   const table: Record<string, number> = {};
   const keys = new Set([...Object.keys(hints.loader), ...Object.keys(hints.head)]);
   for (const key of keys) {
+    // Root-absolute keys are module ids, which is what the entry's
+    // `canonicalModuleKey` turns every ref into before the lookup.
     if (!key.startsWith("/")) continue;
-    // The entry canonicalizes every ref before the lookup (`..` and `.`
-    // segments collapse), so a configured directory like
-    // `/src/other/../routes` must produce the same key.
-    const canonical = posix.normalize(key);
-    table[canonical] =
-      (table[canonical] ?? 0) |
+    table[key] =
+      (table[key] ?? 0) |
       (hints.loader[key] === true ? HINT_LOADER : 0) |
       (hints.head[key] === true ? HINT_HEAD : 0) |
       (staticPaths && hints.staticPaths[key] === true ? HINT_STATIC_PATHS : 0);
@@ -1786,7 +1785,7 @@ export function createRouteHintsForVirtualModules(
     const scanned = createRouteHints(directory, {
       additionalExtensions: options.additionalExtensions,
       appFileDir,
-      rootRelativePrefix: prefix,
+      root,
     });
     merge(
       scanned,
@@ -1807,7 +1806,7 @@ export function createRouteHintsForVirtualModules(
           additionalExtensions: options.additionalExtensions,
           appFileDir,
           files: [resolve(root, file.slice(1))],
-          rootRelativePrefix: dirname(file),
+          root,
         });
         merge(scanned, isRoute, !isRoute);
       }
@@ -1828,7 +1827,7 @@ export function createRouteHintsForVirtualModules(
       resolve(root, options.pagesDir.slice(1)),
       options.additionalExtensions,
     )) {
-      const key = `${options.pagesDir}/${page.relativePath.replace(/\\/g, "/")}`;
+      const key = fileModuleId(root, page.absolutePath);
       hints.loader[key] = hints.routeLoader[key] = !!page.hasLoader;
     }
   }
@@ -1858,7 +1857,7 @@ export function createServerLoaderHintsForHotUpdates(
   root = process.cwd(),
 ): Record<string, true> {
   const hints = createRouteLoaderHints(resolve(root, options.serverDir.slice(1)), {
-    rootRelativePrefix: options.serverDir,
+    root,
   });
   return Object.fromEntries(
     Object.entries(hints).filter((entry): entry is [string, true] => entry[1] === true),

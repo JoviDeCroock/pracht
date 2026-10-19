@@ -77,7 +77,6 @@ import {
   invalidateManifestModuleFacts,
   isEjectedPagesLayout,
 } from "./plugin-codegen.ts";
-import { invalidatePageFacts } from "./pages-router.ts";
 import {
   createDevCssInjectionMiddleware,
   createDevMcpPreflightMiddleware,
@@ -97,7 +96,8 @@ import {
   withAdditionalExtensions,
 } from "./route-extensions.ts";
 import type { PrachtAdapter } from "./plugin-adapter.ts";
-import { invalidateRouteFileAnalysis, type RouteHints } from "./route-loader-hints.ts";
+import { getAnalysisSession } from "./analysis.ts";
+import type { RouteHints } from "./route-loader-hints.ts";
 import { isNonModuleFile, moduleGlob } from "./source-files.ts";
 
 function emptyRouteHints(): RouteHints {
@@ -737,9 +737,8 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
     handleHotUpdate({ file, modules = [], server }) {
       // The analysis caches check file stamps on every read; dropping the
       // saved file as well covers filesystems with coarse timestamps.
-      invalidateRouteFileAnalysis(file);
+      getAnalysisSession(resolved, root).invalidate(file);
       invalidateManifestModuleFacts(file);
-      invalidatePageFacts(file);
       const serverRoot = toPosixPath(server.config.root);
       const normalizedFile = toPosixPath(file);
       const relative = normalizedFile.startsWith(serverRoot)

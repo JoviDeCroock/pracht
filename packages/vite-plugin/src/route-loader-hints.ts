@@ -1,10 +1,11 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
-import { extname, join, relative } from "node:path";
+import { extname, join, posix, relative } from "node:path";
 
 import { parse as parseModule } from "@babel/parser";
 import {
   evaluateLiteral,
   maskCommentsAndStrings,
+  maskMarkdownFences,
   readNamedExportInitializer,
 } from "@pracht/capabilities/static";
 import { initSync, parse } from "es-module-lexer";
@@ -14,6 +15,7 @@ import {
   normalizeAdditionalExtensions,
   withAdditionalExtensions,
 } from "./route-extensions.ts";
+import { fileModuleId } from "./module-id.ts";
 import { isNonModuleDirectoryName, isNonModuleFile } from "./source-files.ts";
 
 initSync();
@@ -291,11 +293,29 @@ function exportedNameMatches(node: unknown, exportName: string): boolean {
  * parse: four separate `inspectParsedModule()` calls used to parse each route
  * module four times, once per table.
  */
+type ParserPlugins = readonly ("typescript" | "jsx")[];
+
+/** Every syntax a route module may be written in, tried in order. */
+const ANY_SCRIPT_PLUGINS: readonly ParserPlugins[] = [["typescript", "jsx"], ["typescript"]];
+
+/**
+ * The one parser configuration a file's extension calls for, or none for a
+ * format no standard parser reads (Markdown, TSRX, a configured extension):
+ * those go straight to the lexical fallback instead of failing a parse first.
+ */
+function parserPluginsFor(file: string): readonly ParserPlugins[] {
+  const extension = extname(file).toLowerCase();
+  if (extension === ".ts" || extension === ".mts" || extension === ".cts") return [["typescript"]];
+  if ([".tsx", ".jsx", ".js", ".mjs", ".cjs"].includes(extension)) return [["typescript", "jsx"]];
+  return [];
+}
+
 function inspectParsedModuleExports(
   source: string,
   exportNames: readonly string[],
+  attempts: readonly ParserPlugins[] = ANY_SCRIPT_PLUGINS,
 ): Record<string, boolean> | undefined {
-  for (const plugins of [["typescript", "jsx"], ["typescript"]] as const) {
+  for (const plugins of attempts) {
     let body: SyntaxNode[];
     try {
       const parsed = parseModule(source, {
@@ -462,6 +482,8 @@ export interface RouteHintOptions {
   appFileDir?: string;
   /** Read exactly these files (absolute paths) instead of walking `routesDir`. */
   files?: readonly string[];
+  /** The project root: keys are then module ids rather than `rootRelativePrefix` paths. */
+  root?: string;
   rootRelativePrefix?: string;
 }
 
@@ -488,8 +510,8 @@ export interface RouteHints {
 
 const ROUTE_HINT_EXPORTS = ["loader", "head", "headers", "getStaticPaths", "search"] as const;
 
-function analyzeRouteExports(source: string): Record<string, boolean> {
-  const parsed = inspectParsedModuleExports(source, ROUTE_HINT_EXPORTS);
+function analyzeRouteExports(source: string, file: string): Record<string, boolean> {
+  const parsed = inspectParsedModuleExports(source, ROUTE_HINT_EXPORTS, parserPluginsFor(file));
   if (parsed) return parsed;
 
   // No standard parser accepted this module (a custom route syntax such as
@@ -524,49 +546,69 @@ export function sameFileStamp(a: FileStamp, b: FileStamp): boolean {
   return a.mtimeMs === b.mtimeMs && a.ctimeMs === b.ctimeMs && a.size === b.size;
 }
 
-interface RouteFileAnalysis {
-  exports: Record<string, boolean>;
-  capabilities: string[];
+/**
+ * What one route, shell, or page module exports, read once per version of the
+ * file: the names among `loader`, `head`, `headers`, `getStaticPaths`, and
+ * `search` it may export, and its literal `CAPABILITIES` list. Markdown is read
+ * with its fenced code masked, so an example in a fence is not an export.
+ */
+export interface ModuleFacts {
+  exports: ReadonlySet<string>;
+  capabilities: readonly string[];
+  stamp: FileStamp;
 }
 
 /**
- * Parsed export facts per route or shell file, keyed by path and checked
- * against the file's stamp. Every save regenerates up to four virtual modules,
- * each of which reads these facts for every route; without the cache each of
- * them re-read and re-parsed every file, so one edit cost O(routes) parses
- * several times over.
+ * Module facts per file, keyed by path and checked against the file's stamp.
+ * Every save regenerates up to four virtual modules, and the pages scanner and
+ * the hint tables each ask about the same files; with one cache they share a
+ * single read and a single parse of every unchanged file.
  */
-const routeFileAnalysisCache = new Map<string, { stamp: FileStamp; analysis: RouteFileAnalysis }>();
+const moduleFactsCache = new Map<string, ModuleFacts>();
 
 /** Forget cached facts for `file`, or for every file. */
-export function invalidateRouteFileAnalysis(file?: string): void {
-  if (file === undefined) routeFileAnalysisCache.clear();
-  else routeFileAnalysisCache.delete(file);
+export function invalidateModuleFacts(file?: string): void {
+  if (file === undefined) moduleFactsCache.clear();
+  else moduleFactsCache.delete(file);
 }
 
-function analyzeRouteFile(file: string, stamp: FileStamp | undefined): RouteFileAnalysis | null {
-  const cached = routeFileAnalysisCache.get(file);
-  if (cached && stamp && sameFileStamp(cached.stamp, stamp)) return cached.analysis;
+/**
+ * The facts of the module at absolute path `file`, or `null` when it cannot be
+ * read. `stamp` saves a second `stat` when the caller just listed the file.
+ */
+export function readModuleFacts(file: string, stamp?: FileStamp): ModuleFacts | null {
+  if (!stamp) {
+    try {
+      stamp = fileStamp(statSync(file));
+    } catch {
+      moduleFactsCache.delete(file);
+      return null;
+    }
+  }
+  const cached = moduleFactsCache.get(file);
+  if (cached && sameFileStamp(cached.stamp, stamp)) return cached;
 
   let source: string;
   try {
-    source = readFileSync(file, "utf-8");
+    source = maskMarkdownFences(readFileSync(file, "utf-8"), file);
   } catch {
-    routeFileAnalysisCache.delete(file);
+    moduleFactsCache.delete(file);
     return null;
   }
+  const exported = analyzeRouteExports(source, file);
   const capabilityInitializer = readNamedExportInitializer(source, "CAPABILITIES");
   const capabilityValue = capabilityInitializer
     ? evaluateLiteral(capabilityInitializer)
     : undefined;
-  const analysis: RouteFileAnalysis = {
-    exports: analyzeRouteExports(source),
+  const facts: ModuleFacts = {
+    exports: new Set(ROUTE_HINT_EXPORTS.filter((name) => exported[name])),
     capabilities: Array.isArray(capabilityValue)
       ? capabilityValue.filter((name): name is string => typeof name === "string")
       : [],
+    stamp,
   };
-  if (stamp) routeFileAnalysisCache.set(file, { stamp, analysis });
-  return analysis;
+  moduleFactsCache.set(file, facts);
+  return facts;
 }
 
 function routeHintKeys(routesDir: string, file: string, options: RouteHintOptions): Set<string> {
@@ -575,9 +617,16 @@ function routeHintKeys(routesDir: string, file: string, options: RouteHintOption
     const relativeToAppFile = toPosixPath(relative(options.appFileDir, file));
     keys.add(relativeToAppFile.startsWith(".") ? relativeToAppFile : `./${relativeToAppFile}`);
   }
-  const routeRootPrefix = options.rootRelativePrefix?.replace(/\/$/, "");
-  if (routeRootPrefix) {
-    keys.add(`${routeRootPrefix}/${toPosixPath(relative(routesDir, file))}`);
+  if (options.root) {
+    // The module's id, which is what every lookup canonicalizes a ref to: a
+    // configured directory such as `/src/other/../routes` must not leak its
+    // alias into the key.
+    keys.add(fileModuleId(options.root, file));
+  } else {
+    const routeRootPrefix = options.rootRelativePrefix?.replace(/\/$/, "");
+    if (routeRootPrefix) {
+      keys.add(posix.normalize(`${routeRootPrefix}/${toPosixPath(relative(routesDir, file))}`));
+    }
   }
   return keys;
 }
@@ -610,14 +659,14 @@ export function createRouteHints(routesDir: string, options: RouteHintOptions = 
   };
 
   for (const file of scan.files) {
-    const analysis = analyzeRouteFile(file, scan.stats.get(file));
-    if (!analysis) {
+    const facts = readModuleFacts(file, scan.stats.get(file));
+    if (!facts) {
       // Same race as the stat above, one step later. Report it rather than
       // letting one half-written file discard the whole table.
       hints.incomplete = true;
       continue;
     }
-    const { exports, capabilities } = analysis;
+    const { capabilities, exports } = facts;
 
     const extension = extname(file);
     // A companion Vite plugin may synthesize `head` or `headers` while
@@ -629,15 +678,15 @@ export function createRouteHints(routesDir: string, options: RouteHintOptions = 
     const synthesizable = additionalExtensions.includes(extension);
 
     const values = {
-      head: compiledFormat || synthesizable || exports.head,
-      headers: compiledFormat || synthesizable || exports.headers,
-      loader: exports.loader,
-      search: exports.search,
-      staticPaths: synthesizable || exports.getStaticPaths,
+      head: compiledFormat || synthesizable || exports.has("head"),
+      headers: compiledFormat || synthesizable || exports.has("headers"),
+      loader: exports.has("loader"),
+      search: exports.has("search"),
+      staticPaths: synthesizable || exports.has("getStaticPaths"),
     };
 
     for (const key of routeHintKeys(routesDir, file, options)) {
-      hints.capabilities[key] = capabilities;
+      hints.capabilities[key] = [...capabilities];
       hints.head[key] = values.head;
       hints.headers[key] = values.headers;
       hints.loader[key] = values.loader;
