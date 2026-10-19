@@ -511,6 +511,10 @@ importers:
       yaml:
         specifier: ^2.8.1
         version: 2.9.0
+    devDependencies:
+      '@pracht/core':
+        specifier: workspace:^
+        version: link:../framework
 
   packages/framework:
     dependencies:

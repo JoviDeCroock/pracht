@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { extname, isAbsolute } from "node:path";
+import { isAbsolute } from "node:path";
+import { staticContentType } from "@pracht/core/server";
 import type { Connect, Plugin, ViteDevServer } from "vite";
 
 import { artifactFileName } from "./path.ts";
@@ -280,7 +281,7 @@ export function prachtContent(options: PrachtContentOptions): Plugin[] {
             ...(artifact.path.includes("/assets/")
               ? { "cache-control": "public, max-age=0, must-revalidate" }
               : {}),
-            "content-type": artifact.contentType ?? inferContentType(artifact.path),
+            "content-type": artifact.contentType ?? staticContentType(artifact.path),
             "x-content-type-options": "nosniff",
           };
         }
@@ -627,7 +628,7 @@ function createArtifactMiddleware(
 
     response.statusCode = 200;
     response.setHeader("cache-control", "no-store");
-    response.setHeader("content-type", artifact.contentType ?? inferContentType(artifact.path));
+    response.setHeader("content-type", artifact.contentType ?? staticContentType(artifact.path));
     response.setHeader("x-content-type-options", "nosniff");
     response.end(method === "HEAD" ? undefined : artifact.source);
   };
@@ -676,18 +677,3 @@ function portableOutputKey(fileName: string): string {
     .join("/");
 }
 
-function inferContentType(path: string): string {
-  switch (extname(path)) {
-    case ".json":
-      return "application/json; charset=utf-8";
-    case ".md":
-    case ".markdown":
-      return "text/markdown; charset=utf-8";
-    case ".txt":
-      return "text/plain; charset=utf-8";
-    case ".xml":
-      return "application/xml; charset=utf-8";
-    default:
-      return "application/octet-stream";
-  }
-}

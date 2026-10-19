@@ -1897,13 +1897,13 @@ encoded one only for a path that has none. `getManifestHeaders()` applies
 the same upper-casing so the recorded headers follow. `decodeStaticPath()`
 reports why a path has no decoded spelling (`malformed`, `separator`,
 `relative`) for the build's error messages, and `staticContentType()` is the
-single MIME table (Node, Netlify, the preview server, and the dev server's
-asset-extension check). `packages/framework/test/static-path.test.ts` is the
+single MIME table (Node, Netlify, the preview server, the dev server's
+asset-extension check, and `@pracht/content`'s default for an artifact without
+a `contentType`). `packages/framework/test/static-path.test.ts` is the
 seam guard: it fails on a `decodeURIComponent` in `packages/adapter-*/src` or
 `packages/cli/src/build-*.ts`, on a second content-type table (two
-extension-to-type pairs in one file of an adapter, the CLI, the Vite plugin or
-core, as an object literal, a Map or a `switch`), and on a `bytes=` parser in
-an adapter.
+extension-to-type pairs in one file under any `packages/*/src`, as an object
+literal, a Map or a `switch`), and on a `bytes=` parser in an adapter.
 
 **`staticByteRange(requestHeaders, responseHeaders, size)`** is the one
 single-range rule (`206`, `416`, `If-Range` against the response's strong

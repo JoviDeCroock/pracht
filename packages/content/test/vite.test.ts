@@ -7,6 +7,7 @@ import { mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { staticContentType } from "@pracht/core/server";
 import type { Connect, Plugin, ViteDevServer } from "vite";
 import { build, createServer as createViteServer } from "vite";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -624,6 +625,36 @@ describe("prachtContent", () => {
         source: expect.stringContaining('"content-type": "application/json"'),
       }),
     );
+  });
+
+  it("types an artifact without a contentType the way adapters type static files", async () => {
+    temporaryDirectory = await mkdtemp(join(tmpdir(), "pracht-content-vite-"));
+    await writeFile(join(temporaryDirectory, "page.md"), "Page");
+    const collection = defineCollection({
+      name: "docs",
+      root: temporaryDirectory,
+      artifacts: [
+        () => ({ path: "/exports/posts.CSV", source: "a,b" }),
+        () => ({ path: "/feed.json", source: "{}" }),
+      ],
+    });
+    const [, plugin] = prachtContent({ collections: [collection] });
+    const emitFile = vi.fn();
+
+    await hookHandler(plugin.generateBundle).call(
+      { emitFile } as never,
+      {} as never,
+      {} as never,
+      false,
+    );
+
+    const manifest = emitFile.mock.calls
+      .map(([file]) => file)
+      .find((file) => file.fileName === "_pracht/content-manifest.json");
+    const source = String(manifest?.source);
+    expect(source).toContain(`"content-type": "${staticContentType("posts.CSV")}"`);
+    expect(source).toContain(`"content-type": "${staticContentType("feed.json")}"`);
+    expect(staticContentType("posts.CSV")).toBe("text/csv; charset=utf-8");
   });
 
   it("hands the CLI the generated routes so the app manifest can be reconciled", async () => {

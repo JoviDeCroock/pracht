@@ -213,12 +213,14 @@ describe("static path seam guard", () => {
   });
 
   it("keeps one static content-type table", () => {
-    const candidates = [
-      ...adapterSources,
-      ...sourceFiles(join(packagesDir, "cli", "src"), (file) => file.endsWith(".ts")),
-      ...sourceFiles(join(packagesDir, "vite-plugin", "src"), (file) => file.endsWith(".ts")),
-      ...sourceFiles(join(packagesDir, "framework", "src"), (file) => file.endsWith(".ts")),
-    ];
+    // Every package, so a new one (as `@pracht/content` once did) cannot grow
+    // its own table unnoticed.
+    const candidates = readdirSync(packagesDir)
+      .filter((name) => existsSync(join(packagesDir, name, "src")))
+      .flatMap((name) =>
+        sourceFiles(join(packagesDir, name, "src"), (file) => /\.tsx?$/.test(file)),
+      );
+    expect(candidates).toContain(join(packagesDir, "content", "src", "vite.ts"));
     const offenders = candidates
       .filter((file) => !file.endsWith(join("framework", "src", "static-path.ts")))
       .filter((file) => extensionTypePairs(readFileSync(file, "utf-8")) >= 2)
