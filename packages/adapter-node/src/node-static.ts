@@ -50,11 +50,13 @@ const MIME_TYPES: Record<string, string> = {
 const HASHED_ASSET_RE = /\/assets\//;
 
 /**
- * Suffix of the file that records a regenerated ISG snapshot's document
- * headers next to its HTML. It lives in the static directory but is never
- * served as a static file.
+ * Suffix of the file holding a regenerated ISG page (its HTML and document
+ * headers) next to the page's build HTML. It lives in the static directory
+ * but is never served as a static file, and neither is the headers sidecar
+ * (`.pracht-headers.json`) older releases wrote there.
  */
-export const ISG_SNAPSHOT_HEADERS_SUFFIX = ".pracht-headers.json";
+export const ISG_SNAPSHOT_SUFFIX = ".pracht-isg.json";
+const ISG_PRIVATE_FILE_SUFFIXES = [ISG_SNAPSHOT_SUFFIX, ".pracht-headers.json"];
 
 export function getCacheControl(urlPath: string): string {
   if (HASHED_ASSET_RE.test(urlPath)) {
@@ -91,7 +93,7 @@ export async function resolveStaticFile(
   const exactPath = resolveUrlPath(staticRoot, pathname);
   if (!exactPath) return null;
 
-  const exactStat = basename(exactPath).endsWith(ISG_SNAPSHOT_HEADERS_SUFFIX)
+  const exactStat = ISG_PRIVATE_FILE_SUFFIXES.some((suffix) => basename(exactPath).endsWith(suffix))
     ? null
     : await lstat(exactPath).catch(() => null);
   if (exactStat?.isFile() && !exactStat.isSymbolicLink()) {

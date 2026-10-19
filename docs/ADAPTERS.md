@@ -219,11 +219,18 @@ that manifest.
   snapshot) uses a clean HTML request, and `createContext` receives a detached
   `req`/`res` pair mirroring it instead of the triggering request's, so no
   cookies, authorization, locale, or experiment headers reach the shared HTML.
-  Each render's document headers (minus transfer and credential-shaped ones)
-  are recorded in `.index.html.pracht-headers.json` beside the HTML, bound to
-  that file's identity, and replace the build's `headers-manifest.json` entry
-  when the snapshot is served; the record is never served as a static file,
-  and a redeploy that replaces the HTML falls back to the manifest.
+  A regenerated page is one ISG snapshot (core `captureISGSnapshot()`: the
+  HTML, the render's document headers minus transfer and credential-shaped
+  ones, its own Cache-Control, the `buildId`, and the render time) published
+  to `.index.html.pracht-isg.json` beside the build's HTML by one atomic
+  rename, so a reader in any process sees one render's HTML with that
+  render's headers. The build's `index.html` is never rewritten. A snapshot
+  is served (through `serveISGSnapshot()`, also for the `/page/index.html`
+  alias) with its own headers in place of the `headers-manifest.json` entry;
+  one stamped with another `buildId` is ignored, so a redeploy into the same
+  directory starts from its own HTML and headers. Neither the snapshot nor
+  the `.pracht-headers.json` file older releases wrote is ever served as a
+  static file.
   ISG state is the local `staticDir` of one process: the webhook regenerates
   only on the replica that receives it, and single-flighting and snapshot
   identities are per process and host, so ISG is supported on one instance.
@@ -515,16 +522,18 @@ build).
   `PRACHT_REVALIDATE_TOKEN` and overwrites the named Cache API entries for
   routes that opt into `webhookRevalidate()`. Regenerated entries are stored
   with `Cache-Control: public, max-age=31536000` because the Cache API takes
-  an entry's lifetime from that header; staleness comes only from the stored
-  `x-pracht-isg-generated-at` timestamp. A cached page is served with the
-  headers its own render produced, so `headers()` output computed from loader
-  `data` (an `x-robots-tag`, say) changes with the HTML instead of reverting
-  to `_pracht/headers.json`; its Cache-Control is the render's own (kept in
-  `x-pracht-isg-cache-control` while the entry carries its storage TTL) or
-  `public, max-age=0, must-revalidate`. Entries without that header predate
-  it and still take the build's headers. `caches.default` survives
+  an entry's lifetime from that header. The entry's body is the encoded ISG
+  snapshot (`encodeISGSnapshot()`), so staleness comes from the snapshot's
+  render time and the page is served (`serveISGSnapshot()`) with the headers
+  its own render produced, credential-shaped ones stripped: `headers()`
+  output computed from loader `data` (an `x-robots-tag`, say) changes with
+  the HTML instead of reverting to `_pracht/headers.json`, and its
+  Cache-Control is the render's own or `public, max-age=0, must-revalidate`.
+  An entry an older release stored as plain HTML is still served, with the
+  build's headers, until its regeneration replaces it. `caches.default` survives
   `wrangler deploy`, so each Cache API key carries the server entry's
-  `buildId` in its path (`/__pracht/isg-build/<buildId>/<route path>`; a
+  `buildId` in its path (`isgCacheKeyPath()`:
+  `/__pracht/isg-build/<buildId>/<route path>`; a
   path rather than a query parameter because a zone cache key may ignore query
   strings): a new version never reads an entry the previous build rendered
   against its own asset hashes and starts from its own `ASSETS` snapshots,

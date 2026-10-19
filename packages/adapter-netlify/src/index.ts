@@ -18,7 +18,6 @@ import {
   getTimeRevalidateSeconds,
   handlePrachtRequest,
   isCacheableISGResponse,
-  isDangerousPrerenderHeader,
   isMcpResourceMetadataPath,
   jsonResponse,
   matchAppRoute,
@@ -33,6 +32,7 @@ import {
   resolveRevalidationToken,
   routeSupportsMarkdown,
   stripBase,
+  stripISGSecretHeaders,
   TRAILING_SLASH,
   type HandlePrachtRequestOptions,
   type ISGManifestEntry,
@@ -921,16 +921,10 @@ function applyNetlifyDynamicCacheHeaders(
 }
 
 function stripDangerousSharedCacheHeaders(response: Response, pathname: string): Response {
-  const dangerous = [...response.headers.keys()].filter(isDangerousPrerenderHeader);
-  if (dangerous.length === 0) return response;
-
-  const headers = new Headers(response.headers);
-  for (const name of dangerous) headers.delete(name);
-  console.error(
-    `Stripped ${dangerous.map((name) => `"${name}"`).join(", ")} from the ISG response for ` +
-      `"${pathname}" before Netlify's shared cache stored it.`,
-  );
-  return cloneResponse(response, headers);
+  const headers = stripISGSecretHeaders(response.headers, pathname);
+  return [...headers.keys()].length === [...response.headers.keys()].length
+    ? response
+    : cloneResponse(response, headers);
 }
 
 interface StaticFileResult {

@@ -969,6 +969,8 @@ HrefRouteDefinition: interface
 HttpMethod: type
 HydrationMode: type
 ISGManifestEntry: interface
+ISGSnapshot: interface
+ISGSnapshotRejection: interface
 InvokeCapabilityContext: interface
 IslandCapture: interface
 IslandCaptureContext: const
@@ -1104,6 +1106,7 @@ buildPathFromSegments: function
 buildStaticFallbackHtml: function
 buildStaticRouteStateUrl: function
 capabilityHttpPath: function
+captureISGSnapshot: function
 classifyRevalidationSkip: function
 clearCapabilityAuditListeners: function
 createBaseRedirectResponse: function @internal
@@ -1116,6 +1119,7 @@ createRevalidationSingleFlight: function
 createSqlApprovalStore: function
 createTrailingSlashRedirectResponse: function @internal
 createWaitUntilTracker: function
+decodeISGSnapshot: function
 defineApi: function
 defineApp: function
 describeRenderError: function
@@ -1123,6 +1127,7 @@ destructiveMcpPreconditionErrors: function
 detectApiExports: function
 detectApiExportsStatic: function
 detectApiMethods: function
+encodeISGSnapshot: function
 expandHeadersManifest: function
 filterPublicEnv: function
 formDataToRecord: function
@@ -1137,10 +1142,12 @@ isApiValidationErrorBody: function
 isAuthorizedRevalidationRequest: function
 isCacheableISGResponse: function
 isDangerousPrerenderHeader: function
+isISGSnapshotRejection: function
 isMcpResourceMetadataPath: function
 isProtocolSwitchResponse: function
 isStreamingHtmlResponse: function
 isUpgradeRequest: function
+isgCacheKeyPath: function
 json: function
 jsonResponse: function
 loadMcpTokenVerifier: function
@@ -1177,6 +1184,7 @@ serializeApiRoutesStatic: function
 serializeAppRoutes: function
 serializeCapabilities: function
 serializeEventStreamMessage: function
+serveISGSnapshot: function
 setCapabilityApprovalPrincipalResolver: const
 setCapabilityApprovalStore: function
 setCapabilityAuditHook: function
@@ -1186,6 +1194,7 @@ setServerEnv: function
 setServerIslandsClientEntryUrl: function
 shareHeadersManifest: function
 stripBase: function
+stripISGSecretHeaders: function
 timeRevalidate: function
 useServerIslandData: function
 validateIslandProps: function

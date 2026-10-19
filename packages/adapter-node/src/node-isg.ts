@@ -1,19 +1,22 @@
-import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { mkdir, open, rename, rm, stat, writeFile } from "node:fs/promises";
 import { IncomingMessage, ServerResponse } from "node:http";
 import { Socket } from "node:net";
 import { Duplex } from "node:stream";
 import { basename, dirname, join } from "node:path";
 import {
+  captureISGSnapshot,
   createISGRegenerationRequest,
   createRevalidationSingleFlight,
+  decodeISGSnapshot,
+  encodeISGSnapshot,
   handlePrachtRequest,
-  isCacheableISGResponse,
-  isDangerousPrerenderHeader,
+  isISGSnapshotRejection,
   restoreBasePathInRequest,
+  type ISGSnapshot,
 } from "@pracht/core/server";
 import type { NodeAdapterOptions } from "./node-handler.ts";
-import { ISG_SNAPSHOT_HEADERS_SUFFIX } from "./node-static.ts";
+import { ISG_SNAPSHOT_SUFFIX } from "./node-static.ts";
 
 // Shared across all handler instances in this process so a stampede of stale
 // requests (or repeated webhook posts) for the same output file collapses
@@ -109,121 +112,104 @@ export async function writeISGFile(
   }
 }
 
-/** Response headers that describe one transfer, not the document. */
-const TRANSFER_HEADERS = new Set([
-  "connection",
-  "content-encoding",
-  "content-length",
-  "date",
-  "etag",
-  "keep-alive",
-  "last-modified",
-  "transfer-encoding",
-  "x-pracht-isg",
-]);
-
-/**
- * The document headers an ISG render produced, as they should be replayed
- * with its HTML: transfer headers are dropped and credential-shaped headers
- * are stripped, since the snapshot is served to every visitor.
- */
-export function getISGSnapshotHeaders(
-  response: Response,
-  pathname: string,
-): Record<string, string> {
-  const headers: Record<string, string> = {};
-  const dangerous: string[] = [];
-  for (const [name, value] of response.headers) {
-    if (isDangerousPrerenderHeader(name)) dangerous.push(name);
-    else if (!TRANSFER_HEADERS.has(name)) headers[name] = value;
-  }
-  if (dangerous.length > 0) {
-    console.error(
-      `Stripped ${dangerous.map((name) => `"${name}"`).join(", ")} from the ISG snapshot for ` +
-        `"${pathname}" — snapshots are replayed to every visitor. Move cookies and credential ` +
-        "headers to API routes, middleware responses, or an SSR route.",
-    );
-  }
-  return headers;
+/** A snapshot read from disk, with what serving it needs. */
+export interface StoredISGSnapshot {
+  snapshot: ISGSnapshot;
+  /** The snapshot file. */
+  path: string;
+  /** The file's local identity; keys process-local caches, never sent. */
+  version: string;
+  body: Buffer;
+  /** A validator derived from the HTML alone, so replicas agree on it. */
+  etag: string;
 }
 
-interface ISGSnapshotHeadersRecord {
-  /** Identity of the HTML file these headers were rendered with. */
-  file: string;
-  headers: Record<string, string> | null;
+/** The file a page's regenerated snapshot is published to, beside its build HTML. */
+export function getISGSnapshotPath(htmlPath: string): string {
+  return join(dirname(htmlPath), `.${basename(htmlPath)}${ISG_SNAPSHOT_SUFFIX}`);
 }
 
-// Keyed by HTML path. An entry is only used while the file on disk still has
-// the identity it was recorded for, so a redeploy that replaces the HTML falls
-// back to the build's headers manifest.
-const snapshotHeadersCache = new Map<string, ISGSnapshotHeadersRecord>();
-
-function getSnapshotFileIdentity(fileStat: {
-  dev: number;
-  ino: number;
-  size: number;
-  mtimeMs: number;
-}): string {
+function getFileVersion(fileStat: { dev: number; ino: number; size: number; mtimeMs: number }) {
   return `${fileStat.dev}:${fileStat.ino}:${fileStat.size}:${fileStat.mtimeMs}`;
 }
 
-function getSnapshotHeadersPath(htmlPath: string): string {
-  return join(dirname(htmlPath), `.${basename(htmlPath)}${ISG_SNAPSHOT_HEADERS_SUFFIX}`);
+// Decoded snapshots by file, while the file keeps the version they were read
+// at. Bounded by bytes: a miss only costs a read of the file.
+const MAX_STORED_SNAPSHOT_BYTES = 16 * 1024 * 1024;
+const storedSnapshots = new Map<string, StoredISGSnapshot>();
+let storedSnapshotBytes = 0;
+
+function rememberSnapshot(stored: StoredISGSnapshot): void {
+  forgetSnapshot(stored.path);
+  if (stored.body.byteLength > MAX_STORED_SNAPSHOT_BYTES) return;
+  storedSnapshots.set(stored.path, stored);
+  storedSnapshotBytes += stored.body.byteLength;
+  for (const [path, oldest] of storedSnapshots) {
+    if (storedSnapshotBytes <= MAX_STORED_SNAPSHOT_BYTES) break;
+    storedSnapshots.delete(path);
+    storedSnapshotBytes -= oldest.body.byteLength;
+  }
+}
+
+function forgetSnapshot(path: string): void {
+  const existing = storedSnapshots.get(path);
+  if (!existing) return;
+  storedSnapshots.delete(path);
+  storedSnapshotBytes -= existing.body.byteLength;
+}
+
+function storeSnapshot(path: string, version: string, snapshot: ISGSnapshot): StoredISGSnapshot {
+  const body = Buffer.from(snapshot.html, "utf-8");
+  const etag = `W/"pracht-file-${createHash("sha256").update(body).digest("base64url")}"`;
+  const stored = { snapshot, path, version, body, etag };
+  rememberSnapshot(stored);
+  return stored;
 }
 
 /**
- * Publish an ISG snapshot with the document headers it was rendered with.
- * The headers are recorded first, for the identity the HTML file will have
- * once renamed into place, so no reader (in this or another process) sees
- * the new HTML before its headers. If recording fails, the HTML is served
- * with the build's headers, as before.
+ * Publish a regenerated page as one file replacement, so a reader in this or
+ * another process sees either the previous snapshot or this one, never HTML
+ * from one render with headers from another.
  */
-export async function writeISGSnapshot(
-  htmlPath: string,
-  html: string,
-  headers: Record<string, string>,
-): Promise<void> {
-  await writeISGFile(htmlPath, html, async (temporaryPath) => {
+export async function writeISGSnapshot(htmlPath: string, snapshot: ISGSnapshot): Promise<void> {
+  const path = getISGSnapshotPath(htmlPath);
+  await writeISGFile(path, encodeISGSnapshot(snapshot), async (temporaryPath) => {
     // A rename keeps the device, inode, size, and mtime.
-    const record: ISGSnapshotHeadersRecord = {
-      file: getSnapshotFileIdentity(await stat(temporaryPath)),
-      headers,
-    };
-    snapshotHeadersCache.set(htmlPath, record);
-    await writeISGFile(getSnapshotHeadersPath(htmlPath), JSON.stringify(record)).catch((error) => {
-      console.error(`[pracht] Could not record the ISG snapshot headers for ${htmlPath}:`, error);
-    });
+    storeSnapshot(path, getFileVersion(await stat(temporaryPath)), snapshot);
   });
 }
 
 /**
- * The document headers recorded for the ISG snapshot whose stats are given,
- * or `null` when it has none (a build-time snapshot, or one replaced since).
+ * The regenerated snapshot of the page whose build HTML is `htmlPath`, or
+ * `null` when it has none. With `buildId`, a snapshot another build rendered
+ * is ignored, so a redeploy into the same static directory starts from its
+ * own HTML.
  */
-export async function readISGSnapshotHeaders(
+export async function readISGSnapshot(
   htmlPath: string,
-  fileStat: { dev: number; ino: number; size: number; mtimeMs: number },
-): Promise<Record<string, string> | null> {
-  const file = getSnapshotFileIdentity(fileStat);
-  const cached = snapshotHeadersCache.get(htmlPath);
-  if (cached?.file === file) return cached.headers;
-
-  const stored = await readFile(getSnapshotHeadersPath(htmlPath), "utf-8")
-    .then((source) => parseSnapshotHeadersRecord(source))
-    .catch(() => null);
-  const headers = stored?.file === file ? stored.headers : null;
-  snapshotHeadersCache.set(htmlPath, { file, headers });
-  return headers;
-}
-
-function parseSnapshotHeadersRecord(source: string): ISGSnapshotHeadersRecord | null {
-  const value: unknown = JSON.parse(source);
-  if (!value || typeof value !== "object") return null;
-  const { file, headers } = value as Record<string, unknown>;
-  if (typeof file !== "string" || !headers || typeof headers !== "object") return null;
-  const entries = Object.entries(headers);
-  if (!entries.every(([, header]) => typeof header === "string")) return null;
-  return { file, headers: Object.fromEntries(entries) as Record<string, string> };
+  buildId: string | undefined,
+): Promise<StoredISGSnapshot | null> {
+  const path = getISGSnapshotPath(htmlPath);
+  const file = await open(path, "r").catch(() => null);
+  if (!file) return null;
+  let stored: StoredISGSnapshot | null;
+  try {
+    const fileStat = await file.stat();
+    if (!fileStat.isFile()) return null;
+    const version = getFileVersion(fileStat);
+    const cached = storedSnapshots.get(path);
+    if (cached?.version === version) {
+      stored = cached;
+    } else {
+      const snapshot = decodeISGSnapshot(await file.readFile("utf-8"));
+      stored = snapshot ? storeSnapshot(path, version, snapshot) : null;
+    }
+  } finally {
+    await file.close();
+  }
+  if (!stored) return null;
+  if (buildId !== undefined && stored.snapshot.buildId !== buildId) return null;
+  return stored;
 }
 
 /**
@@ -304,9 +290,9 @@ function createDetachedNodeExchange(request: Request): {
 }
 
 /**
- * Regenerate an ISG page and write it to disk. Returns `true` when fresh
- * HTML was written, `false` when the render did not produce cacheable
- * 200 HTML (the stale on-disk copy is kept in that case).
+ * Regenerate an ISG page and publish its snapshot. Returns `true` when a
+ * fresh snapshot was written, `false` when the render did not produce
+ * cacheable 200 HTML (the current page is kept in that case).
  */
 export async function regenerateISGPage<TContext>(
   options: NodeAdapterOptions<TContext>,
@@ -347,14 +333,16 @@ async function renderAndWriteISGPage<TContext>(
     waitUntil,
   });
 
-  if (response.status !== 200 || !isCacheableISGResponse(response)) {
+  const snapshot = await captureISGSnapshot(response, {
+    buildId: options.buildId,
+    pathname: new URL(request.url).pathname,
+  });
+  if (isISGSnapshotRejection(snapshot)) {
+    await response.body?.cancel().catch(() => undefined);
     return false;
   }
-
-  const headers = getISGSnapshotHeaders(response, new URL(request.url).pathname);
-  const html = await response.text();
   try {
-    await writeISGSnapshot(htmlPath, html, headers);
+    await writeISGSnapshot(htmlPath, snapshot);
   } catch (error) {
     throw new ISGSnapshotWriteError(htmlPath, error);
   }

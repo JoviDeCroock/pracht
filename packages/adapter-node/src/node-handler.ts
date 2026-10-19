@@ -13,7 +13,9 @@ import {
   createWaitUntilTracker,
   type HandlePrachtRequestOptions,
   type ISGManifestEntry,
+  captureISGSnapshot,
   isCacheableISGResponse,
+  isISGSnapshotRejection,
   isMcpResourceMetadataPath,
   jsonResponse,
   matchAppRoute,
@@ -30,6 +32,7 @@ import {
   type ResolvedApiRoute,
   type PrachtApp,
   routeSupportsMarkdown,
+  serveISGSnapshot,
 } from "@pracht/core/server";
 
 import {
@@ -53,11 +56,12 @@ import {
 import {
   createISGRenderInput,
   createISGSnapshotWriteGuard,
-  getISGSnapshotHeaders,
+  getISGSnapshotPath,
   ISGSnapshotWriteError,
   type ISGSnapshotWriteGuard,
-  readISGSnapshotHeaders,
+  readISGSnapshot,
   regenerateISGPage,
+  type StoredISGSnapshot,
   writeISGSnapshot,
 } from "./node-isg.ts";
 import {
@@ -78,6 +82,9 @@ import {
 } from "./node-static.ts";
 
 const ROUTE_STATE_REQUEST_HEADER = "x-pracht-route-state-request";
+// What browsers see on an ISG page whose render set no Cache-Control: always
+// revalidate with the server.
+const ISG_BROWSER_CACHE_CONTROL = "public, max-age=0, must-revalidate";
 
 export interface NodeAdapterContextArgs {
   request: Request;
@@ -278,6 +285,9 @@ export function createNodeRequestHandler<TContext = unknown>(
         options.basePathStripped ? restoreBasePathInRequest(request) : request,
       );
     // ISG entries are keyed by route path; `/about/` is the same page.
+    // TODO(integrator): look the key and snapshot up through
+    // `staticPathCandidates()` from seams/step-d, so a lower-case-escaped ISG
+    // URL finds its page the way a static file does.
     const isgKey = routePathname === null ? null : toRouteKey(routePathname);
     const isTransportRouteStateRequest = isRouteStateRequest(url, request.headers);
     // Only routes that can actually answer with markdown skip the static and
@@ -312,6 +322,26 @@ export function createNodeRequestHandler<TContext = unknown>(
       !isTransportRouteStateRequest &&
       routePathname !== null
     ) {
+      // `/page/index.html` names an ISG page's file: answer it as that page,
+      // so it serves the current snapshot rather than the build's HTML.
+      const isgAliasKey = routePathname.endsWith("/index.html")
+        ? toRouteKey(routePathname.slice(0, -"index.html".length))
+        : null;
+      if (isgAliasKey !== null && isgAliasKey in isgManifest) {
+        const served = await serveISGEntry(
+          request,
+          res,
+          options,
+          staticDir,
+          isgAliasKey,
+          isgManifest[isgAliasKey],
+          headersManifest,
+          compression,
+          waitUntil,
+          isgWriteGuard,
+        );
+        if (served) return;
+      }
       const staticResult = await resolveStaticFile(staticDir, routePathname, isgManifest);
       // A prerendered page answers one spelling under `pracht({ trailingSlash })`.
       const trailingSlashRedirect = staticResult?.document ? redirectToCanonicalPage() : null;
@@ -325,7 +355,6 @@ export function createNodeRequestHandler<TContext = unknown>(
           res,
           staticResult,
           headersManifest,
-          isgManifest,
           routePathname,
           compression,
         );
@@ -418,17 +447,16 @@ export function createNodeRequestHandler<TContext = unknown>(
         (response.headers.get("content-type")?.includes("text/html") ?? false) &&
         isCacheableISGResponse(response);
 
-      if (isIsgDocument) {
-        const html = await response.clone().text();
-        const htmlPath = resolveContainedPath(staticDir, isgDocumentKey);
-        if (htmlPath) {
+      const htmlPath = isIsgDocument ? resolveContainedPath(staticDir, isgDocumentKey) : null;
+      if (htmlPath) {
+        const snapshot = await captureISGSnapshot(response.clone(), {
+          buildId: options.buildId,
+          pathname: new URL(applicationRequest.url).pathname,
+        });
+        if (!isISGSnapshotRejection(snapshot)) {
           try {
-            await writeISGSnapshot(
-              htmlPath,
-              html,
-              getISGSnapshotHeaders(response, new URL(applicationRequest.url).pathname),
-            );
-            compressedAssetCache.invalidatePath(htmlPath);
+            await writeISGSnapshot(htmlPath, snapshot);
+            compressedAssetCache.invalidatePath(getISGSnapshotPath(htmlPath));
           } catch (error) {
             // The render succeeded; an unwritable static directory must not
             // turn it into a 500. The next request renders again.
@@ -581,7 +609,6 @@ async function serveStaticFile(
   res: ServerResponse,
   staticResult: { filePath: string; contentType: string; cacheControl: string },
   headersManifest: HeadersManifest | SharedHeadersManifest,
-  isgManifest: Record<string, ISGManifestEntry>,
   pathname: string,
   compression: CompressionState | undefined,
 ): Promise<void> {
@@ -599,12 +626,7 @@ async function serveStaticFile(
         "accept-ranges": "bytes",
       }),
     );
-    // `/page/index.html` names an ISG snapshot's file directly.
-    const snapshotHeaders =
-      (pathname.replace(/\/index\.html$/, "") || "/") in isgManifest
-        ? await readISGSnapshotHeaders(staticResult.filePath, fileStat)
-        : null;
-    applySnapshotOrManifestHeaders(headers, snapshotHeaders, headersManifest, pathname);
+    applyHeadersManifest(headers, headersManifest, pathname);
     const encoding = negotiateFileEncoding(request, headers, fileStat.size, compression);
 
     if (isNotModified(request, headers, compressionGeneration === 0)) {
@@ -819,6 +841,11 @@ async function writeFileHead(
   res.end();
 }
 
+/**
+ * Answer an ISG page from its regenerated snapshot, or from the build's HTML
+ * when it has none, and regenerate it in the background once stale. Returns
+ * `false` when there is neither, so the caller renders it.
+ */
 async function serveISGEntry<TContext>(
   request: Request,
   res: ServerResponse,
@@ -834,6 +861,113 @@ async function serveISGEntry<TContext>(
   const htmlPath = resolveContainedPath(staticDir, pathname);
   if (!htmlPath) return false;
 
+  const revalidateSeconds = getTimeRevalidateSeconds(entry.revalidate);
+  const isStaleSince = (renderedAt: number): boolean =>
+    revalidateSeconds !== null && Date.now() - renderedAt > revalidateSeconds * 1000;
+
+  // Started before the body is sent, so it is tracked by the time the
+  // visitor has the page.
+  const regenerateIfStale = (isStale: boolean): void => {
+    if (!isStale || !writeGuard.canRegenerate(htmlPath)) return;
+    // Tracked like application `waitUntil()` work, so a graceful shutdown
+    // lets an in-flight regeneration finish writing its snapshot.
+    waitUntil(
+      regenerateISGPageAndInvalidateCache(
+        options,
+        pathname,
+        htmlPath,
+        request,
+        compression,
+        waitUntil,
+      ).then(
+        () => writeGuard.succeeded(htmlPath),
+        (err) => {
+          if (err instanceof ISGSnapshotWriteError) {
+            writeGuard.failed(htmlPath, err, (revalidateSeconds ?? 0) * 1000);
+          } else {
+            console.error(`ISG regeneration failed for ${pathname}:`, err);
+          }
+        },
+      ),
+    );
+  };
+
+  const stored = await readISGSnapshot(htmlPath, options.buildId);
+  if (stored) {
+    const isStale = isStaleSince(stored.snapshot.generatedAt);
+    await writeISGSnapshotResponse(request, res, stored, isStale, compression, regenerateIfStale);
+    return true;
+  }
+  return serveBuildISGFile(
+    request,
+    res,
+    htmlPath,
+    pathname,
+    headersManifest,
+    compression,
+    isStaleSince,
+    regenerateIfStale,
+  );
+}
+
+/** Send a regenerated snapshot, with its own document headers. */
+async function writeISGSnapshotResponse(
+  request: Request,
+  res: ServerResponse,
+  stored: StoredISGSnapshot,
+  isStale: boolean,
+  compression: CompressionState | undefined,
+  beforeSend: (isStale: boolean) => void,
+): Promise<void> {
+  const served = serveISGSnapshot(stored.snapshot, {
+    stale: isStale,
+    browserCacheControl: ISG_BROWSER_CACHE_CONTROL,
+  });
+  void served.body?.cancel();
+  const headers = applyDefaultSecurityHeaders(new Headers({ vary: ROUTE_STATE_REQUEST_HEADER }));
+  for (const [name, value] of served.headers) headers.set(name, value);
+  headers.set("etag", stored.etag);
+  headers.set("last-modified", new Date(stored.snapshot.generatedAt).toUTCString());
+
+  const encoding = negotiateFileEncoding(request, headers, stored.body.byteLength, compression);
+  beforeSend(isStale);
+  if (isNotModified(request, headers, compression === undefined)) {
+    res.statusCode = 304;
+    writeNodeHeaders(res, headers);
+    res.end();
+    return;
+  }
+
+  let body = stored.body;
+  if (encoding && compression) {
+    const key =
+      `${stored.path}\0${stored.version}\0` +
+      `${compression.cache.getPathGeneration(stored.path)}\0${encoding}`;
+    body = await (compression.cache.getOrCompress(key, body.byteLength, () =>
+      compressBuffer(stored.body, encoding),
+    ) ?? compressBuffer(stored.body, encoding));
+  }
+  res.statusCode = 200;
+  headers.set("content-length", String(body.byteLength));
+  writeNodeHeaders(res, headers);
+  res.end(request.method === "HEAD" ? undefined : body);
+}
+
+/**
+ * Send the HTML the build wrote for an ISG page that has no regenerated
+ * snapshot (yet), with the build's headers. Returns `false` when there is no
+ * such file.
+ */
+async function serveBuildISGFile(
+  request: Request,
+  res: ServerResponse,
+  htmlPath: string,
+  pathname: string,
+  headersManifest: HeadersManifest | SharedHeadersManifest,
+  compression: CompressionState | undefined,
+  isStaleSince: (renderedAt: number) => boolean,
+  beforeSend: (isStale: boolean) => void,
+): Promise<boolean> {
   const file = await open(htmlPath, "r").catch(() => null);
   if (!file) return false;
 
@@ -842,22 +976,18 @@ async function serveISGEntry<TContext>(
     if (!fileStat.isFile()) return false;
     const compressionGeneration = compression?.cache.getPathGeneration(htmlPath) ?? 0;
     const compressionFileVersion = compression ? createCompressionFileVersion(fileStat) : undefined;
-
-    const ageMs = Date.now() - fileStat.mtimeMs;
-    const revalidateSeconds = getTimeRevalidateSeconds(entry.revalidate);
-    const isStale = revalidateSeconds !== null && ageMs > revalidateSeconds * 1000;
+    const isStale = isStaleSince(fileStat.mtimeMs);
 
     const headers = applyDefaultSecurityHeaders(
       new Headers({
         "content-type": "text/html; charset=utf-8",
-        "cache-control": "public, max-age=0, must-revalidate",
+        "cache-control": ISG_BROWSER_CACHE_CONTROL,
         etag: createWeakEtag(fileStat),
         "last-modified": fileStat.mtime.toUTCString(),
         vary: ROUTE_STATE_REQUEST_HEADER,
       }),
     );
-    const snapshotHeaders = await readISGSnapshotHeaders(htmlPath, fileStat);
-    applySnapshotOrManifestHeaders(headers, snapshotHeaders, headersManifest, pathname);
+    applyHeadersManifest(headers, headersManifest, pathname);
     await applyCompressionContentValidator(
       headers,
       htmlPath,
@@ -870,6 +1000,7 @@ async function serveISGEntry<TContext>(
     headers.set("x-pracht-isg", isStale ? "stale" : "fresh");
 
     const encoding = negotiateFileEncoding(request, headers, fileStat.size, compression);
+    beforeSend(isStale);
 
     if (isNotModified(request, headers, compression === undefined)) {
       res.statusCode = 304;
@@ -902,31 +1033,6 @@ async function serveISGEntry<TContext>(
         );
       }
     }
-
-    if (isStale && writeGuard.canRegenerate(htmlPath)) {
-      // Tracked like application `waitUntil()` work, so a graceful shutdown
-      // lets an in-flight regeneration finish writing its snapshot.
-      waitUntil(
-        regenerateISGPageAndInvalidateCache(
-          options,
-          pathname,
-          htmlPath,
-          request,
-          compression,
-          waitUntil,
-        ).then(
-          () => writeGuard.succeeded(htmlPath),
-          (err) => {
-            if (err instanceof ISGSnapshotWriteError) {
-              writeGuard.failed(htmlPath, err, (revalidateSeconds ?? 0) * 1000);
-            } else {
-              console.error(`ISG regeneration failed for ${pathname}:`, err);
-            }
-          },
-        ),
-      );
-    }
-
     return true;
   } finally {
     await file.close();
@@ -1005,7 +1111,7 @@ async function regenerateISGPageAndInvalidateCache<TContext>(
   waitUntil: (promise: Promise<unknown>) => void,
 ): Promise<boolean> {
   const regenerated = await regenerateISGPage(options, pathname, htmlPath, origin, waitUntil);
-  if (regenerated) compression?.cache.invalidatePath(htmlPath);
+  if (regenerated) compression?.cache.invalidatePath(getISGSnapshotPath(htmlPath));
   return regenerated;
 }
 
@@ -1030,23 +1136,6 @@ function resolveContainedPath(staticDir: string, pathname: string): string | nul
     return null;
   }
   return resolved;
-}
-
-/**
- * A regenerated ISG snapshot is served with the headers it was rendered with;
- * the build's headers belong to the build's HTML.
- */
-function applySnapshotOrManifestHeaders(
-  headers: Headers,
-  snapshotHeaders: Record<string, string> | null,
-  headersManifest: HeadersManifest | SharedHeadersManifest,
-  pathname: string,
-): void {
-  if (!snapshotHeaders) {
-    applyHeadersManifest(headers, headersManifest, pathname);
-    return;
-  }
-  for (const [name, value] of Object.entries(snapshotHeaders)) headers.set(name, value);
 }
 
 /**

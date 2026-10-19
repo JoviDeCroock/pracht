@@ -186,6 +186,15 @@ export {
   type RevalidationScope,
   type RevalidationSkipReason,
   type RevalidationSingleFlight,
+  captureISGSnapshot,
+  decodeISGSnapshot,
+  encodeISGSnapshot,
+  isgCacheKeyPath,
+  isISGSnapshotRejection,
+  serveISGSnapshot,
+  stripISGSecretHeaders,
+  type ISGSnapshot,
+  type ISGSnapshotRejection,
 } from "./revalidation.ts";
 export { PRACHT_GRAPH_ONLY_ENV } from "./runtime-constants.ts";
 export { redirect, type RedirectOptions } from "./runtime-middleware.ts";

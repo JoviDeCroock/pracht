@@ -1,11 +1,11 @@
 import type { PrachtAdapter } from "@pracht/core/adapter";
 import {
+  captureISGSnapshot,
   createISGRegenerationRequest,
   createBaseRedirectResponse,
   handlePrachtRequest,
   type HandlePrachtRequestOptions,
-  isCacheableISGResponse,
-  isDangerousPrerenderHeader,
+  isISGSnapshotRejection,
   jsonResponse,
   classifyRevalidationSkip,
   matchAppRoute,
@@ -18,7 +18,9 @@ import {
   readRevalidationRequest,
   RevalidationReport,
   resolveRevalidationToken,
+  serveISGSnapshot,
   stripBase,
+  stripISGSecretHeaders,
   type PrachtApp,
   withBase,
 } from "@pracht/core/server";
@@ -222,7 +224,7 @@ export function createVercelNodeListener(
     try {
       const request = createNodeISGRequest(req);
       const response = await handler(request, context);
-      await writeNodeResponse(res, prepareVercelISGResponse(request, response));
+      await writeNodeResponse(res, await prepareVercelISGResponse(request, response));
     } finally {
       await drainWaitUntilTasks(waitUntilTasks);
     }
@@ -262,40 +264,28 @@ function readNodeHeader(req: VercelNodeRequest, name: string): string | undefine
 
 /**
  * Vercel stores whatever a prerender function returns in the ISR cache and
- * replays it to every later visitor. Build-time prerendering refuses to emit
- * documents carrying credential headers at all; a runtime regeneration cannot
- * fail the build, so strip them and keep serving the page.
+ * replays it to every later visitor, so a cacheable page is answered as the
+ * snapshot every adapter stores. Anything else is still stored: build-time
+ * prerendering refuses credential headers, but a runtime regeneration cannot
+ * fail the build, so they are stripped and the page keeps serving.
  */
-function prepareVercelISGResponse(request: Request, response: Response): Response {
+async function prepareVercelISGResponse(request: Request, response: Response): Promise<Response> {
   const pathname = new URL(request.url).pathname;
-  const dangerous = [...response.headers.keys()].filter(isDangerousPrerenderHeader);
+  const snapshot = await captureISGSnapshot(response, { pathname });
+  if (!isISGSnapshotRejection(snapshot)) return serveISGSnapshot(snapshot);
 
-  let prepared = response;
-  if (dangerous.length > 0) {
-    const headers = new Headers(response.headers);
-    for (const name of dangerous) headers.delete(name);
-    console.error(
-      `Stripped ${dangerous.map((name) => `"${name}"`).join(", ")} from the ISG response for ` +
-        `"${pathname}" before Vercel's prerender cache stored it — cached ISG output is replayed ` +
-        "to every visitor. Move cookies and credential headers to API routes, middleware " +
-        "responses, or an SSR route.",
-    );
-    prepared = new Response(response.body, {
-      headers,
-      status: response.status,
-      statusText: response.statusText,
-    });
-  }
-
-  if (prepared.status === 200 && !isCacheableISGResponse(prepared)) {
+  if (snapshot.reason === "uncacheable") {
     console.warn(
       `The ISG response for "${pathname}" marks itself uncacheable (Cache-Control private/no-store ` +
         "or Vary on Cookie/Authorization), but Vercel's prerender cache stores it regardless. " +
         "Render this route as SSR instead if its output is request-specific.",
     );
   }
-
-  return prepared;
+  return new Response(response.body, {
+    headers: stripISGSecretHeaders(response.headers, pathname),
+    status: response.status,
+    statusText: response.statusText,
+  });
 }
 
 async function writeNodeResponse(res: VercelNodeResponse, response: Response): Promise<void> {

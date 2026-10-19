@@ -8,6 +8,7 @@ import {
   webhookRevalidate,
 } from "@pracht/core";
 import type { ModuleRegistry, RouteRevalidate } from "@pracht/core";
+import { decodeISGSnapshot } from "@pracht/core/server";
 
 import { createCloudflareFetchHandler, type CloudflareExecutionContext } from "../src/runtime.ts";
 
@@ -400,11 +401,18 @@ describe("createCloudflareFetchHandler ISG", () => {
 
     const updated = await cache.match(new Request(keyUrl));
     expect(updated).toBeDefined();
-    await expect(updated!.clone().text()).resolves.toContain("fresh-content");
-    expect(updated!.headers.get("vary")).toContain("x-pracht-route-state-request");
-    expect(Number(updated!.headers.get("x-pracht-isg-generated-at"))).toBeGreaterThan(
-      Date.now() - 5_000,
+    const snapshot = decodeISGSnapshot(await updated!.text());
+    expect(snapshot?.html).toContain("fresh-content");
+    expect(snapshot?.generatedAt).toBeGreaterThan(Date.now() - 5_000);
+
+    const next = await handler(
+      new Request(`https://${host}/pricing`),
+      { ASSETS: create404Assets() },
+      executionContext,
     );
+    expect(next.headers.get("x-pracht-isg")).toBe("fresh");
+    expect(next.headers.get("vary")).toContain("x-pracht-route-state-request");
+    await expect(next.text()).resolves.toContain("fresh-content");
   });
 
   it("serves the regenerated page on the next request with browser revalidation headers", async () => {
@@ -976,6 +984,48 @@ describe("createCloudflareFetchHandler webhook revalidation", () => {
       // entry's storage bookkeeping does not.
       expect(served.headers.get("cache-control")).toBe("public, max-age=60");
       expect(served.headers.has("x-pracht-isg-cache-control")).toBe(false);
+    });
+
+    it("strips credential-shaped headers from a regenerated page", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const { cache } = createMockCaches();
+      vi.stubGlobal("caches", { default: cache });
+      const { executionContext } = createExecutionContext();
+      const host = "hook-secrets.example";
+      const app = defineApp({
+        routes: [
+          route("/notice", "./routes/notice.tsx", {
+            render: "isg",
+            revalidate: webhookRevalidate(),
+          }),
+        ],
+      });
+      const handler = createCloudflareFetchHandler({
+        app,
+        registry: {
+          routeModules: {
+            "./routes/notice.tsx": async () => ({
+              headers: () => ({ "x-robots-tag": "noindex", "x-api-token": "never-shared" }),
+              Component: () => "notice",
+            }),
+          },
+        },
+        isgManifest: { "/notice": { revalidate: webhookRevalidate() } },
+      });
+      const env = { ASSETS: create404Assets(), PRACHT_REVALIDATE_TOKEN: "secret" };
+
+      const webhook = await handler(
+        createWebhookRequest(host, ["/notice"], "secret"),
+        env,
+        executionContext,
+      );
+      await expect(webhook.json()).resolves.toMatchObject({ revalidated: ["/notice"] });
+
+      const served = await handler(new Request(`https://${host}/notice`), env, executionContext);
+      await expect(served.text()).resolves.toContain("notice");
+      expect(served.headers.get("x-robots-tag")).toBe("noindex");
+      expect(served.headers.has("x-api-token")).toBe(false);
+      expect(console.error).toHaveBeenCalledWith(expect.stringContaining('"x-api-token"'));
     });
 
     it("keeps applying build headers to entries stored by an earlier version", async () => {
