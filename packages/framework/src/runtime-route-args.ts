@@ -12,11 +12,8 @@
 import { parseRouteSearch } from "./api-validation.ts";
 import type { RouteErrorContext, SerializedRouteError } from "./runtime-errors.ts";
 import { runMiddlewareChain } from "./runtime-middleware.ts";
-import {
-  createRequestWaitUntil,
-  type HandlePrachtRequestOptions,
-  type RequestBudget,
-} from "./runtime-request.ts";
+import type { RequestBudget } from "@pracht/capabilities/server/internal";
+import { createRequestWaitUntil, type HandlePrachtRequestOptions } from "./runtime-request.ts";
 import type { BaseRouteArgs, LoaderArgs, ModuleRegistry, RouteMatch } from "./types.ts";
 
 export interface PageRouteArgsInit<TContext> {
