@@ -6,6 +6,7 @@ import {
   handlePrachtRequest,
   type HandlePrachtRequestOptions,
   isISGSnapshotRejection,
+  isgPathKey,
   jsonResponse,
   classifyRevalidationSkip,
   matchAppRoute,
@@ -269,11 +270,22 @@ function readNodeHeader(req: VercelNodeRequest, name: string): string | undefine
 }
 
 /**
- * Vercel stores whatever a prerender function returns in the ISR cache and
+ * Marks the 503 the ISG function answers for a render it refuses to store, so
+ * the revalidation webhook can report why instead of a bare status.
+ */
+const VERCEL_ISG_REFUSED_HEADER = "x-pracht-isg-refused";
+
+/**
+ * Vercel stores what a prerender function returns in the ISR cache and
  * replays it to every later visitor, so a cacheable page is answered as the
- * snapshot every adapter stores. Anything else is still stored: build-time
- * prerendering refuses credential headers, but a runtime regeneration cannot
- * fail the build, so they are stripped and the page keeps serving.
+ * snapshot every adapter stores.
+ *
+ * A render that marks itself request-specific (`Set-Cookie`, `Cache-Control:
+ * private` or `no-store`, `Vary` on cookies or credentials) must not be
+ * stored, and no prerender setting lets a response opt out. It is answered as
+ * a `503` with `no-store` instead: Vercel keeps the previous page (or the
+ * build's) for that path and retries the render about 30 seconds later, which
+ * is what the Node and Cloudflare adapters do when they decline a snapshot.
  */
 async function prepareVercelISGResponse(request: Request, response: Response): Promise<Response> {
   const pathname = new URL(request.url).pathname;
@@ -291,11 +303,20 @@ async function prepareVercelISGResponse(request: Request, response: Response): P
   }
 
   if (snapshot.reason === "uncacheable") {
+    await response.body?.cancel().catch(() => undefined);
     console.warn(
-      `The ISG response for "${pathname}" marks itself uncacheable (Cache-Control private/no-store ` +
-        "or Vary on Cookie/Authorization), but Vercel's prerender cache stores it regardless. " +
-        "Render this route as SSR instead if its output is request-specific.",
+      `The ISG render for "${pathname}" was not stored: ${snapshot.detail}. Vercel keeps ` +
+        "serving the previous page and retries in about 30 seconds. Render this route as SSR " +
+        "if its output is request-specific.",
     );
+    return new Response("Service Unavailable", {
+      status: 503,
+      headers: {
+        "cache-control": "no-store",
+        "content-type": "text/plain; charset=utf-8",
+        [VERCEL_ISG_REFUSED_HEADER]: "uncacheable",
+      },
+    });
   }
   return new Response(response.body, {
     headers: stripISGSecretHeaders(response.headers, pathname),
@@ -422,7 +443,10 @@ async function handleVercelRevalidationEndpoint(
   const report = new RevalidationReport("global");
 
   for (const pathname of parsed.paths) {
-    const match = matchAppRoute(app, pathname);
+    // Reported as asked, fetched as the page: `/posts/caf%c3%a9` and
+    // `/posts/café` are `/posts/caf%C3%A9`, the path the prerender route names.
+    const key = isgPathKey(pathname);
+    const match = matchAppRoute(app, key);
     // Vercel matches route patterns rather than a prerender manifest, so a
     // matched ISG route always has somewhere to write.
     const skip = classifyRevalidationSkip(match?.route, match !== null);
@@ -434,7 +458,7 @@ async function handleVercelRevalidationEndpoint(
     // A failed regeneration keeps Vercel's cached prerender output and is
     // reported in `failed` instead of aborting the whole batch with a 500.
     try {
-      const revalidateUrl = new URL(withBase(pathname), request.url);
+      const revalidateUrl = new URL(withBase(key), request.url);
       const response = await fetch(revalidateUrl, {
         headers: {
           accept: "text/html",
@@ -444,7 +468,13 @@ async function handleVercelRevalidationEndpoint(
       });
 
       if (!response.ok) {
-        report.failed(pathname, `upstream_status_${response.status}`);
+        await response.body?.cancel().catch(() => undefined);
+        report.failed(
+          pathname,
+          response.headers.get(VERCEL_ISG_REFUSED_HEADER) === "uncacheable"
+            ? "uncacheable_render"
+            : `upstream_status_${response.status}`,
+        );
         continue;
       }
 

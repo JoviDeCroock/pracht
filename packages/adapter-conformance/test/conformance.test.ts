@@ -29,7 +29,7 @@ import {
   type StaticOutput,
   type TargetId,
 } from "./harness.ts";
-import { divergences, fails, na, row, run, type Cell } from "./matrix.ts";
+import { divergences, na, row, run, type Cell } from "./matrix.ts";
 
 let output: StaticOutput;
 let fixture: Fixture;
@@ -364,9 +364,9 @@ row(
   {
     ...ISG_CELLS,
     cloudflare: na("the assets binding's html_handling redirects index.html to the page"),
-    // seams step C: Netlify builds emit no ISG HTML, so this file exists only
-    // in the shared fixture output; its static path rule is step D's.
-    netlify: fails("C", "serves the build's prerendered file, not the cached render"),
+    // The shared fixture writes `<page>/index.html` for every target; a real
+    // Netlify build writes none, so the alias is the app's 404 there.
+    netlify: na("Netlify builds emit no ISG HTML; the alias is a 404"),
     "vercel-node": na("Vercel routes the prerender function by the page path"),
   },
   async (target) => {
@@ -416,28 +416,16 @@ row(
 
 row(
   "refuses to store an ISG render that sets a cookie",
-  {
-    ...ISG_CELLS,
-    // seams step C: Vercel's prerender cache stores any 200 the function
-    // answers; refusing needs a platform decision, not a header.
-    "vercel-node": fails("C", "strips the cookie and stores the render"),
-  },
+  // Vercel stores any 200 the function answers, so it answers a 503 instead.
+  ISG_CELLS,
   async (target) => {
     expect(await replayedRender(target, ISG_PATHS.cookie)).toBeNull();
   },
 );
 
-row(
-  "refuses to store a private ISG render",
-  {
-    ...ISG_CELLS,
-    // seams step C: as above, Vercel stores any 200.
-    "vercel-node": fails("C", "warns and lets the prerender cache store it"),
-  },
-  async (target) => {
-    expect(await replayedRender(target, ISG_PATHS.private)).toBeNull();
-  },
-);
+row("refuses to store a private ISG render", ISG_CELLS, async (target) => {
+  expect(await replayedRender(target, ISG_PATHS.private)).toBeNull();
+});
 
 // ---------------------------------------------------------------------------
 // Deploy rollover
@@ -571,11 +559,11 @@ row("rejects a revalidation request with a wrong token", REVALIDATION_CELLS, asy
  * means flipping it to `run` and lowering this number in the same change; a
  * new divergence is fixed, not recorded. 20 when the suite landed: 10 for
  * step C (ISG snapshots), 10 for step D (static paths, MIME, Range, 413).
- * Step C converged 7 and step D all 10, leaving step C's 3: Vercel's
- * prerender cache storing cookie and private renders, and Netlify's
- * `index.html` alias of an ISG page.
+ * Step C converged 7 and step D all 10. The last 3 converged after review:
+ * Vercel answers a cookie or private render with a 503 its prerender cache
+ * does not store, and Netlify's `index.html` alias is not a Netlify output.
  */
-const BASELINE = 3;
+const BASELINE = 0;
 
 describe("baseline", () => {
   it(`records exactly ${BASELINE} divergent cells`, () => {
