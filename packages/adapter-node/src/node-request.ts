@@ -185,6 +185,11 @@ export function createClientDisconnectSignal(
   // Connect-style middleware stacks (Vite dev) can hand over non-stream stand-ins.
   if (typeof req.on !== "function" || typeof res.on !== "function") return undefined;
   const controller = new AbortController();
+  abortOnEnd.set(res, () => {
+    if (!controller.signal.aborted) {
+      controller.abort(new DOMException("The server is shutting down.", "AbortError"));
+    }
+  });
   const abortIfUnfinished = (): void => {
     if (res.writableFinished || controller.signal.aborted) return;
     controller.abort(new DOMException("The client closed the request.", "AbortError"));
@@ -408,7 +413,11 @@ export async function writeWebResponse(
     return;
   }
 
-  const source: NodeJS.ReadableStream = Readable.fromWeb(response.body as never);
+  // An event stream never ends on its own, so a graceful shutdown ends it (see
+  // `endEventStream`); its source is one that can be ended from outside.
+  const source: NodeJS.ReadableStream = isEventStream(res)
+    ? createEndableSource(response.body, res)
+    : Readable.fromWeb(response.body as never);
   // `incremental` flushes the compressor per written chunk: dynamic bodies
   // may be produced over time (SSE, streamed API responses), and a compressor
   // that only drains at end-of-stream would hold every event back until the
@@ -418,6 +427,75 @@ export async function writeWebResponse(
     encoding ? createCompressedStream(source, encoding, { incremental: true }) : source,
     res,
   );
+}
+
+/** Aborts the request signal of an open response, keyed by that response. */
+const abortOnEnd = new WeakMap<ServerResponse, () => void>();
+/** Ends the body of an open event stream, keyed by its response. */
+const endBodyOnEnd = new WeakMap<ServerResponse, () => void>();
+
+function isEventStream(res: ServerResponse): boolean {
+  return String(res.getHeader("content-type") ?? "")
+    .toLowerCase()
+    .startsWith("text/event-stream");
+}
+
+/**
+ * `Readable.fromWeb`, except that `endEventStream` can finish it: the app's
+ * stream is cancelled and the readable ends, so whatever it is piped through
+ * (a compressor too) flushes and the HTTP response completes.
+ */
+function createEndableSource(body: ReadableStream<Uint8Array>, res: ServerResponse): Readable {
+  const reader = body.getReader();
+  let ended = false;
+  const source = new Readable({
+    read() {
+      reader.read().then(
+        ({ done, value }) => {
+          if (ended) return;
+          if (done) {
+            ended = true;
+            source.push(null);
+          } else {
+            source.push(value);
+          }
+        },
+        (error: unknown) => {
+          if (!ended) source.destroy(error instanceof Error ? error : new Error(String(error)));
+        },
+      );
+    },
+    destroy(error, callback) {
+      if (!ended) {
+        ended = true;
+        reader.cancel(error ?? undefined).catch(() => undefined);
+      }
+      callback(error);
+    },
+  });
+  endBodyOnEnd.set(res, () => {
+    if (ended) return;
+    ended = true;
+    reader.cancel().catch(() => undefined);
+    source.push(null);
+  });
+  return source;
+}
+
+/**
+ * End an open event stream the way a completed response ends, instead of
+ * cutting the connection: the request's `signal` aborts, the app's body
+ * stream is cancelled, and the response finishes (a chunked body gets its
+ * terminating chunk), so an `EventSource` sees a clean end and reconnects.
+ * Returns `false` when `res` has no body this module is streaming yet; the
+ * caller then closes it some other way.
+ */
+export function endEventStream(res: ServerResponse): boolean {
+  const endBody = endBodyOnEnd.get(res);
+  if (!endBody) return false;
+  abortOnEnd.get(res)?.();
+  endBody();
+  return true;
 }
 
 function cancelResponseBody(response: Response): void {

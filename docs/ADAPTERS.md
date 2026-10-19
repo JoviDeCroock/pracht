@@ -447,10 +447,13 @@ so the exit status is the default one. Edges of that shape:
   sockets are closed up front, but a socket whose request finishes during the
   drain stays open for Node's `keepAliveTimeout` (5s, or `keepAliveTimeoutMs`),
   and longer while a client keeps sending on it. Open `text/event-stream`
-  responses are destroyed right after `server.close()` via
-  `handler.closeEventStreams()` (request `signal` aborts, body stream is
-  cancelled; `EventSource` clients reconnect elsewhere), including ones not yet
-  flushed. From then on a request that answers with an event stream is closed
+  responses are ended right after `server.close()` via
+  `handler.closeEventStreams()`: `endEventStream()` in `node-request.ts` aborts
+  the request `signal`, cancels the body stream and finishes the response (the
+  terminating chunk, and the compressor's trailer when compressed), so an
+  `EventSource` sees a clean end and reconnects elsewhere. Event-stream bodies
+  are read through `createEndableSource()` instead of `Readable.fromWeb()` for
+  that; a stream whose body is not piping yet is destroyed instead. From then on a request that answers with an event stream is closed
   as soon as its headers are staged (`whenResponseHeadersStaged()` in
   `node-request.ts`), and `closeEventStreams()` resolves only once every request
   in flight has answered and the closed streams' handlers have returned, so the

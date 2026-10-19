@@ -68,6 +68,7 @@ import {
 } from "./node-isg.ts";
 import {
   createWebRequest,
+  endEventStream,
   isClientDisconnectError,
   pipeToResponse,
   whenResponseHeadersStaged,
@@ -174,9 +175,10 @@ export interface NodeRequestHandler {
    */
   drain(timeoutMs?: number): Promise<boolean>;
   /**
-   * Close every `text/event-stream` response still open, as if its client
-   * had disconnected (the request's `signal` aborts and the body stream is
-   * cancelled). Event streams never end on their own, so a graceful shutdown
+   * End every `text/event-stream` response still open: the request's
+   * `signal` aborts, the body stream is cancelled, and the response finishes
+   * cleanly (one not streaming its body yet is cut off instead). Event
+   * streams never end on their own, so a graceful shutdown
    * calls this after `server.close()` instead of waiting out its timeout;
    * `EventSource` clients reconnect. Other responses are left to finish.
    * From the first call on, a request that answers with an event stream later
@@ -466,7 +468,10 @@ export function createNodeRequestHandler<TContext = unknown>(
     // that has not sent an event yet is closed as well.
     const contentType = String(res.getHeader("content-type") ?? "").toLowerCase();
     if (!contentType.startsWith("text/event-stream")) return;
-    res.destroy();
+    // A clean end of the response, so the client sees a finished stream
+    // rather than a dropped connection; cut it only when its body is not
+    // streaming yet.
+    if (!endEventStream(res)) res.destroy();
     closedEventStreams.add(served);
   };
   // A request still answering may answer with an event stream, so it is
