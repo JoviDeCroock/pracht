@@ -1280,14 +1280,20 @@ function collectSingleCapabilityChecks(
     }
   }
 
+  // The build generates the browser endpoint table from this same static read
+  // and fails when it cannot read the exposure, so verify fails with it.
   if (exposeUnknown) {
     checks.push(
       createCheck(
-        "warning",
-        `${label}: the "expose" field is not an inline object literal, so its exposure contract ` +
-          "could not be verified statically — including the destructive-exposure and " +
-          "confirmation-secret checks. Inline the expose object so verification can cover it.",
+        "error",
+        `${label}: "expose" must be an inline object literal so the client projection can be ` +
+          "generated at build time; a constant, environment value, or call inside it cannot be read.",
       ),
+    );
+  } else if (!properties.has("expose") && read.truncated) {
+    problems.push(
+      "contains a spread or computed key the build cannot analyze, so its `expose` could not be " +
+        "read. Declare `expose`, `effect`, `agentPolicy`, and `middleware` as inline literals",
     );
   }
 
@@ -1406,8 +1412,7 @@ function collectSingleCapabilityChecks(
   }
 
   if (exposeUnknown) {
-    // The exposure contract could not be verified; the warning above already
-    // says so. Don't claim a complete contract.
+    // The exposure contract could not be verified; the error above says so.
     return;
   }
 

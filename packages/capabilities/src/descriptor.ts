@@ -95,6 +95,7 @@ export function isValidOAuthScopeToken(value: unknown): value is string {
 }
 
 const EFFECTS: readonly string[] = ["read", "write", "destructive"];
+const EXPOSE_KEYS: readonly string[] = ["http", "mcp", "webmcp"];
 const AGENT_POLICIES: readonly string[] = ["observe", "require"];
 const NO_KEYS: ReadonlySet<string> = new Set();
 
@@ -193,6 +194,16 @@ function normalizeExpose(
     return { http: null, mcp: null, webmcp: null };
   }
 
+  // A misspelled key (`mpc`) would otherwise leave that transport silently off.
+  for (const key of Object.keys(expose)) {
+    if (!EXPOSE_KEYS.includes(key)) {
+      report(
+        "expose",
+        `unknown "expose" key ${JSON.stringify(key)}; expected "http", "mcp", or "webmcp"`,
+      );
+    }
+  }
+
   const defaultPath = context.name === undefined ? null : capabilityHttpPath(context.name);
   let http: { path: string | null } | null = null;
   if (expose.http === true) {
@@ -226,8 +237,6 @@ function normalizeExpose(
     report("expose", '"expose.webmcp" must be a boolean or an options object');
   }
 
-  // Anything other than `true` or an options object leaves MCP off, as it
-  // always has: the projection fails closed on a value it does not recognize.
   let mcp: { scopes: readonly string[] } | null = null;
   if (expose.mcp === true) {
     mcp = { scopes: [] };
@@ -245,6 +254,8 @@ function normalizeExpose(
       );
       mcp = { scopes: [] };
     }
+  } else if (expose.mcp !== undefined && expose.mcp !== false && expose.mcp !== null) {
+    report("expose", '"expose.mcp" must be a boolean or an options object');
   }
 
   return { http, mcp, webmcp };

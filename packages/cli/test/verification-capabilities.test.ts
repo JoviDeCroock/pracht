@@ -166,7 +166,7 @@ describe("collectCapabilityChecks", () => {
     );
   });
 
-  it("warns instead of passing when expose is not an inline literal", () => {
+  it("fails like the build when expose is not an inline literal", () => {
     const source = [
       'import { defineCapability } from "@pracht/capabilities";',
       "",
@@ -186,14 +186,70 @@ describe("collectCapabilityChecks", () => {
     ].join("\n");
     const checks = runChecks(source);
 
-    // The destructive-exposure / confirmation-secret checks can't run, so it
-    // must warn rather than silently claim a complete contract.
-    expect(checks.map((check) => check.message)).toContainEqual(
-      expect.stringContaining('the "expose" field is not an inline object literal'),
-    );
+    // The build cannot generate the client projection either, so verify must
+    // fail rather than pass with a warning.
+    expect(
+      checks.filter((check) => check.status === "error").map((check) => check.message),
+    ).toContainEqual(expect.stringContaining('"expose" must be an inline object literal'));
     expect(checks.map((check) => check.message)).not.toContainEqual(
       expect.stringContaining("declares a complete"),
     );
+  });
+
+  it.each([
+    ["a constant MCP flag", "  expose: { http: true, mcp: ON },"],
+    ["constant scopes", "  expose: { mcp: { scopes: S } },"],
+    ["an environment flag", "  expose: { http: true, mcp: process.env.MCP === '1' },"],
+  ])("fails on %s inside expose, as typegen and build do", (_case, expose) => {
+    const source = [
+      'import { defineCapability } from "@pracht/capabilities";',
+      "",
+      "const ON = true;",
+      'const S = ["notes:read"];',
+      "export default defineCapability({",
+      '  title: "Search notes",',
+      '  description: "Find notes.",',
+      '  input: { type: "object" },',
+      '  output: { type: "object" },',
+      '  effect: "read",',
+      expose,
+      "  async run() {",
+      "    return {};",
+      "  },",
+      "});",
+      "",
+    ].join("\n");
+    const errors = runChecks(source)
+      .filter((check) => check.status === "error")
+      .map((check) => check.message);
+    expect(errors).toContainEqual(
+      expect.stringContaining('"expose" must be an inline object literal'),
+    );
+  });
+
+  it.each([
+    ['{ http: true, mcp: "yes" }', '"expose.mcp" must be a boolean or an options object'],
+    ["{ http: true, mpc: true }", 'unknown "expose" key "mpc"'],
+  ])("rejects expose %s", (expose, message) => {
+    const source = [
+      'import { defineCapability } from "@pracht/capabilities";',
+      "export default defineCapability({",
+      '  title: "Search notes",',
+      '  description: "Find notes.",',
+      '  input: { type: "object" },',
+      '  output: { type: "object" },',
+      '  effect: "read",',
+      `  expose: ${expose},`,
+      "  async run() {",
+      "    return {};",
+      "  },",
+      "});",
+      "",
+    ].join("\n");
+    const errors = runChecks(source)
+      .filter((check) => check.status === "error")
+      .map((check) => check.message);
+    expect(errors).toContainEqual(expect.stringContaining(message));
   });
 
   it.each(["true", "null", "[]"])("rejects a non-object inline expose value (%s)", (expose) => {
