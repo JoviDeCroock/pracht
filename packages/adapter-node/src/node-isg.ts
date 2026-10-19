@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, open, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, open, rename, rm, stat, writeFile } from "node:fs/promises";
 import { IncomingMessage, ServerResponse } from "node:http";
 import { Socket } from "node:net";
 import { Duplex } from "node:stream";
@@ -147,37 +147,6 @@ function buildIdFileSegment(buildId: string): string {
     : createHash("sha256").update(buildId).digest("base64url").slice(0, 22);
 }
 
-/**
- * How long another build's snapshot is left alone after its last write. Its
- * process may still be serving during a rollover; once the file is older
- * than this, the next write beside it removes it. A process that loses its
- * snapshot only renders the page again.
- */
-export const RETIRED_ISG_SNAPSHOT_AGE_MS = 60 * 60 * 1000;
-
-/** Remove other builds' snapshots of the page at `htmlPath` that nobody wrote recently. */
-async function removeRetiredSnapshots(htmlPath: string, keep: string): Promise<void> {
-  const directory = dirname(htmlPath);
-  const name = basename(htmlPath);
-  const prefix = `.${name}.`;
-  const legacy = `.${name}${ISG_SNAPSHOT_SUFFIX}`;
-  const cutoff = Date.now() - RETIRED_ISG_SNAPSHOT_AGE_MS;
-  const entries = await readdir(directory).catch(() => [] as string[]);
-  await Promise.all(
-    entries.map(async (entry) => {
-      const path = join(directory, entry);
-      if (path === keep) return;
-      if (entry !== legacy && !(entry.startsWith(prefix) && entry.endsWith(ISG_SNAPSHOT_SUFFIX))) {
-        return;
-      }
-      const fileStat = await stat(path).catch(() => null);
-      if (!fileStat?.isFile() || fileStat.mtimeMs >= cutoff) return;
-      forgetSnapshot(path);
-      await rm(path, { force: true }).catch(() => undefined);
-    }),
-  );
-}
-
 function getFileVersion(fileStat: { dev: number; ino: number; size: number; mtimeMs: number }) {
   return `${fileStat.dev}:${fileStat.ino}:${fileStat.size}:${fileStat.mtimeMs}`;
 }
@@ -218,7 +187,9 @@ function storeSnapshot(path: string, version: string, snapshot: ISGSnapshot): St
 /**
  * Publish a regenerated page as one file replacement, so a reader in this or
  * another process sees either the previous snapshot or this one, never HTML
- * from one render with headers from another.
+ * from one render with headers from another. Other builds' snapshots stay:
+ * a process still serving one of them during a rollover needs its own, and
+ * `pracht build` empties the client directory anyway.
  */
 export async function writeISGSnapshot(htmlPath: string, snapshot: ISGSnapshot): Promise<void> {
   const path = getISGSnapshotPath(htmlPath, snapshot.buildId);
@@ -226,7 +197,6 @@ export async function writeISGSnapshot(htmlPath: string, snapshot: ISGSnapshot):
     // A rename keeps the device, inode, size, and mtime.
     storeSnapshot(path, getFileVersion(await stat(temporaryPath)), snapshot);
   });
-  await removeRetiredSnapshots(htmlPath, path);
 }
 
 /**

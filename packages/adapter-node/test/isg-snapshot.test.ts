@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { ISGSnapshot } from "@pracht/core/server";
 
-import { RETIRED_ISG_SNAPSHOT_AGE_MS, readISGSnapshot, writeISGSnapshot } from "../src/node-isg.ts";
+import { readISGSnapshot, writeISGSnapshot } from "../src/node-isg.ts";
 
 const tempDirs: string[] = [];
 
@@ -101,28 +101,26 @@ describe("Node ISG snapshots", () => {
     });
   });
 
-  it("removes another build's snapshot once nobody wrote it for an hour", async () => {
+  it("leaves another build's snapshot in place, however old", async () => {
     const htmlPath = makeHtmlPath();
     const dir = join(htmlPath, "..");
     await writeISGSnapshot(htmlPath, snapshotOf(1, "build-1"));
-    // An id that is not a safe file name is stored under a digest of it.
-    await writeISGSnapshot(htmlPath, snapshotOf(2, "a/b c"));
     writeFileSync(join(dir, ".index.html.pracht-isg.json"), "{}", "utf-8");
-    writeFileSync(join(dir, ".other.html.build-1.pracht-isg.json"), "{}", "utf-8");
-    const old = (Date.now() - RETIRED_ISG_SNAPSHOT_AGE_MS - 60_000) / 1000;
-    for (const entry of readdirSync(dir)) {
-      if (!entry.startsWith(".index.html.build-1")) {
-        utimesSync(join(dir, entry), old, old);
-      }
-    }
+    // A webhook-only page of a build still serving during a rollover may not
+    // have been regenerated for days; it is that process's only copy.
+    const old = (Date.now() - 7 * 24 * 60 * 60 * 1000) / 1000;
+    for (const entry of readdirSync(dir)) utimesSync(join(dir, entry), old, old);
 
-    await writeISGSnapshot(htmlPath, snapshotOf(3, "build-3"));
+    await writeISGSnapshot(htmlPath, snapshotOf(2, "build-2"));
 
     expect(readdirSync(dir).sort()).toEqual([
       ".index.html.build-1.pracht-isg.json",
-      ".index.html.build-3.pracht-isg.json",
-      ".other.html.build-1.pracht-isg.json",
+      ".index.html.build-2.pracht-isg.json",
+      ".index.html.pracht-isg.json",
     ]);
+    await expect(readISGSnapshot(htmlPath, "build-1")).resolves.toMatchObject({
+      snapshot: snapshotOf(1, "build-1"),
+    });
   });
 
   it("reads a snapshot an older release wrote under the shared name for the same build", async () => {

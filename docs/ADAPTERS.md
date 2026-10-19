@@ -235,9 +235,10 @@ that manifest.
   that is not a safe file name segment is replaced by a digest of it; a
   handler without a build id uses the unscoped `.index.html.pracht-isg.json`
   older releases wrote, which a handler with one still reads when the snapshot
-  inside carries its id. Each write removes the page's snapshots of other
-  builds not written for `RETIRED_ISG_SNAPSHOT_AGE_MS` (one hour); a process
-  still serving such a build only renders the page again. Neither the snapshot nor
+  inside carries its id. A write never removes another build's snapshot: a
+  process still serving that build during a rollover may hold no other copy
+  of a webhook-only page, and `pracht build` empties the client directory
+  anyway. Neither the snapshot nor
   the `.pracht-headers.json` file older releases wrote is ever served as a
   static file.
   ISG state is the local `staticDir` of one process: the webhook regenerates
