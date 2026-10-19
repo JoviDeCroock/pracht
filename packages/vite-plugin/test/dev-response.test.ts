@@ -5,7 +5,8 @@ import { describe, expect, it, vi } from "vitest";
 
 import * as frameworkServer from "../../framework/src/server.ts";
 import { defineApp, resolveApiRoutes, resolveApp, route } from "../../framework/src/app.ts";
-import { createDevSSRMiddleware, writeDevResponseHeaders } from "../src/plugin-dev-ssr.ts";
+import { writeNodeResponseHeaders as writeDevResponseHeaders } from "@pracht/adapter-node/bridge";
+import { createDevSSRMiddleware } from "../src/plugin-dev-ssr.ts";
 import { PRACHT_SERVER_MODULE_ID } from "../src/plugin-assets.ts";
 
 /**

@@ -1,8 +1,13 @@
 import { existsSync, readFileSync } from "node:fs";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
-import { Readable } from "node:stream";
 import { join, resolve } from "node:path";
 import type { Connect, EnvironmentModuleNode, ViteDevServer } from "vite";
+import {
+  createWebRequest,
+  DEFAULT_MAX_BODY_SIZE,
+  writeNodeResponseHeaders,
+  writeWebResponse,
+} from "@pracht/adapter-node/bridge";
 import type {
   ModuleRegistry,
   PrachtPhaseTimings,
@@ -20,6 +25,7 @@ import {
   resolveRegistryModule,
 } from "@pracht/core";
 import type { MarkdownFilePlan } from "@pracht/core";
+import { staticContentType } from "@pracht/core/server";
 import type { AgentTrafficBuffer } from "./agent-traffic.ts";
 import type { PrachtAdapterDevOptions } from "./plugin-adapter.ts";
 import { createAgentTrafficBuffer } from "./agent-traffic.ts";
@@ -36,7 +42,6 @@ const BODYLESS_METHODS = new Set(["GET", "HEAD"]);
 // Marks a server island fragment (see @pracht/core server-islands-shared.ts).
 const SERVER_ISLAND_RESPONSE_HEADER = "x-pracht-server-island";
 const SERVER_ISLAND_ENDPOINT = "/__pracht/server-island";
-const DEFAULT_MAX_BODY_SIZE = 1024 * 1024; // 1 MiB
 const CSS_MODULE_URL_RE = /\.(?:css|less|sass|scss|styl|stylus|pcss|postcss|sss)(?:$|\?)/;
 /**
  * Ceiling on what the dev CSS-injection middleware will hold in memory before
@@ -323,21 +328,14 @@ export function createDevSSRMiddleware(
         );
       }
 
-      let webRequest: Request;
-      try {
-        webRequest = await nodeToWebRequest(
-          req,
-          maxBodySize,
-          devBase,
-          devDisconnectSignal(req, res),
-        );
-      } catch (err) {
-        if (err instanceof Error && err.message === "Request body too large") {
-          res.statusCode = 413;
-          res.end("Payload Too Large");
-          return;
-        }
-        throw err;
+      // Dev is a direct connection: forwarded headers are never trusted, and
+      // Vite stripped the base off `req.url`, so the bridge puts it back for
+      // the URL the app sees. `handlePrachtRequest` strips it again to match.
+      const webRequest = await createWebRequest(req, res, { base: devBase, maxBodySize });
+      if (webRequest instanceof Response) {
+        // 413 or 400, answered as the Node adapter answers it.
+        await writeWebResponse(res, webRequest);
+        return;
       }
       // Dev-only: collect middleware/loader/render phase durations so the
       // browser Network panel shows them via the Server-Timing header.
@@ -443,23 +441,7 @@ export function createDevSSRMiddleware(
       // so `createEventStream()` cleanup (keep-alive timers, producer loops)
       // runs in dev exactly as it does in production.
       if (response.body && isEventStreamContentType(contentType)) {
-        res.statusCode = response.status;
-        writeDevResponseHeaders(res, response.headers);
-        const source = Readable.fromWeb(response.body as Parameters<typeof Readable.fromWeb>[0]);
-        // The client may already have hung up while the handler ran; `close`
-        // has then already fired and the listener below would never run,
-        // leaving the stream (and its keep-alive timer) alive forever.
-        if (res.destroyed || res.writableEnded) {
-          source.destroy();
-          return;
-        }
-        res.on("close", () => {
-          if (!res.writableFinished) source.destroy();
-        });
-        source.on("error", () => {
-          res.destroy();
-        });
-        source.pipe(res);
+        await writeDevResponseBody(server, res, response, requestUrl.pathname);
         return;
       }
 
@@ -506,7 +488,7 @@ export function createDevSSRMiddleware(
       ) {
         const html = await transformDevHtml(server, url, await response.text(), devBase);
         res.statusCode = response.status;
-        writeDevResponseHeaders(res, response.headers);
+        writeNodeResponseHeaders(res, response.headers);
         // The transform changed the body length (Vite injects its client
         // script), so any length the runtime declared no longer describes it.
         res.removeHeader("content-length");
@@ -517,33 +499,10 @@ export function createDevSSRMiddleware(
         return;
       }
 
-      res.statusCode = response.status;
-      writeDevResponseHeaders(res, response.headers);
       if (serverTiming) {
         res.setHeader("Server-Timing", serverTiming);
       }
-
-      if (!response.body) {
-        res.end();
-        return;
-      }
-
-      const source = Readable.fromWeb(response.body as Parameters<typeof Readable.fromWeb>[0]);
-      if (res.destroyed || res.writableEnded) {
-        source.destroy();
-        return;
-      }
-      res.on("close", () => {
-        if (!res.writableFinished) source.destroy();
-      });
-      source.on("error", (streamError: unknown) => {
-        // The response is already on the wire, so this cannot become a 500 —
-        // destroying the socket is all that is left. Without a line here the
-        // developer sees a truncated download and nothing else.
-        logDevRequestError(server, { error: streamError, path: requestUrl.pathname });
-        res.destroy();
-      });
-      source.pipe(res);
+      await writeDevResponseBody(server, res, response, requestUrl.pathname);
     } catch (error: unknown) {
       if (!hasReportedError || error !== reportedError) {
         logDevRequestError(server, { error, path: requestUrl.pathname });
@@ -551,6 +510,27 @@ export function createDevSSRMiddleware(
       await handleDevError(server, req, res, next, url, error, devBase);
     }
   };
+}
+
+/**
+ * Write `response` through the Node bridge: backpressure, every `Set-Cookie`,
+ * and the body cancelled when the client leaves, as on the Node adapter.
+ */
+async function writeDevResponseBody(
+  server: ViteDevServer,
+  res: ServerResponse,
+  response: Response,
+  path: string,
+): Promise<void> {
+  try {
+    await writeWebResponse(res, response);
+  } catch (streamError: unknown) {
+    // The status and headers are already staged, so a failing body cannot
+    // become a 500 — destroying the socket is all that is left. Without a
+    // line here the developer sees a truncated download and nothing else.
+    logDevRequestError(server, { error: streamError, path });
+    res.destroy();
+  }
 }
 
 const VITE_UPGRADE_PROTOCOLS = new Set(["vite-hmr", "vite-ping"]);
@@ -928,7 +908,7 @@ async function streamDevHtmlResponse(
     const transformed = await transformStreamingDevHtmlPrefix(server, url, prefix, base);
 
     res.statusCode = response.status;
-    writeDevResponseHeaders(res, response.headers);
+    writeNodeResponseHeaders(res, response.headers);
     res.removeHeader("content-length");
     if (serverTiming) res.setHeader("Server-Timing", serverTiming);
     committed = true;
@@ -1963,41 +1943,11 @@ function readRequestHeader(value: string | string[] | undefined): string {
   return value ?? "";
 }
 
-/**
- * Copy a `Response`'s headers onto a Node response the way the production
- * adapters do.
- *
- * `headers.forEach()` yields `set-cookie` once, joined with `, ` — and
- * `res.setHeader()` replaces rather than appends — so a loader or API route
- * that sets two cookies used to emit a single corrupted header in dev while
- * production (see `writeNodeResponseHeaders` in @pracht/adapter-node) sent
- * both. `getSetCookie()` is the only accessor that keeps them apart.
- */
-export function writeDevResponseHeaders(res: ServerResponse, headers: Headers): void {
-  const setCookieHeaders =
-    typeof (headers as Headers & { getSetCookie?: () => string[] }).getSetCookie === "function"
-      ? (headers as Headers & { getSetCookie: () => string[] }).getSetCookie()
-      : [];
-
-  headers.forEach((value: string, key: string) => {
-    if (key.toLowerCase() === "set-cookie" && setCookieHeaders.length > 0) return;
-    res.setHeader(key, value);
-  });
-
-  if (setCookieHeaders.length > 0) {
-    res.setHeader("set-cookie", setCookieHeaders);
-  }
-}
-
 function hasKnownAssetExtension(pathname: string): boolean {
-  const fileName = pathname.split("/").pop() ?? "";
-  const extensionIndex = fileName.lastIndexOf(".");
-  if (extensionIndex <= 0) {
-    return false;
-  }
-
-  const extension = fileName.slice(extensionIndex).toLowerCase();
-  return DEV_ASSET_EXTENSIONS.has(extension);
+  // The production adapters' content-type table names every static asset
+  // kind; an `.html` URL is a document the app may still answer.
+  const contentType = staticContentType(pathname, null);
+  return contentType !== null && !contentType.startsWith("text/html");
 }
 
 function isReservedDevPath(pathname: string): boolean {
@@ -2032,107 +1982,3 @@ const NON_DOCUMENT_FETCH_DESTINATIONS = new Set([
   "video",
   "worker",
 ]);
-
-const DEV_ASSET_EXTENSIONS = new Set([
-  ".avif",
-  ".bmp",
-  ".cjs",
-  ".css",
-  ".gif",
-  ".ico",
-  ".jpeg",
-  ".jpg",
-  ".js",
-  ".json",
-  ".map",
-  ".markdown",
-  ".md",
-  ".mjs",
-  ".pdf",
-  ".png",
-  ".svg",
-  ".txt",
-  ".wasm",
-  ".webmanifest",
-  ".webp",
-  ".woff",
-  ".woff2",
-  ".xml",
-]);
-
-/**
- * Aborts when the client hangs up before the dev response finished, so
- * `request.signal` (and a capability's `signal`) behave as on the Node adapter.
- * The request's `close` counts only while its body is incomplete: Node also
- * emits it once a fully read upload is consumed.
- */
-export function devDisconnectSignal(
-  req: IncomingMessage,
-  res: { writableFinished: boolean; on(event: "close", listener: () => void): unknown },
-): AbortSignal | undefined {
-  // Connect-style middleware stacks can hand over non-stream stand-ins.
-  if (typeof req.on !== "function" || typeof res.on !== "function") return undefined;
-  const controller = new AbortController();
-  const abortIfUnfinished = (): void => {
-    if (res.writableFinished || controller.signal.aborted) return;
-    controller.abort(new DOMException("The client closed the request.", "AbortError"));
-  };
-  req.on("close", () => {
-    if (!req.complete) abortIfUnfinished();
-  });
-  res.on("close", abortIfUnfinished);
-  return controller.signal;
-}
-
-async function nodeToWebRequest(
-  req: IncomingMessage,
-  maxBodySize: number,
-  base = "/",
-  signal?: AbortSignal,
-): Promise<Request> {
-  // Dev server is always a direct connection — never trust forwarded headers.
-  // Protocol is always plain HTTP (Vite's dev server does not use TLS), and
-  // host comes from the standard Host header which is safe for direct clients.
-  const protocol = "http";
-  const host = req.headers.host ?? "localhost";
-  // Vite stripped the base off `req.url`; put it back so the request the app
-  // sees — and the URL it serializes for the client — is the one the visitor
-  // typed. `handlePrachtRequest` strips it again for route matching.
-  const path = req.url ?? "/";
-  const url = new URL(
-    base === "/" || !path.startsWith("/") ? path : `${base}${path.slice(1)}`,
-    `${protocol}://${host}`,
-  );
-  const method = req.method ?? "GET";
-
-  const headers = new Headers();
-  for (const [key, value] of Object.entries(req.headers)) {
-    if (value === undefined) continue;
-    if (Array.isArray(value)) {
-      for (const v of value) headers.append(key, v);
-    } else {
-      headers.set(key, value);
-    }
-  }
-
-  const init: RequestInit = { method, headers, signal };
-
-  if (!BODYLESS_METHODS.has(method.toUpperCase())) {
-    const chunks: Uint8Array[] = [];
-    let totalSize = 0;
-    for await (const chunk of req) {
-      const buf = typeof chunk === "string" ? Buffer.from(chunk) : chunk;
-      totalSize += buf.byteLength;
-      if (totalSize > maxBodySize) {
-        throw new Error("Request body too large");
-      }
-      chunks.push(buf);
-    }
-    const body = Buffer.concat(chunks);
-    if (body.byteLength > 0) {
-      init.body = body;
-    }
-  }
-
-  return new Request(url, init);
-}

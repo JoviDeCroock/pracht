@@ -74,8 +74,14 @@ export interface VercelNodeResponse {
   statusCode: number;
   statusMessage?: string;
   setHeader(name: string, value: string | string[]): unknown;
+  /** Returns `false` when the body must wait for `drain` (backpressure). */
   write(chunk: Uint8Array): unknown;
   end(): unknown;
+  /** Waits for `drain` and notices a client that left (`close`). */
+  once?(event: "drain" | "close", listener: () => void): unknown;
+  off?(event: "drain" | "close", listener: () => void): unknown;
+  readonly destroyed?: boolean;
+  readonly writableFinished?: boolean;
 }
 
 export function createVercelEdgeHandler<
@@ -298,6 +304,13 @@ function prepareVercelISGResponse(request: Request, response: Response): Respons
   return prepared;
 }
 
+/**
+ * Write a Web `Response` to the Node function's response. This package is
+ * built into the edge bundle too, so it cannot use `@pracht/adapter-node/bridge`
+ * (that pulls in `node:stream`); it keeps the same contract with web globals:
+ * every `Set-Cookie` apart, a write that waits for `drain`, and a body that is
+ * cancelled when the client leaves.
+ */
 async function writeNodeResponse(res: VercelNodeResponse, response: Response): Promise<void> {
   response = normalizeResponseHeaders(response);
   res.statusCode = response.status;
@@ -319,16 +332,38 @@ async function writeNodeResponse(res: VercelNodeResponse, response: Response): P
   }
 
   const reader = response.body.getReader();
+  let clientGone = res.destroyed === true;
+  const onClose = (): void => {
+    if (res.writableFinished) return;
+    clientGone = true;
+    void reader.cancel().catch(() => {});
+  };
+  res.once?.("close", onClose);
   try {
-    while (true) {
+    while (!clientGone) {
       const { done, value } = await reader.read();
-      if (done) break;
-      if (value) res.write(value);
+      if (done || clientGone) break;
+      if (value && res.write(value) === false) await waitForDrain(res);
     }
   } finally {
+    res.off?.("close", onClose);
+    if (clientGone) void reader.cancel().catch(() => {});
     reader.releaseLock();
-    res.end();
+    if (!clientGone) res.end();
   }
+}
+
+function waitForDrain(res: VercelNodeResponse): Promise<void> {
+  if (!res.once || res.destroyed) return Promise.resolve();
+  return new Promise((resolveDrain) => {
+    const settle = (): void => {
+      res.off?.("drain", settle);
+      res.off?.("close", settle);
+      resolveDrain();
+    };
+    res.once!("drain", settle);
+    res.once!("close", settle);
+  });
 }
 
 export function createVercelServerEntryModule(
