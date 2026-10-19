@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 
-import { displayPath, readProjectConfig } from "./project.js";
+import { displayPath, readProjectConfig, resolveProjectPath } from "./project.js";
 import {
   collectApiVerification,
   collectBudgetChecks,
@@ -98,7 +98,10 @@ export async function runVerification(
   if (project.mode === "pages") {
     collectPagesVerification(project, checks, { changedFiles: frameworkFiles, scope });
   } else {
-    liveGraph = await tryResolveLiveGraph(project.root);
+    liveGraph = await tryResolveLiveGraph(
+      project.root,
+      resolveProjectPath(project.root, project.appFile),
+    );
     collectManifestVerification(project, checks, {
       changedFiles: frameworkFiles,
       scope,

@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { dirname, relative, resolve, sep } from "node:path";
 
 import {
   resolveMcpEndpoint,
@@ -90,13 +90,22 @@ export interface ManifestModuleFacts {
   routeCount: number | null;
   shells: { name: string; path: string }[];
   middleware: { name: string; path: string }[];
+  /** Local imports in the manifest's modules that name no file. */
+  missingImports?: string[];
+  /** Why the manifest could not be read, when it could not. */
+  readError?: string;
+  /** The manifest is an ejected pages layout; `undefined` when unknown. */
+  ejectedLayout?: boolean;
 }
 
 /**
  * The same facts from the pracht plugin's static read of the manifest, for an
  * app whose graph cannot be resolved.
  */
-export function manifestModuleFactsFromPlugin(facts: PluginManifestFacts): ManifestModuleFacts {
+export function manifestModuleFactsFromPlugin(
+  facts: PluginManifestFacts,
+  manifestPath?: string,
+): ManifestModuleFacts {
   const modules = new Set<string>();
   const registry = (kind: string) =>
     facts.refs.flatMap((ref) =>
@@ -107,11 +116,19 @@ export function manifestModuleFactsFromPlugin(facts: PluginManifestFacts): Manif
   for (const ref of facts.refs) {
     if (ref.kind !== "mention" && ref.ref !== null) modules.add(ref.ref);
   }
+  const manifestFile = manifestPath?.split(sep).join("/");
   return {
     modules: [...modules],
     routeCount: facts.complete ? facts.refs.filter((ref) => ref.kind === "route").length : null,
     shells: registry("shell"),
     middleware: registry("middleware"),
+    missingImports: (facts.unresolvedImports ?? []).map(({ specifier, importer }) =>
+      importer === manifestFile || manifestFile === undefined
+        ? specifier
+        : `${specifier} (imported by ${relative(dirname(manifestFile), importer).split(sep).join("/")})`,
+    ),
+    ...(facts.error ? { readError: facts.error } : {}),
+    ...(typeof facts.ejectedLayout === "boolean" ? { ejectedLayout: facts.ejectedLayout } : {}),
   };
 }
 

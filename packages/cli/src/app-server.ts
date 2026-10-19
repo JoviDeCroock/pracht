@@ -29,6 +29,10 @@ interface PrachtPluginWithMetadata {
 export interface PluginManifestFacts {
   refs: readonly { kind: string; ref: string | null; name?: string }[];
   complete: boolean;
+  /** Absent from plugins older than the CLI. */
+  ejectedLayout?: boolean;
+  unresolvedImports?: readonly { specifier: string; importer: string }[];
+  error?: string | null;
 }
 
 /** The manifest facts of the resolved pracht plugin, or null when it cannot give them. */

@@ -14,7 +14,7 @@
  * each consumer decides what that means for it.
  */
 import { readFileSync, statSync } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 
 import { extractDefineAppObjectBody, maskCommentsAndStrings } from "@pracht/capabilities/static";
 import { parseAst } from "vite";
@@ -103,6 +103,13 @@ export interface ManifestFacts {
   mayStream: boolean;
   /** Absolute POSIX paths of the manifest and every local module it imports that was read. */
   files: readonly string[];
+  /**
+   * Local imports (`./x`, `/src/x`) that name no file, as written, with the
+   * absolute POSIX path of the module that imports them.
+   */
+  unresolvedImports: readonly { specifier: string; importer: string }[];
+  /** Why a manifest module could not be read or parsed, or `null` when every one was. */
+  error: string | null;
 }
 
 export interface AnalysisSession {
@@ -195,6 +202,8 @@ function readManifest(
   let mayStream = false;
   let entry: ManifestModuleRead | null = null;
   let entryFailure: ManifestModuleFailure | null = null;
+  let error: string | null = null;
+  const unresolvedImports: { specifier: string; importer: string }[] = [];
 
   while (queue.length > 0) {
     const file = queue.shift()!;
@@ -209,6 +218,7 @@ function readManifest(
     if ("failure" in read) {
       complete = false;
       mayStream = true;
+      error = `${relative(root, file).split(sep).join("/")}: ${read.failure.error}`;
       break;
     }
     const facts = read.facts;
@@ -230,6 +240,7 @@ function readManifest(
       inputs.push(target);
       if (target === null) {
         complete = false;
+        unresolvedImports.push({ specifier, importer: toPosixPath(file) });
         continue;
       }
       // A route or shell module is a leaf: it holds components, not refs. A
@@ -285,6 +296,8 @@ function readManifest(
     ejectedLayout: entry?.ejectedLayout ?? false,
     mayStream: mayStream || !complete,
     files: [...seen].map(toPosixPath),
+    unresolvedImports,
+    error,
   });
 }
 
@@ -330,6 +343,8 @@ interface ManifestModuleRead {
 }
 
 interface ManifestModuleFailure {
+  /** Why the module could not be read or parsed. */
+  error: string;
   /** Set when the module failed to parse while its `defineApp({ … })` names `root`. */
   rootError: string | null;
 }
@@ -349,7 +364,7 @@ function readManifestModule(file: string): ManifestModuleResult {
     stamp = fileStamp(statSync(file));
   } catch {
     manifestModuleCache.delete(file);
-    return { failure: { rootError: null } };
+    return { failure: { error: "the file does not exist", rootError: null } };
   }
   const cached = manifestModuleCache.get(file);
   if (cached && sameFileStamp(cached.stamp, stamp)) return cached.result;
@@ -364,6 +379,7 @@ function readManifestModule(file: string): ManifestModuleResult {
     const body = source ? extractDefineAppObjectBody(source) : null;
     result = {
       failure: {
+        error: error instanceof Error ? error.message : String(error),
         rootError:
           body !== null && /\broot\b/.test(maskCommentsAndStrings(body))
             ? `[pracht] The build could not parse defineApp({ … }) to read its root: ${
@@ -789,6 +805,8 @@ function readPagesManifest(resolved: ResolvedPrachtPluginOptions, root: string):
     ejectedLayout: false,
     mayStream: true,
     files: [],
+    unresolvedImports: [],
+    error: null,
   };
   try {
     const pages = scanPagesDirectory(pagesDir, resolved.additionalExtensions);

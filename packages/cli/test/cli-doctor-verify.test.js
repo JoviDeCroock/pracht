@@ -627,6 +627,56 @@ export default defineConfig({
     ).toBe(true);
   });
 
+  // F2-1: a commented-out marker does not eject the layout for the build, so
+  // it must not silence this check either.
+  it("fails when the ejected layout marker is commented out", () => {
+    const appDir = createTempDir("pracht-cli-verify-middleware-commented-marker-");
+    writeManifestApp(appDir, {
+      routesSource: `import { defineApp } from "@pracht/core";
+
+// export const __PRACHT_EJECTED_PAGES_LAYOUT__ = true;
+
+export const app = defineApp({
+  middleware: { pages: () => import("./pages/_middleware.ts") },
+  routes: [],
+});
+`,
+    });
+    writeProjectFile(
+      appDir,
+      "vite.config.ts",
+      `import { defineConfig } from "vite";
+import { pracht } from "@pracht/vite-plugin";
+
+export default defineConfig({
+  plugins: [
+    pracht({
+      appFile: "/src/routes.ts",
+      routesDir: "/src/pages",
+      shellsDir: "/src/pages",
+      middlewareDir: "/src/pages",
+    }),
+  ],
+});
+`,
+    );
+    writeProjectFile(
+      appDir,
+      "src/pages/_middleware.ts",
+      "export const middleware = async (_args, next) => next();",
+    );
+
+    const result = runCliStatus(["verify", "--json"], { cwd: appDir });
+    expect(result.status).toBe(1);
+    const report = JSON.parse(result.stdout);
+    expect(
+      report.checks.some(
+        (check) =>
+          check.status === "error" && check.message.includes("inside a client registry directory"),
+      ),
+    ).toBe(true);
+  });
+
   it("stays quiet when an ejected pages manifest keeps its layout marker", () => {
     const appDir = createTempDir("pracht-cli-verify-middleware-ejected-marker-");
     writeManifestApp(appDir, {

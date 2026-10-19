@@ -160,6 +160,28 @@ export const pages = ["a"].map((name) => route("/" + name, "./routes/" + name + 
     expect(facts.refs.some((ref) => ref.kind === "route" && ref.id === null)).toBe(true);
   });
 
+  it("names a local import that resolves to no file, and a module that does not parse", () => {
+    const missing = manifestFacts({
+      "src/routes.ts": `import { defineApp } from "@pracht/core";
+import more from "./more.ts";
+export const app = defineApp({ routes: [...more] });
+`,
+    });
+    expect(missing.complete).toBe(false);
+    expect(missing.error).toBeNull();
+    expect(missing.unresolvedImports).toEqual([
+      { specifier: "./more.ts", importer: expect.stringMatching(/\/src\/routes\.ts$/) },
+    ]);
+
+    const broken = manifestFacts({
+      "src/routes.ts": `import { defineApp, route } from "@pracht/core";
+export const app = defineApp({ routes: [route("/" "./routes/home.tsx")] });
+`,
+    });
+    expect(broken.refs).toEqual([]);
+    expect(broken.error).toMatch(/^src\/routes\.ts: /);
+  });
+
   // R490-1/3/5: every spelling of an external module is one id, whichever
   // registry, hint table or transform asks, and glob syntax in a name stays literal.
   it("gives every spelling of an external ref one id", () => {
