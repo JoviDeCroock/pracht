@@ -262,11 +262,19 @@ export type McpToolServing =
   | "destructive-not-enabled"
   | "scopes-need-auth";
 
+/**
+ * A `CapabilityDescriptor` satisfies this directly: its `mcp` is the
+ * normalized `{ scopes }` (or `null`), so the rule reads the same scopes every
+ * reader normalized.
+ */
 export interface McpServingCapability {
   effect?: string | null;
-  /** The capability sets `expose.mcp`. */
-  mcp: boolean;
-  /** OAuth scopes from `expose: { mcp: { scopes } }`. */
+  /**
+   * The capability sets `expose.mcp`: `true`/`false`, or a descriptor's
+   * normalized `{ scopes }` / `null`.
+   */
+  mcp: boolean | { readonly scopes: readonly string[] } | null | undefined;
+  /** OAuth scopes from `expose: { mcp: { scopes } }`, when `mcp` is a boolean. */
   mcpScopes?: readonly string[];
 }
 
@@ -285,9 +293,10 @@ export function mcpToolServing(
 ): McpToolServing {
   if (!capability.mcp) return "not-exposed";
   if (!config.endpoint) return "no-endpoint";
+  const scopes = capability.mcp === true ? capability.mcpScopes : capability.mcp.scopes;
   // A scoped tool is only served to a verified token carrying its scopes, so
   // an endpoint without OAuth never serves it.
-  if ((capability.mcpScopes?.length ?? 0) > 0 && !config.auth) return "scopes-need-auth";
+  if ((scopes?.length ?? 0) > 0 && !config.auth) return "scopes-need-auth";
   // Compared with `=== true` so a hand-rolled non-boolean reads as "off".
   if (capability.effect === "destructive" && config.destructive !== true) {
     return "destructive-not-enabled";

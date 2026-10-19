@@ -1,4 +1,5 @@
 import { mcpToolServing } from "@pracht/capabilities";
+import { capabilityDescriptorFromGraph } from "@pracht/capabilities/static";
 import type { AppGraphCapability } from "@pracht/core";
 
 /** The MCP endpoint facts the exposure column needs, as the app graph reports them. */
@@ -24,16 +25,13 @@ export function formatCapabilityTransports(
   return capability.transports
     .map((transport) => {
       if (transport !== "mcp") return transport;
-      const serving = mcpToolServing(
-        { effect: capability.effect, mcp: true, mcpScopes: capability.mcpScopes },
-        {
-          endpoint: !!context.mcpEndpoint,
-          // The graph reports `mcpDestructive` only when a destructive tool is
-          // served, which is exactly when the opt-in is on for this tool.
-          destructive: context.mcpDestructive === true,
-          auth: context.mcpAuthenticated === true,
-        },
-      );
+      const serving = mcpToolServing(capabilityDescriptorFromGraph(capability), {
+        endpoint: !!context.mcpEndpoint,
+        // The graph reports `mcpDestructive` only when a destructive tool is
+        // served, which is exactly when the opt-in is on for this tool.
+        destructive: context.mcpDestructive === true,
+        auth: context.mcpAuthenticated === true,
+      });
       if (serving !== "served" || context.mcpRuntimeStatus === "blocked") return "mcp(unserved)";
       return context.mcpRuntimeStatus === "unverified" ? "mcp(unverified)" : transport;
     })

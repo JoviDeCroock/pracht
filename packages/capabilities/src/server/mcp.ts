@@ -33,6 +33,7 @@ import {
   mcpToolName,
   mcpToolServing,
 } from "../protocol.ts";
+import { describeCapability } from "../descriptor.ts";
 import {
   clearDestructiveConfirmed,
   getCapabilityLoadFailures,
@@ -117,14 +118,7 @@ export function mcpExposedCapabilities(
   const config = { endpoint: true, destructive: mcp?.destructive === true, auth: !!mcp?.auth };
   return capabilities.filter(
     (entry) =>
-      mcpToolServing(
-        {
-          effect: entry.capability.effect,
-          mcp: entry.capability.expose?.mcp === true,
-          mcpScopes: entry.capability.expose?.mcpScopes,
-        },
-        config,
-      ) === "served",
+      mcpToolServing(describeCapability(entry.capability, entry.name), config) === "served",
   );
 }
 

@@ -3,10 +3,7 @@ import type { McpAuthConfig, PrachtAgentsConfig } from "./types.ts";
 
 export const OAUTH_PROTECTED_RESOURCE_WELL_KNOWN = "/.well-known/oauth-protected-resource";
 
-/** RFC 6749 Appendix A.4 `scope-token` (printable ASCII except `"` and `\\`). */
-export function isValidOAuthScopeToken(value: unknown): value is string {
-  return typeof value === "string" && /^[\x21\x23-\x5b\x5d-\x7e]+$/.test(value);
-}
+export { isValidOAuthScopeToken } from "../descriptor.ts";
 
 /** Resolved endpoint path, or `null` when the app does not serve MCP. */
 export function resolveMcpEndpoint(agents: PrachtAgentsConfig | undefined): string | null {

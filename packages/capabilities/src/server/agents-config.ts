@@ -15,29 +15,13 @@
  */
 
 import { isValidOAuthScopeToken, OAUTH_PROTECTED_RESOURCE_WELL_KNOWN } from "./mcp-config.ts";
+import { MCP_AUTH_CONFIG_KEYS, MCP_CONFIG_KEYS } from "../agents-config-keys.ts";
 import { isValidCapabilityHttpPath } from "../protocol.ts";
 import { formatUnknownNameError } from "./names.ts";
 import type { PrachtAgentsConfig } from "./types.ts";
 
 const AGENT_POLICY_MODES = ["observe", "require"];
 const CONFIRMATION_MODES = ["token", "human"];
-const MCP_CONFIG_KEYS = [
-  "path",
-  "serverInfo",
-  "instructions",
-  "destructive",
-  "auth",
-  "pageSize",
-  "allowedOrigins",
-];
-const MCP_AUTH_CONFIG_KEYS = [
-  "resource",
-  "authorizationServers",
-  "scopesSupported",
-  "requiredScopes",
-  "resourceDocumentation",
-  "verify",
-];
 
 export interface ValidateAgentsConfigOptions {
   /**
@@ -214,7 +198,11 @@ function validateMcpAuthConfig(
 }
 
 /** Security configuration must reject misspelled fields in every server build. */
-function assertKnownSecurityKeys(config: object, allowed: string[], context: string): void {
+function assertKnownSecurityKeys(
+  config: object,
+  allowed: readonly string[],
+  context: string,
+): void {
   for (const key of Object.keys(config)) {
     if (allowed.includes(key)) continue;
     throw new Error(

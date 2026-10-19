@@ -19,28 +19,42 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
 import {
-  extractCapabilityProjection,
-  type CapabilityProjection,
+  capabilityDescriptorFromGraph,
+  diffCapabilityDescriptors,
+  extractCapabilityDescriptor,
+  type CapabilityDescriptor,
 } from "@pracht/capabilities/static";
 
 import { resolveProjectPath, type ProjectConfig } from "./project.js";
 
-/** The subset of the app-graph capability entry this check compares. */
+/**
+ * The app-graph capability entry this check compares. Contract fields the
+ * entry omits are unknown and never reported as drift.
+ */
 export interface GraphCapabilityExposure {
+  agentPolicy?: string | null;
+  description?: string | null;
   effect: string | null;
   /** Set when the module could not be executed; see the skip below. */
   error?: string | null;
   httpPath: string | null;
+  mcpScopes?: string[];
+  middleware?: string[];
   name: string;
   source: string;
+  title?: string | null;
   transports: string[];
+  unverifiedContract?: true;
 }
 
 /**
- * Throw when the executed graph and the static analyzer disagree about a
- * capability's HTTP path, effect class, or WebMCP exposure — including when
- * static analysis cannot read an exposed capability at all, which is the most
- * common way the two diverge (a computed `expose`, a hoisted constant).
+ * Throw when the executed graph and the static analyzer disagree about any
+ * field of a capability's descriptor — HTTP path, effect class, MCP exposure
+ * and scopes, WebMCP exposure, agent policy, middleware, title, description —
+ * including when static analysis cannot read an exposed capability at all,
+ * which is the most common way the two diverge (a computed `expose`, a
+ * hoisted constant). The comparison is `diffCapabilityDescriptors()`, which
+ * walks every key, so a new descriptor field is checked the day it lands.
  *
  * Capabilities whose source file is missing are skipped: the manifest check
  * reports those, and duplicating it here would turn one problem into two.
@@ -70,13 +84,13 @@ export function assertCapabilityProjectionsAgree(
     // only ever compare the extractor with itself.
     if (capability.error != null) continue;
 
-    let projection: CapabilityProjection;
+    let statically: CapabilityDescriptor;
     try {
-      projection = extractCapabilityProjection(
+      statically = extractCapabilityDescriptor(
         capability.name,
         readFileSync(filePath, "utf-8"),
         (detail) => detail,
-      );
+      ).descriptor;
     } catch (error) {
       // Extraction failing *is* the drift, not a reason to skip: the graph read
       // this capability by executing it, the client projection could not read
@@ -94,7 +108,11 @@ export function assertCapabilityProjectionsAgree(
       continue;
     }
 
-    for (const difference of compare(capability, projection)) {
+    for (const difference of diffCapabilityDescriptors(
+      capabilityDescriptorFromGraph(capability),
+      statically,
+      { a: "the app graph", b: "static analysis" },
+    )) {
       drift.push(`  ${capability.name} (${capability.source}): ${difference}`);
     }
   }
@@ -104,43 +122,11 @@ export function assertCapabilityProjectionsAgree(
       "Capability exposure differs between the resolved app graph and build-time static " +
         "analysis, so generated types would not match the endpoints the browser bundle " +
         `registers:\n${drift.join("\n")}\n` +
-        "This happens when `expose` or `effect` is computed rather than written as an inline " +
-        "literal. Declare them inline so both readers see the same contract.",
+        "This happens when a contract field is computed rather than written as an inline " +
+        "literal, or when the module changes the capability after `defineCapability()`. Declare the " +
+        "contract inline so both readers see the same one.",
     );
   }
-}
-
-function compare(graph: GraphCapabilityExposure, statically: CapabilityProjection): string[] {
-  const differences: string[] = [];
-
-  if (graph.httpPath !== statically.httpPath) {
-    differences.push(
-      `HTTP endpoint is ${describe(graph.httpPath)} in the app graph but ` +
-        `${describe(statically.httpPath)} in static analysis`,
-    );
-  }
-
-  // Effect only matters where it is projected. The static pass reads it only
-  // for http-exposed capabilities (a private one has no client projection to
-  // annotate), so comparing it elsewhere would report drift that cannot exist.
-  // A null graph effect means the module failed to load — a broken
-  // registration other checks already report, not exposure drift.
-  if (statically.httpPath !== null && graph.effect !== null && graph.effect !== statically.effect) {
-    differences.push(
-      `effect is ${describe(graph.effect)} in the app graph but ` +
-        `${describe(statically.effect)} in static analysis`,
-    );
-  }
-
-  const graphWebmcp = graph.transports.includes("webmcp");
-  if (graphWebmcp !== statically.webmcp) {
-    differences.push(
-      `WebMCP exposure is ${graphWebmcp ? "on" : "off"} in the app graph but ` +
-        `${statically.webmcp ? "on" : "off"} in static analysis`,
-    );
-  }
-
-  return differences;
 }
 
 function describe(value: string | null): string {
