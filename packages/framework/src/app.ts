@@ -153,9 +153,8 @@ export function defineApp(config: PrachtAppConfig): PrachtApp {
     constraints: config.constraints,
     viewTransitions: config.viewTransitions,
     loaderTimeoutMs: config.loaderTimeoutMs,
-    // Server-only, so client builds fold it away. Inline rather than a
-    // module constant: client builds replace `import.meta.env` after
-    // tree-shaking, and only the minifier can still drop the key here.
+    // Server-only. Vite folds the gate to `false` in client builds before
+    // tree-shaking, so the key never reaches the browser bundle.
     ...(import.meta.env?.SSR !== false && { enforceLoaderTimeout: config.enforceLoaderTimeout }),
   };
 }

@@ -176,9 +176,9 @@ export function matchResolvedRoute(
  * a thousand routes, so the table is indexed once and reused. Only the
  * request pipeline calls it. The client router and the public `matchAppRoute`
  * (also exported to the browser) keep `matchResolvedRoute`: they match once
- * per navigation, and the index would cost shipped bytes. Keep this a separate
- * export rather than a flag inside `matchResolvedRoute`; client builds only
- * replace `import.meta.env?.SSR` after tree-shaking, so a flag would ship it.
+ * per navigation, and the index would cost shipped bytes. Vite folds
+ * `import.meta.env?.SSR` before tree-shaking, so a flag would also drop it
+ * there; the separate export keeps it out of browser bundles Vite never built.
  */
 export function matchIndexedResolvedRoute(
   app: ResolvedPrachtApp,

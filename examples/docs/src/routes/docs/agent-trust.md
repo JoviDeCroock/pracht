@@ -14,7 +14,7 @@ next:
 
 ## Three Questions
 
-Exposing [capabilities](/docs/capabilities) to agents raises three questions a schema cannot answer. All of this is opt-in: an app with no capabilities and no `agents` config drops it from the server bundle.
+Exposing [capabilities](/docs/capabilities) to agents raises three questions a schema cannot answer. All of it is opt-in: without capabilities or `agents` config, none of it reaches the server bundle.
 
 - **Who is calling?** Web Bot Auth puts a verified agent identity on the request context. On the remote MCP endpoint, [OAuth](#oauth-on-the-remote-mcp-endpoint) also says *on whose behalf* the agent acts.
 - **May they do this?** Policy modes per app and per capability, plus server-verified confirmation for destructive effects, optionally with exactly-once commits and human approval.
@@ -89,7 +89,7 @@ The signature covers `@authority`, so sign the host the server sees. With a cust
 
 ## Policy Modes
 
-`"observe"` (the default) identifies agents without blocking anyone. Use it to roll out and audit. `"require"` refuses HTTP, WebMCP, and remote MCP calls that lack a verified agent with a typed `401 agent_required` envelope. Pages, API routes, and your own `invokeCapability()` calls outside remote MCP are not gated; check `context.agent` in middleware for those.
+`"observe"` (the default) identifies agents without blocking anyone, for rollout and auditing. `"require"` refuses HTTP, WebMCP, and remote MCP calls that lack a verified agent with a typed `401 agent_required` envelope. Pages, API routes, and your own `invokeCapability()` calls outside remote MCP are not gated; check `context.agent` in middleware for those.
 
 Tighten the app default per capability:
 
@@ -193,13 +193,13 @@ if (confirmationToken) {
 
 Remote MCP runs the same exchange on `tools/call`, with the token in `_meta["io.pracht/confirmation"]`. It is off by default and needs [two more opt-ins](/docs/capabilities#destructive-tools): `agents.mcp.destructive` and a registered approval store.
 
-The stateless token has two limits. A captured token can be replayed until it expires, and the calling agent can hand the token straight back to itself, so no person agrees. An approval store fixes replay; human mode adds a person's decision.
+The stateless token has two limits: a captured token replays until it expires, and the calling agent can confirm its own call, so no person agrees. An approval store fixes replay; human mode adds a person's decision.
 
 ---
 
 ## Durable Approvals
 
-Register a store and prepare records a **proposal**, which commit consumes exactly once. Callers still just echo the token they were handed.
+Register a store and prepare records a **proposal**, which commit consumes exactly once. Callers still echo the token they were handed.
 
 ```ts [src/server/approvals.ts]
 import {
@@ -215,7 +215,7 @@ setCapabilityApprovalPrincipalResolver<{ user: { id: string } }>(
 );
 ```
 
-Import this module from a server entry, the destructive capability's module, or middleware applied to that capability or to the app's capability API chain. Importing it from unrelated middleware is not enough.
+Import this module from a server entry, the destructive capability's module, or middleware applied to that capability or the app's capability API chain; unrelated middleware is not enough.
 
 The principal resolver runs after middleware. Return a stable authenticated user or tenant id, never caller-controlled input. On remote MCP with [`agents.mcp.auth`](/docs/capabilities#oauth-letting-a-real-host-connect), the verified token subject is bound too. With Web Bot Auth also on, a proposal binds both the user and the agent.
 
@@ -260,7 +260,7 @@ Before enabling a store, know that:
 
 ### `createSqlApprovalStore()`: the Durable One
 
-For a real deployment, use the SQL store from `@pracht/core/server`. It has no driver dependency: you pass a parameterized-query function, and it works on Postgres, Cloudflare D1, and SQLite/Turso.
+For a real deployment, use the SQL store from `@pracht/core/server`. It takes a parameterized-query function instead of a driver, so it works on Postgres, Cloudflare D1, and SQLite/Turso.
 
 ```ts [src/server/approvals.ts]
 import { createSqlApprovalStore, setCapabilityApprovalStore } from "@pracht/core/server";
@@ -327,7 +327,7 @@ Expired rows are swept at most once per `sweepIntervalSeconds` (default 60).
 
 ### Writing Your Own
 
-For a non-SQL backend, implement `CapabilityApprovalStore` over anything with **conditional writes**, such as Durable Objects or Redis. Cloudflare KV cannot do this.
+For a non-SQL backend, implement `CapabilityApprovalStore` over anything with **conditional writes**, such as Durable Objects or Redis (not Cloudflare KV).
 
 ### Production Store Checklist
 
@@ -340,7 +340,7 @@ For a non-SQL backend, implement `CapabilityApprovalStore` over anything with **
 
 ### Know the Lockout Window
 
-A consumed or rejected proposal stays in the store until it expires. Until then, preparing the identical operation (same caller, capability, input, and mode) answers `confirmation_invalid` (reason `already_used`, or `rejected` for a rejected proposal) with `retryAfterSeconds`.
+Until a consumed or rejected proposal expires, preparing the identical operation (same caller, capability, input, and mode) answers `confirmation_invalid` (reason `already_used`, or `rejected` for a rejected proposal) with `retryAfterSeconds`.
 
 - Without Web Bot Auth or a principal resolver, every caller is `"anonymous"`, so all unauthenticated agents share the lockout. Bind a real principal before serving destructive tools to more than one caller.
 - `agents.confirmation.ttlSeconds` (default 120) sets both the token lifetime and the lockout. Give repeatable operations a per-call input such as an idempotency key, as the bundled notes evals do.
@@ -361,11 +361,11 @@ setCapabilityAuditHook((event) => log.info("capability", event));
 
 Hooks receive frozen snapshots, and a throwing hook never breaks the request.
 
-When a capability calls `invokeCapability()`, the nested call emits its own event with `transport: "server"` and `via` set to the outer request's transport. An effect a remote agent triggered through a composing MCP tool reads as `{ transport: "server", via: "mcp" }`. `via` is `null` for top-level dispatches.
+A nested `invokeCapability()` call emits its own event with `transport: "server"` and `via` set to the outer request's transport (`null` for top-level dispatches). An effect a remote agent triggered through a composing MCP tool reads as `{ transport: "server", via: "mcp" }`.
 
 ### Registering More Than One Sink
 
-`setCapabilityAuditHook()` is a single slot; a second call replaces it. To run several sinks, use `addCapabilityAuditListener(name, hook)`. It returns an unsubscribe function:
+`setCapabilityAuditHook()` is a single slot that a second call replaces. For several sinks, use `addCapabilityAuditListener(name, hook)`, which returns an unsubscribe function:
 
 ```ts [src/server/audit.ts]
 import { addCapabilityAuditListener } from "@pracht/core/server";
@@ -488,7 +488,7 @@ Import both modules from an eagerly loaded server module, such as your adapter's
 }
 ```
 
-`recorded` counts every event since the dev server started, so you can see how many were dropped. This is dev-only and never reaches production. Adapter-owned dev servers (Cloudflare `workerd`) do not serve `/_pracht` at all; both paths return 404 there.
+`recorded` counts every event since the dev server started, which shows how many were dropped. The panel is dev-only, and adapter-owned dev servers (Cloudflare `workerd`) do not serve it: both paths return 404 there.
 
 The panel counts verified identities, MCP calls, and their nested calls as **agent-attributed**. Unsigned HTTP and WebMCP calls show as unverified **dispatches**, since a person or any client may have sent them. `invokeCapability()` work outside a served request sits behind a "show first-party" toggle.
 
@@ -609,11 +609,11 @@ Add `"transport": "mcp"` and the scenario runs against the [remote MCP endpoint]
 }
 ```
 
-Expectations mean the same on both transports, so scenarios are portable. `status` is the capability's dispatch status, not the JSON-RPC response's blanket `200`. `signAs` signs MCP requests too.
+Expectations, and so scenarios, are portable across transports. `status` is the capability's dispatch status, not the JSON-RPC response's blanket `200`. `signAs` signs MCP requests too.
 
 `mcpHeaders.authorization` is sent on every MCP request; a step's own `authorization` header overrides it. Keep real tokens out of committed scenarios and inject a test token in CI.
 
-A capability without `expose.mcp` fails the scenario with a message naming the missing tool. Destructive `confirm` steps work once the app enables [`agents.mcp.destructive` and an approval store](/docs/capabilities#destructive-tools). MCP steps forward only the `authorization` header; any other header fails the scenario.
+A capability without `expose.mcp` fails the scenario, naming the missing tool. Destructive `confirm` steps work once the app enables [`agents.mcp.destructive` and an approval store](/docs/capabilities#destructive-tools). MCP steps forward only the `authorization` header; any other header fails the scenario.
 
 ### Explicit Invocation Over WebMCP
 
@@ -642,4 +642,4 @@ A capability without `expose.mcp` fails the scenario with a message naming the m
 
 `cancelAfterMs` proves that host cancellation reaches your dispatch. WebMCP scenarios reject headers, confirmation tokens, and `signAs`. Chrome 150+ is required; pin it in CI with `--browser /path/to/chrome`.
 
-The [Testing recipe](/docs/recipes/testing) covers the rest: unit-testing the dispatch pipeline with `createCapabilityTestHost()`, including confirmation and simulated agent identities, plus browser tests and signing Web Bot Auth requests in tests.
+The [Testing recipe](/docs/recipes/testing) covers the rest: unit-testing the dispatch pipeline with `createCapabilityTestHost()`, including confirmation and simulated agent identities, plus browser tests and Web Bot Auth signing in tests.
