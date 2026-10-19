@@ -30,6 +30,7 @@ import {
   matchResolvedRoute,
   matchRouteSegments,
   normalizeRoutePath,
+  notePlainPath,
   parseRouteSegments,
   routeCovers,
   splitPathSegments,
@@ -738,10 +739,10 @@ export function matchApiRoute(
 ): ApiRouteMatch | undefined {
   const normalizedPathname = normalizeRoutePath(pathname);
   const targetSegments = splitPathSegments(normalizedPathname);
-  const escapes = normalizedPathname.includes("%");
+  notePlainPath(normalizedPathname, targetSegments);
 
   for (const route of apiRoutes) {
-    const params = matchRouteSegments(route.segments, targetSegments, escapes);
+    const params = matchRouteSegments(route.segments, targetSegments);
     if (params) {
       return {
         route,

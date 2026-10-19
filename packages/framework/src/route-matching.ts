@@ -97,20 +97,25 @@ function sameEscapedSegment(value: string, target: string): boolean {
   return target.includes("%") && upperEscapes(value) === upperEscapes(target);
 }
 
+// The segments of the last path a server matcher found no `%` in. A matcher
+// trying one path against many routes checks the path once with
+// `notePlainPath`, so a path without a `%` skips the escape-case comparison
+// on every route. Keyed by array identity, it never applies to another path.
+// Client builds never compare escape case and drop it.
+let plainPathSegments: string[] | undefined;
+
+/** Note, before matching `segments` against many routes, whether its path holds a `%`. */
+export function notePlainPath(pathname: string, segments: string[]): void {
+  if (MATCH_ESCAPE_CASE && !pathname.includes("%")) plainPathSegments = segments;
+}
+
 function upperEscapes(segment: string): string {
   return segment.replace(/%[0-9a-f]{2}/gi, (escape) => escape.toUpperCase());
 }
 
-/**
- * Match parsed route segments against a path's segments. `escapes` says
- * whether the path holds a `%` at all; a caller matching one path against
- * many routes passes it, so a path without one skips the escape-case
- * comparison on every static segment that differs.
- */
 export function matchRouteSegments(
   routeSegments: RouteSegment[],
   targetSegments: string[],
-  escapes?: boolean,
 ): RouteParams | null {
   const params: RouteParams = {};
   let routeIndex = 0;
@@ -141,7 +146,7 @@ export function matchRouteSegments(
         currentSegment.value !== targetSegment &&
         !(
           MATCH_ESCAPE_CASE &&
-          escapes !== false &&
+          targetSegments !== plainPathSegments &&
           sameEscapedSegment(currentSegment.value, targetSegment)
         )
       ) {
@@ -184,10 +189,10 @@ export function matchResolvedRoute(
 ): RouteMatch | undefined {
   const normalizedPathname = normalizeRoutePath(pathname);
   const targetSegments = splitPathSegments(normalizedPathname);
-  const escapes = normalizedPathname.includes("%");
+  notePlainPath(normalizedPathname, targetSegments);
 
   for (const currentRoute of app.routes) {
-    const params = matchRouteSegments(currentRoute.segments, targetSegments, escapes);
+    const params = matchRouteSegments(currentRoute.segments, targetSegments);
     if (params) {
       return {
         route: currentRoute,
@@ -215,11 +220,9 @@ export function matchIndexedResolvedRoute(
   pathname: string,
 ): RouteMatch | undefined {
   const normalizedPathname = normalizeRoutePath(pathname);
-  const match = matchIndexedRoute(
-    app.routes,
-    splitPathSegments(normalizedPathname),
-    normalizedPathname.includes("%"),
-  );
+  const targetSegments = splitPathSegments(normalizedPathname);
+  notePlainPath(normalizedPathname, targetSegments);
+  const match = matchIndexedRoute(app.routes, targetSegments);
   return match && { route: match.route, params: match.params, pathname: normalizedPathname };
 }
 
@@ -234,13 +237,12 @@ type RouteDefinitionWithSegments = ResolvedPrachtApp["routes"][number];
 function matchIndexedRoute(
   routes: readonly RouteDefinitionWithSegments[],
   targetSegments: string[],
-  escapes: boolean,
 ): { route: RouteDefinitionWithSegments; params: RouteParams } | undefined {
   const cache = (routeIndexes ??= new WeakMap());
   let index = cache.get(routes);
   if (!index) cache.set(routes, (index = indexSegments(routes)));
   for (const position of index.candidates(targetSegments)) {
-    const params = matchRouteSegments(routes[position]!.segments, targetSegments, escapes);
+    const params = matchRouteSegments(routes[position]!.segments, targetSegments);
     if (params) return { route: routes[position]!, params };
   }
   return undefined;
