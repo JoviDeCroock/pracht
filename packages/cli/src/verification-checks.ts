@@ -100,10 +100,11 @@ export function collectManifestVerification(
     changedFiles: string[];
     scope: string;
     /**
-     * Module facts from the resolved app graph. They see routes spread in from
-     * other modules and never mistake an import specifier for a route module;
-     * the text scan below is only the fallback for an app whose graph cannot
-     * be resolved.
+     * Module facts from the resolved app graph or, when it cannot be resolved,
+     * from the pracht plugin's static read of the manifest. Both see routes
+     * spread in from other modules and never mistake an import specifier for
+     * a route module. Without either (the Vite config itself does not load),
+     * only the manifest's literal relative paths are checked.
      */
     manifest?: ManifestModuleFacts;
   },
@@ -116,7 +117,7 @@ export function collectManifestVerification(
 
   const source = readFileSync(manifestPath, "utf-8");
   const relativeModules = manifest?.modules ?? [...extractRelativeModulePaths(source)];
-  const routeCount = manifest?.routeCount ?? (source.match(/\broute\s*\(/g) ?? []).length;
+  const routeCount = manifest?.routeCount ?? null;
   // App-absolute refs ("/src/routes/home.tsx") resolve against the project
   // root; every other ref, bare ("routes/home.tsx") included, against the
   // manifest, as the generated registry does.
@@ -130,7 +131,7 @@ export function collectManifestVerification(
 
     if (routeCount === 0) {
       checks.push(createCheck("warning", "No routes were found in the app manifest."));
-    } else {
+    } else if (routeCount !== null) {
       checks.push(
         createCheck(
           "ok",

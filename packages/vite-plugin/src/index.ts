@@ -74,10 +74,8 @@ import {
   routeHintsHaveSearch,
   createServerLoaderHintsForHotUpdates,
   createPrachtServerModuleSource,
-  invalidateManifestModuleFacts,
   isEjectedPagesLayout,
 } from "./plugin-codegen.ts";
-import { invalidatePageFacts } from "./pages-router.ts";
 import {
   createDevCssInjectionMiddleware,
   createDevMcpPreflightMiddleware,
@@ -97,7 +95,9 @@ import {
   withAdditionalExtensions,
 } from "./route-extensions.ts";
 import type { PrachtAdapter } from "./plugin-adapter.ts";
-import { invalidateRouteFileAnalysis, type RouteHints } from "./route-loader-hints.ts";
+import { getAnalysisSession } from "./analysis.ts";
+import { toPosixPath } from "./module-id.ts";
+import type { RouteHints } from "./route-loader-hints.ts";
 import { isNonModuleFile, moduleGlob } from "./source-files.ts";
 
 function emptyRouteHints(): RouteHints {
@@ -238,6 +238,9 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       adapter: resolved.adapter,
       // Manifest edits dev applied in place, without restarting the server.
       manifestUpdates: 0,
+      // What the app manifest says, read statically: `pracht verify` and the
+      // dev banner fall back to it when the app graph cannot be resolved.
+      manifestFacts: () => getAnalysisSession(resolved, root).manifest(),
     },
   };
   const prachtPlugin: Plugin = {
@@ -737,9 +740,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
     handleHotUpdate({ file, modules = [], server }) {
       // The analysis caches check file stamps on every read; dropping the
       // saved file as well covers filesystems with coarse timestamps.
-      invalidateRouteFileAnalysis(file);
-      invalidateManifestModuleFacts(file);
-      invalidatePageFacts(file);
+      getAnalysisSession(resolved, root).invalidate(file);
       const serverRoot = toPosixPath(server.config.root);
       const normalizedFile = toPosixPath(file);
       const relative = normalizedFile.startsWith(serverRoot)
@@ -1765,10 +1766,6 @@ function resolveConfigPath(root: string, configPath: string): string {
     return `${normalizedRoot}/${relativePath}`;
   }
   return toPosixPath(resolve(root, relativePath));
-}
-
-function toPosixPath(p: string): string {
-  return p.replace(/\\/g, "/");
 }
 
 function withTrailingSep(p: string): string {

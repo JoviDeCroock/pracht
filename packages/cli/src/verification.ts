@@ -91,9 +91,9 @@ export async function runVerification(
 
   // A manifest app is checked against the graph dev and build resolve, so a
   // manifest split across modules or a constraint held in a variable is seen.
-  // When the graph cannot be resolved, the manifest checks fall back to reading
-  // the manifest's source and the graph checks below report the failure if
-  // they need it.
+  // When the graph cannot be resolved, the manifest checks read the pracht
+  // plugin's static facts about the manifest instead, and the failure itself
+  // is reported below.
   let liveGraph: LiveGraphResult | undefined;
   if (project.mode === "pages") {
     collectPagesVerification(project, checks, { changedFiles: frameworkFiles, scope });
@@ -102,7 +102,7 @@ export async function runVerification(
     collectManifestVerification(project, checks, {
       changedFiles: frameworkFiles,
       scope,
-      manifest: "metadata" in liveGraph ? liveGraph.metadata.manifest : undefined,
+      manifest: "metadata" in liveGraph ? liveGraph.metadata.manifest : liveGraph.manifest,
     });
   }
 
@@ -130,8 +130,8 @@ export async function runVerification(
     checks.push(
       createCheck(
         "warning",
-        `Could not resolve the app graph, so the manifest checks read ${project.appFile} as ` +
-          `text and constraints were not evaluated: ${liveGraph.error}`,
+        `Could not resolve the app graph, so the manifest checks read ${project.appFile} ` +
+          `statically and constraints were not evaluated: ${liveGraph.error}`,
       ),
     );
   }

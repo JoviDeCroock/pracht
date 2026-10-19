@@ -783,13 +783,17 @@ server's. After the server build, `pracht build` looks every resolved route,
 shell, `notFound`, page and `api.middleware` file up in the built server
 registry with the runtime's own lookup and fails,
 naming each ref, when one matches nothing — those requests would 500.
-(`packages/vite-plugin/src/plugin-codegen.ts` `collectExternalManifestModules`,
+(`collectExternalManifestModules` over `AnalysisSession.manifest()` in
+`packages/vite-plugin/src/plugin-codegen.ts`, and
 `packages/cli/src/manifest-modules.ts`.)
 
 A route module is also left out of the client registry when every ref to it
 belongs to a route whose hydration is provably `"islands"` or `"none"`: the
 route's own `hydration` string literal or, without one, the innermost enclosing
-`group()`'s. The same AST walk decides it. A mode it cannot read for certain — a
+`group()`'s; the config overload `route(path, { component, hydration })` reads
+its own. The manifest facts carry each ref's hydration, so one walk decides it
+for refs and exclusion alike, and a pages route's comes from its `HYDRATION`
+export as the pages scanner reads it. A mode it cannot read for certain — a
 meta object held in a variable, a spread, a computed key, a non-literal value
 such as `FLAG ? "full" : "islands"` — counts as full, and a scan that could not
 follow every manifest import excludes nothing, so a misread costs a lazy chunk

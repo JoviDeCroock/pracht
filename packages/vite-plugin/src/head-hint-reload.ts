@@ -6,11 +6,7 @@
  * The importer walk is shared because all three are keyed by route source.
  */
 
-// Local copy, matching plugin-codegen.ts: the helper is three lines and a
-// shared module for it would be a larger change than the duplication.
-function toPosixPath(path: string): string {
-  return path.replace(/\\/g, "/");
-}
+import { toPosixPath } from "./module-id.ts";
 
 export interface HotUpdateModuleLike {
   file?: string | null;

@@ -488,13 +488,52 @@ client-disconnect signal, and streams bodies with backpressure.
   staged, answering a cross-origin 500 with a CORS failure and no readable
   overlay.
 
+### Source analysis
+
+Every build-time question about an app's source goes through one reader,
+`AnalysisSession` (`packages/vite-plugin/src/analysis.ts`), keyed by one id
+function, `canonicalModuleId()` (`module-id.ts`). A `ModuleId` is the module's
+root-relative POSIX path with a leading `/`, no query, and `.`/`..` resolved
+(`/src/routes/home.tsx`), which is the key `import.meta.glob` gives the file.
+`./routes/home.tsx`, a bare `routes/home.tsx`, and `/src/other/../routes/home.tsx`
+written in the manifest all map to it, so a table keyed by id and a lookup that
+canonicalizes a ref cannot disagree.
+
+`session.module(id)` returns a module's facts (`readModuleFacts()` in
+`route-loader-hints.ts`): which of `loader`, `head`, `headers`,
+`getStaticPaths` and `search` it may export, and its literal `CAPABILITIES`.
+They are cached per file stamp, so an unchanged file is read and parsed once
+however many readers ask: the hint tables, the pages scanner
+(`scanPagesDirectory`), and the dev server's hot-update path. The parser
+configuration follows the extension (one Babel parse for `.ts`, `.tsx`, `.js`,
+`.jsx`); Markdown, TSRX and configured extensions skip the parser and use the
+lexical reader, and Markdown is read with fenced code masked.
+`test/analysis-parse-count.test.ts` holds this to at most one Babel parse per
+file per regeneration across the client, server and dev modules, in manifest
+and pages mode, with only the edited file parsed again after a save.
+
+`session.manifest()` returns the app's `ManifestFacts`: every ref the manifest
+and the local modules it imports write, each with its kind (route, not-found,
+shell, middleware, capability, loader, or a path-shaped `mention`), its id
+(`null` for a computed ref) and its route's hydration; whether that list is
+`complete`; the registered `appRoot`; and whether the manifest is an ejected
+pages layout. In pages mode the same shape comes from the pages scanner. Each
+manifest module is parsed once per file stamp with Vite's `parseAst`. Registry
+codegen (external keyed imports), the non-full-hydration exclusion, the
+unreferenced-module exclusion, external feature hints, the client transform's
+external-route identity and `findAppRootModule()` all read these facts, and
+`test/analysis-seam.test.ts` fails when another module parses the manifest,
+re-derives route exports, or spells module identity itself. The plugin hands
+the same facts to the CLI as `api.pracht.manifestFacts()`, which `pracht
+verify` and the dev banner read when the app graph cannot be resolved.
+
 ### Route hint tables
 
 `createRouteHints()` (`route-loader-hints.ts`) answers, per route and shell
 module, whether it exports `loader`, `head`, `headers`, `getStaticPaths`; the
 router reads those answers to decide whether a navigation must fetch route
 state. The server and dev modules bake them in as boolean tables with two keys
-per file (`./routes/x.tsx` and `/src/routes/x.tsx`). The browser entry gets
+per file (`./routes/x.tsx` and the module id `/src/routes/x.tsx`). The browser entry gets
 one compact table instead (`createClientRouteHintTable()` in
 `plugin-codegen.ts`): one canonical root-absolute key per module, as the
 entry's `canonicalModuleKey` produces it, and a bitfield value (1 loader, 2

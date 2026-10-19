@@ -5,6 +5,7 @@ import { defineCommand } from "citty";
 import { createServer, type ViteDevServer } from "vite";
 
 import { collectAppGraph } from "../app-graph.js";
+import { readPluginManifestFacts } from "../app-server.js";
 import { createDotEnvSync } from "../dotenv.js";
 import { formatDevBanner, supportsColor } from "../dev-banner.js";
 import { readProjectConfig, resolveProjectPath } from "../project.js";
@@ -142,13 +143,31 @@ export default defineCommand({
           "\n  Tip: run `pracht typegen` once to enable typed routes and `apiFetch()`; `pracht dev` will keep them in sync.\n",
         );
       }
-    } catch {
+    } catch (error) {
       // Not a resolvable pracht app graph (or it failed to load) — fall back
-      // to Vite's own URL output so the dev server still starts cleanly.
+      // to Vite's own URL output so the dev server still starts, and say why
+      // the route table is missing.
       server.printUrls();
+      console.log(formatGraphFailure(server, error));
     }
   },
 });
+
+/** The line printed in place of the banner when the app graph does not resolve. */
+function formatGraphFailure(server: ViteDevServer, error: unknown): string {
+  const facts = readPluginManifestFacts(server.config.plugins);
+  const routes = facts?.complete
+    ? facts.refs.filter((ref) => ref.kind === "route").length
+    : undefined;
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    `\n  [pracht] Could not resolve the app graph: ${message}` +
+    (routes === undefined
+      ? ""
+      : `\n  The app manifest defines ${routes} route${routes === 1 ? "" : "s"}.`) +
+    "\n"
+  );
+}
 
 async function printDevBanner(server: ViteDevServer, root: string): Promise<void> {
   // Read capabilities from source like API routes: printing the banner

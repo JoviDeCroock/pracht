@@ -24,14 +24,7 @@ import { basename, dirname, extname, join, relative, resolve } from "node:path";
 
 import { parseAst } from "vite";
 import { getRolldownLang } from "./client-module-query.ts";
-import {
-  detectHeadExport,
-  detectHeadersExport,
-  detectLoaderExport,
-  fileStamp,
-  sameFileStamp,
-  type FileStamp,
-} from "./route-loader-hints.ts";
+import { fileStamp, readModuleFacts, sameFileStamp, type FileStamp } from "./route-loader-hints.ts";
 import {
   DEFAULT_ROUTE_EXTENSIONS,
   DEFAULT_SHELL_EXTENSIONS,
@@ -556,6 +549,10 @@ function readPageFacts(
   pageFactsCache.delete(abs);
 
   const analysisSource = maskMarkdownFences(readFileSync(abs, "utf-8"), rel);
+  // Export presence comes from the one module reader the route hint tables
+  // use, so a page is parsed once however many tables ask about it. A file
+  // that vanished between the two reads answers conservatively.
+  const exported = readModuleFacts(abs, stamp)?.exports ?? new Set(["loader", "head", "headers"]);
   const streaming = readPageStreaming(analysisSource);
   if (streaming === "invalid")
     throw new Error(
@@ -567,9 +564,9 @@ function readPageFacts(
     streaming,
     capabilities: extractPageCapabilities(analysisSource, rel),
     revalidate: extractRevalidateSeconds(analysisSource, rel),
-    hasLoader: detectLoaderExport(analysisSource),
-    hasHead: detectHeadExport(analysisSource),
-    hasHeaders: detectHeadersExport(analysisSource),
+    hasLoader: exported.has("loader"),
+    hasHead: exported.has("head"),
+    hasHeaders: exported.has("headers"),
   };
   pageFactsCache.set(abs, { rel, stamp, facts });
   return facts;

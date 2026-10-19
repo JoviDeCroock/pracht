@@ -22,7 +22,7 @@ import type {
 import { loadMcpTokenVerifier } from "@pracht/core/server";
 
 import { capabilityModuleLoader, createSourceReader } from "./app-graph.js";
-import { withAppServer } from "./app-server.js";
+import { withAppServer, type PluginManifestFacts } from "./app-server.js";
 import { formatBytes } from "./bundle-report.js";
 
 /**
@@ -73,6 +73,8 @@ export interface LiveGraphMetadata {
   staticTarget: boolean;
   /** Routes whose generated route or shell loader hint says a server fetch may be required. */
   loaderRoutePaths: ReadonlySet<string>;
+  /** Routes the build's hints say export no `head()`, and whose shell exports none either. */
+  headlessRoutePaths: ReadonlySet<string>;
   /** The module references the resolved manifest registers, as written in it. */
   manifest: ManifestModuleFacts;
 }
@@ -84,9 +86,33 @@ export interface ManifestModuleFacts {
    * from other files. Relative paths resolve against the app manifest.
    */
   modules: string[];
-  routeCount: number;
+  /** `null` when the routes could not all be read. */
+  routeCount: number | null;
   shells: { name: string; path: string }[];
   middleware: { name: string; path: string }[];
+}
+
+/**
+ * The same facts from the pracht plugin's static read of the manifest, for an
+ * app whose graph cannot be resolved.
+ */
+export function manifestModuleFactsFromPlugin(facts: PluginManifestFacts): ManifestModuleFacts {
+  const modules = new Set<string>();
+  const registry = (kind: string) =>
+    facts.refs.flatMap((ref) =>
+      ref.kind === kind && ref.ref !== null && ref.name !== undefined
+        ? [{ name: ref.name, path: ref.ref }]
+        : [],
+    );
+  for (const ref of facts.refs) {
+    if (ref.kind !== "mention" && ref.ref !== null) modules.add(ref.ref);
+  }
+  return {
+    modules: [...modules],
+    routeCount: facts.complete ? facts.refs.filter((ref) => ref.kind === "route").length : null,
+    shells: registry("shell"),
+    middleware: registry("middleware"),
+  };
 }
 
 /** Read the module references off the resolved app rather than the manifest's text. */
@@ -118,60 +144,70 @@ export function collectManifestModuleFacts(resolvedApp: {
   return { modules: [...modules], routeCount: routes.length, shells, middleware };
 }
 
-export async function resolveLiveGraphMetadata(root: string): Promise<LiveGraphMetadata> {
-  return withAppServer(root, async ({ project, server, serverModule }) => {
-    const resolvedRoutes = serverModule.resolvedApp.routes as ResolvedRoute[];
-    await assertMcpTokenVerifierModule(serverModule);
-    const routes = serializeAppRoutes(resolvedRoutes);
-    const api = await serializeApiRoutes(
-      serverModule.apiRoutes,
-      {
-        loadModule: (file) => server.ssrLoadModule(file),
-        readSource: (file) => readFileSync(resolve(root, `.${file}`), "utf-8"),
-      },
-      { strict: true },
-    );
-    const capabilities = withWebmcpRoutes(
-      await serializeCapabilities(
-        serverModule.resolvedApp.capabilities,
+export async function resolveLiveGraphMetadata(
+  root: string,
+  options: Parameters<typeof withAppServer>[2] = {},
+): Promise<LiveGraphMetadata> {
+  return withAppServer(
+    root,
+    async ({ project, server, serverModule }) => {
+      const resolvedRoutes = serverModule.resolvedApp.routes as ResolvedRoute[];
+      await assertMcpTokenVerifierModule(serverModule);
+      const routes = serializeAppRoutes(resolvedRoutes);
+      const api = await serializeApiRoutes(
+        serverModule.apiRoutes,
         {
-          loadModule: capabilityModuleLoader(server, serverModule),
-          readSource: createSourceReader(root, project.appFile),
+          loadModule: (file) => server.ssrLoadModule(file),
+          readSource: (file) => readFileSync(resolve(root, `.${file}`), "utf-8"),
         },
         { strict: true },
-      ),
-      resolvedRoutes,
-    );
+      );
+      const capabilities = withWebmcpRoutes(
+        await serializeCapabilities(
+          serverModule.resolvedApp.capabilities,
+          {
+            loadModule: capabilityModuleLoader(server, serverModule),
+            readSource: createSourceReader(root, project.appFile),
+          },
+          { strict: true },
+        ),
+        resolvedRoutes,
+      );
 
-    return {
-      graph: normalizeGraphSnapshot({
-        prachtGraphVersion: GRAPH_SNAPSHOT_VERSION,
-        mode: project.mode,
-        routes,
-        api,
-        capabilities,
-        mcpEndpoint: resolveMcpEndpoint(serverModule.resolvedApp.agents),
-        ...(servesDestructiveMcpTools(serverModule.resolvedApp, capabilities)
-          ? { mcpDestructive: true as const }
-          : {}),
-        mcpAuthenticated: !!serverModule.resolvedApp.agents?.mcp?.auth,
-        mcpAuth: serializeMcpAuth(serverModule.resolvedApp.agents?.mcp?.auth),
-        constraints: serverModule.resolvedApp.constraints ?? [],
-      }),
-      loaderRoutePaths: new Set(
-        resolvedRoutes
-          .filter(
-            (route) =>
-              route.loaderFile !== undefined ||
-              route.hasLoader !== false ||
-              route.hasShellLoader === true,
-          )
-          .map((route) => route.path),
-      ),
-      staticTarget: serverModule.staticTarget === true,
-      manifest: collectManifestModuleFacts(serverModule.resolvedApp),
-    };
-  });
+      return {
+        graph: normalizeGraphSnapshot({
+          prachtGraphVersion: GRAPH_SNAPSHOT_VERSION,
+          mode: project.mode,
+          routes,
+          api,
+          capabilities,
+          mcpEndpoint: resolveMcpEndpoint(serverModule.resolvedApp.agents),
+          ...(servesDestructiveMcpTools(serverModule.resolvedApp, capabilities)
+            ? { mcpDestructive: true as const }
+            : {}),
+          mcpAuthenticated: !!serverModule.resolvedApp.agents?.mcp?.auth,
+          mcpAuth: serializeMcpAuth(serverModule.resolvedApp.agents?.mcp?.auth),
+          constraints: serverModule.resolvedApp.constraints ?? [],
+        }),
+        loaderRoutePaths: new Set(
+          resolvedRoutes
+            .filter(
+              (route) =>
+                route.loaderFile !== undefined ||
+                route.hasLoader !== false ||
+                route.hasShellLoader === true,
+            )
+            .map((route) => route.path),
+        ),
+        headlessRoutePaths: new Set(
+          resolvedRoutes.filter((route) => route.hasHead === false).map((route) => route.path),
+        ),
+        staticTarget: serverModule.staticTarget === true,
+        manifest: collectManifestModuleFacts(serverModule.resolvedApp),
+      };
+    },
+    options,
+  );
 }
 
 async function assertMcpTokenVerifierModule(serverModule: Record<string, any>): Promise<void> {
