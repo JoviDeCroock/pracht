@@ -27,8 +27,8 @@ import { capabilityHttpPath, isValidCapabilityHttpPath } from "./protocol.ts";
  *
  * `undefined` in any position means "this reader could not determine it": a
  * value written as something other than an inline literal (static analysis),
- * or a fact the reader does not carry (the serialized app graph has no WebMCP
- * `untrustedContent`). `diffCapabilityDescriptors()` skips unknown values
+ * or a fact the reader does not carry (an app-graph entry that omits a guard
+ * field). `diffCapabilityDescriptors()` skips unknown values
  * rather than reporting them as drift. Every key is required, so a new field
  * fails to compile until every producer fills it in.
  */
@@ -318,6 +318,8 @@ export interface CapabilityGraphFields {
   title: string | null;
   transports: string[];
   mcpScopes?: string[];
+  /** The WebMCP tool's `untrustedContentHint`; present only when set. */
+  webmcpUntrustedContent?: true;
   unverifiedContract?: true;
 }
 
@@ -343,6 +345,9 @@ export function capabilityGraphFields(descriptor: CapabilityDescriptor): Capabil
     ...(descriptor.mcp && descriptor.mcp.scopes.length > 0
       ? { mcpScopes: [...descriptor.mcp.scopes] }
       : {}),
+    ...(descriptor.webmcp?.untrustedContent === true
+      ? { webmcpUntrustedContent: true as const }
+      : {}),
     ...(unverified ? { unverifiedContract: true as const } : {}),
   };
 }
@@ -356,7 +361,13 @@ export function capabilityDescriptorFromGraph(
     Partial<
       Pick<
         CapabilityGraphFields,
-        "agentPolicy" | "description" | "httpPath" | "middleware" | "title" | "unverifiedContract"
+        | "agentPolicy"
+        | "description"
+        | "httpPath"
+        | "middleware"
+        | "title"
+        | "unverifiedContract"
+        | "webmcpUntrustedContent"
       >
     >,
 ): CapabilityDescriptor {
@@ -374,7 +385,9 @@ export function capabilityDescriptorFromGraph(
           ? null
           : { path: entry.httpPath },
     mcp: entry.transports.includes("mcp") ? { scopes: [...(entry.mcpScopes ?? [])] } : null,
-    webmcp: entry.transports.includes("webmcp") ? { untrustedContent: undefined } : null,
+    webmcp: entry.transports.includes("webmcp")
+      ? { untrustedContent: entry.webmcpUntrustedContent === true }
+      : null,
     agentPolicy: unverified ? undefined : (entry.agentPolicy as CapabilityAgentPolicy | null),
     middleware: unverified ? undefined : entry.middleware,
   };

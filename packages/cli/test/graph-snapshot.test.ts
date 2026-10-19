@@ -92,6 +92,28 @@ describe("normalizeGraphSnapshot", () => {
     expect(snapshot.routes[0].streaming).toBeNull();
   });
 
+  it("does not commit the WebMCP untrustedContent annotation", () => {
+    const capability = {
+      agentPolicy: null,
+      description: "Search notes.",
+      effect: "read",
+      hasUi: false as const,
+      httpPath: "/api/capabilities/notes/search",
+      input: null,
+      middleware: [],
+      name: "notes.search",
+      output: null,
+      source: "./capabilities/notes-search.ts",
+      title: "Search notes",
+      transports: ["http", "webmcp"],
+    };
+    expect(
+      serializeGraphSnapshot(
+        makeSnapshot({ capabilities: [{ ...capability, webmcpUntrustedContent: true }] }),
+      ),
+    ).toBe(serializeGraphSnapshot(makeSnapshot({ capabilities: [capability] })));
+  });
+
   it("keeps a snapshot committed by @pracht/cli 1.16 current after an upgrade", async () => {
     // Written by the published 1.16.1 CLI: no `streaming` on routes, and
     // capability keys in that release's order.

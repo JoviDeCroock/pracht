@@ -45,6 +45,7 @@ export interface GraphCapabilityExposure {
   title?: string | null;
   transports: string[];
   unverifiedContract?: true;
+  webmcpUntrustedContent?: true;
 }
 
 /**

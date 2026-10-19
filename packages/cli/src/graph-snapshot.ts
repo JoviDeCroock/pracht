@@ -249,12 +249,17 @@ export async function resolveLiveGraph(root: string): Promise<GraphSnapshot> {
  * capabilities` and the dev banner, where it is actionable.
  */
 function withoutLoadError(capability: AppGraphCapability): AppGraphCapability {
-  if (capability.error == null) return capability;
+  // `webmcpUntrustedContent` is left out for the same reason as a new field:
+  // committing it would mark the snapshot of every app that sets it stale on
+  // upgrade. The typegen consistency check still compares it.
+  if (capability.error == null && capability.webmcpUntrustedContent === undefined) {
+    return capability;
+  }
   // `unverifiedContract` deliberately stays: it is the difference between "this
   // capability has no middleware" and "we could not read whether it does", and
   // a reviewer diffing the snapshot needs to see it. Only the machine-specific
   // error text is dropped.
-  const { error: _error, ...rest } = capability;
+  const { error: _error, webmcpUntrustedContent: _untrusted, ...rest } = capability;
   return rest;
 }
 
@@ -281,6 +286,7 @@ const CAPABILITY_KEY_ORDER = [
   "title",
   "transports",
   "mcpScopes",
+  "webmcpUntrustedContent",
   "webmcpRoutes",
 ];
 

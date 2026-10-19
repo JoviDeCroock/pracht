@@ -107,6 +107,8 @@ export interface AppGraphCapability {
   title: string | null;
   /** Exposure transports from the capability's `expose` config. */
   transports: string[];
+  /** The WebMCP tool's `untrustedContentHint` annotation; present only when set. */
+  webmcpUntrustedContent?: true;
   /** OAuth scopes from `expose: { mcp: { scopes } }`; absent when unscoped. */
   mcpScopes?: string[];
   /** Route patterns that activate this WebMCP page tool (inspection only). */
