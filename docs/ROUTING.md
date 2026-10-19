@@ -104,7 +104,9 @@ Defines a single route:
 
 > [!IMPORTANT]
 > Function module refs must use the exact inline form `() => import("./path")`
-> in your app manifest so the Vite plugin can rewrite them to string paths.
+> in your app manifest, or in a local module it imports (a shared `agents`
+> constant, a route list), so the Vite plugin can rewrite them to string paths.
+> The path resolves against the manifest's directory wherever it is written.
 > If a function ref reaches runtime, Pracht throws an error instead of
 > silently resolving it to prevent fail-open route or middleware behavior.
 
