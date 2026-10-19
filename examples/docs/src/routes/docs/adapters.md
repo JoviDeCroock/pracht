@@ -497,11 +497,11 @@ a custom entry can instead pass `trustProxy: true` to
 If the proxy also strips Vite's deploy base from the path, set
 `nodeAdapter({ basePathStripped: true })`.
 
-A custom `node:http` server with its own Web handler can reuse this request
-handling from `@pracht/adapter-node/bridge`. `createWebRequest(req, res, { maxBodySize, trustProxy, canonicalOrigin })`
-resolves to a `Request` whose `signal` aborts when the client disconnects, or
-to the 413 or 400 `Response` to send instead. `writeWebResponse(res, response)`
-streams the answer.
+A custom `node:http` server can reuse this request handling from
+`@pracht/adapter-node/bridge`: `createWebRequest(req, res, { maxBodySize, trustProxy, canonicalOrigin })`
+resolves to a `Request` whose `signal` aborts on client disconnect, or to the
+413 or 400 `Response` to send, and `writeWebResponse(res, response)` streams the
+answer.
 
 ### Response compression
 
@@ -719,7 +719,7 @@ A Cloudflare app with its own [Worker module](#composing-the-worker) passes `cre
 
 ## Writing a Custom Adapter
 
-A custom adapter exports a factory function that returns a `PrachtAdapter` object. Import the type from `@pracht/core/adapter`, which adds no runtime dependency, so the adapter package needs no edge to the Vite plugin:
+A custom adapter exports a factory that returns a `PrachtAdapter`, a type-only import from `@pracht/core/adapter`:
 
 ```ts
 import type { PrachtAdapter } from "@pracht/core/adapter";
@@ -766,7 +766,7 @@ without it.
 
 `finalizeBuild(context)` writes your deploy layout, as the Vercel adapter does for `.vercel/output`. The context holds the build paths, prerendered `pages`, manifests, `buildId`, and `log`/`warn`.
 
-`createServerEntryModule(entry)` receives `entry.buildId`, which is new for every `pracht build`. Key anything your runtime caches across deploys by it, so a new deploy never serves output the previous one rendered.
+`createServerEntryModule(entry)` receives `entry.buildId`, new for every `pracht build`. Key anything your runtime caches across deploys by it.
 
 At the runtime level, an adapter also typically needs to:
 
