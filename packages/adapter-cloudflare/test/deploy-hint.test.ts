@@ -4,11 +4,14 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import type { PrachtAdapterBuildContext } from "@pracht/vite-plugin";
+
 import {
   describeCloudflareDeploy,
   describeCloudflareWebhookScope,
+  finalizeCloudflareBuild,
   splitCloudflareWorkerExports,
-} from "../src/commands/build.ts";
+} from "../src/build.ts";
 
 describe("describeCloudflareDeploy", () => {
   const roots: string[] = [];
@@ -75,8 +78,8 @@ describe("splitCloudflareWorkerExports", () => {
 });
 
 describe("describeCloudflareWebhookScope", () => {
-  const webhook = { kind: "webhook" };
-  const hourly = { kind: "time", seconds: 3600 };
+  const webhook = { kind: "webhook" } as const;
+  const hourly = { kind: "time", seconds: 3600 } as const;
   const manifest = {
     "/news": { revalidate: webhook },
     "/pricing": { revalidate: [hourly, webhook] },
@@ -102,5 +105,39 @@ describe("describeCloudflareWebhookScope", () => {
     expect(
       describeCloudflareWebhookScope({ "/catalog": { revalidate: hourly } }, false),
     ).toBeNull();
+  });
+
+  it("is reported by finalizeBuild", async () => {
+    const root = mkdtempSync(join(tmpdir(), "pracht-cf-webhook-scope-"));
+    try {
+      const clientDir = join(root, "dist/client");
+      mkdirSync(join(root, "dist/server"), { recursive: true });
+      mkdirSync(clientDir, { recursive: true });
+      writeFileSync(join(root, "dist/server/worker.js"), "export default {};\n");
+      const warnings: string[] = [];
+      await finalizeCloudflareBuild({
+        root,
+        clientDir,
+        publicDir: join(root, "public"),
+        publicDirLabel: "public",
+        base: "/",
+        trailingSlash: "ignore",
+        frameworkVersion: "0.0.0",
+        serverEntry: {},
+        pages: ["/news"],
+        onDemandPages: [],
+        isgManifest: { "/news": { revalidate: webhook } },
+        headersManifest: {},
+        markdownRoutes: [],
+        markdownFiles: [],
+        contentArtifacts: [],
+        staticRoutes: [],
+        log: () => {},
+        warn: (message) => warnings.push(message),
+      } as PrachtAdapterBuildContext);
+      expect(warnings.join("")).toContain("1 Cloudflare ISG page(s)");
+    } finally {
+      rmSync(root, { force: true, recursive: true });
+    }
   });
 });
