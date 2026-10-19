@@ -99,6 +99,34 @@ describe("createWebRequest", () => {
     expect(raw.toLowerCase()).toContain("x-content-type-options: nosniff");
   });
 
+  // R476-1: Node closes the request stream once a complete upload is consumed,
+  // while the app is still answering. Only a disconnect before the response
+  // finished may abort the signal.
+  it("keeps the signal live after a completed upload, and after the response finished", async () => {
+    let request: Request | undefined;
+    let duringWork: boolean | undefined;
+    const finished = new Promise<boolean>((resolveFinished) => {
+      void listen(async (req, res) => {
+        const result = await createWebRequest(req, res, { maxBodySize: 4 * 1024 * 1024 });
+        if (result instanceof Response) return writeWebResponse(res, result);
+        request = result;
+        await result.arrayBuffer();
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        duringWork = result.signal.aborted;
+        res.on("close", () => setImmediate(() => resolveFinished(result.signal.aborted)));
+        await writeWebResponse(res, new Response("done"));
+      }).then(async (port) => {
+        const upload = new Uint8Array(1024 * 1024).fill(1);
+        const response = await fetch(`http://127.0.0.1:${port}/`, { body: upload, method: "POST" });
+        expect(await response.text()).toBe("done");
+      });
+    });
+
+    expect(await finished).toBe(false);
+    expect(request).toBeDefined();
+    expect(duringWork).toBe(false);
+  });
+
   it("restores a base an upstream middleware stripped", async () => {
     const port = await listen(async (req, res) => {
       const request = await createWebRequest(req, res, { base: "/docs/" });
