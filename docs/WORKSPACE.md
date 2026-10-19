@@ -267,7 +267,8 @@ on it.
   Vite does not minify the server build, so doc comments in the published ESM
   would otherwise ship in every server bundle (about a third of its gzip
   size). The `.d.mts` files keep the JSDoc, and `@__PURE__` / `@vite-ignore`
-  annotations survive. The build-time tools (`@pracht/cli`, `@pracht/vite-plugin`,
+  annotations and legal comments (`/*! */`, `@license`, `@preserve`) survive;
+  `published-comments.test.ts` fails on any other doc comment. The build-time tools (`@pracht/cli`, `@pracht/vite-plugin`,
   `@pracht/test`, `@pracht/preact-ssr-precompile`) keep their comments.
 - **Node adapter** — Translates Node requests to Web `Request` objects, calls
   `handlePrachtRequest()`, and implements ISG stale-while-revalidate plus
