@@ -100,6 +100,7 @@ import {
 } from "./route-extensions.ts";
 import type { PrachtAdapter } from "./plugin-adapter.ts";
 import { getAnalysisSession } from "./analysis.ts";
+import { stringifyLazyModuleRefs } from "./lazy-module-refs.ts";
 import { toPosixPath } from "./module-id.ts";
 import type { RouteHints } from "./route-loader-hints.ts";
 import { isNonModuleFile, moduleGlob } from "./source-files.ts";
@@ -672,7 +673,11 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       const isManifestModule = !isAppFile && !isPagesMode && manifestModuleFiles.has(normalizedId);
       if (!isAppFile && !isPagesAppConfig && !isManifestModule) return null;
 
-      const withStringModuleRefs = code.replace(LAZY_MODULE_REF_PATTERN, "$1$2$1");
+      // The manifest's own imports are ordinary modules too: there only refs in
+      // a ref position become strings, and executable helpers stay.
+      const withStringModuleRefs = stringifyLazyModuleRefs(code, {
+        refPositionsOnly: isManifestModule,
+      });
       // Only the app manifest is narrowed to `@pracht/core/manifest`; the config
       // file and the manifest's own imports are ordinary application code and
       // may import whatever they need.
@@ -1620,7 +1625,6 @@ function invalidateManifestDependents(server: import("vite").ViteDevServer, file
 }
 
 /** An inline lazy module ref, `() => import("./x")`, as the manifest transform rewrites it. */
-const LAZY_MODULE_REF_PATTERN = /\(\)\s*=>\s*import\(\s*(['"])([^'"]+)\1\s*\)/g;
 
 function symmetricDifference(previous: Set<string>, next: Set<string>): string[] {
   return [

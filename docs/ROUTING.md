@@ -109,6 +109,9 @@ Defines a single route:
 > in your app manifest, or in a local module it imports (a shared `agents`
 > constant, a route list), so the Vite plugin can rewrite them to string paths.
 > The path resolves against the manifest's directory wherever it is written.
+> In an imported module only a ref in a ref position (a property value, a later
+> call argument, an array element) is rewritten, so `const load = () =>
+> import("./data.ts")` or `lazy(() => import("./Page.tsx"))` stays a function.
 > If a function ref reaches runtime, Pracht throws an error instead of
 > silently resolving it to prevent fail-open route or middleware behavior.
 
