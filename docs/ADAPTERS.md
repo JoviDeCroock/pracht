@@ -224,13 +224,20 @@ that manifest.
   A regenerated page is one ISG snapshot (core `captureISGSnapshot()`: the
   HTML, the render's document headers minus transfer and credential-shaped
   ones, its own Cache-Control, the `buildId`, and the render time) published
-  to `.index.html.pracht-isg.json` beside the build's HTML by one atomic
-  rename, so a reader in any process sees one render's HTML with that
+  to `.index.html.<buildId>.pracht-isg.json` beside the build's HTML by one
+  atomic rename, so a reader in any process sees one render's HTML with that
   render's headers. The build's `index.html` is never rewritten. A snapshot
   is served (through `serveISGSnapshot()`, also for the `/page/index.html`
-  alias) with its own headers in place of the `headers-manifest.json` entry;
-  one stamped with another `buildId` is ignored, so a redeploy into the same
-  directory starts from its own HTML and headers. Neither the snapshot nor
+  alias) with its own headers in place of the `headers-manifest.json` entry.
+  A handler reads only its own build's file, so a redeploy into the same
+  directory starts from its own HTML and headers, and two builds serving one
+  directory during a rollover never overwrite each other's pages. A build id
+  that is not a safe file name segment is replaced by a digest of it; a
+  handler without a build id uses the unscoped `.index.html.pracht-isg.json`
+  older releases wrote, which a handler with one still reads when the snapshot
+  inside carries its id. Each write removes the page's snapshots of other
+  builds not written for `RETIRED_ISG_SNAPSHOT_AGE_MS` (one hour); a process
+  still serving such a build only renders the page again. Neither the snapshot nor
   the `.pracht-headers.json` file older releases wrote is ever served as a
   static file.
   ISG state is the local `staticDir` of one process: the webhook regenerates

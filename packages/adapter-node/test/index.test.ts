@@ -923,7 +923,7 @@ describe("createNodeRequestHandler", () => {
       // The snapshot (and a headers file older releases wrote) is not public.
       writeFileSync(join(staticDir, "w", ".index.html.pracht-headers.json"), "{}", "utf-8");
       const listing = readdirSync(join(staticDir, "w")).filter((name) => name !== "index.html");
-      expect(listing).toContain(".index.html.pracht-isg.json");
+      expect(listing).toContain(".index.html.build-1.pracht-isg.json");
       expect(listing).toContain(".index.html.pracht-headers.json");
       for (const name of listing) {
         const direct = await fetch(`${base}/w/${name}`);

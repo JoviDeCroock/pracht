@@ -521,6 +521,43 @@ row(
   },
 );
 
+row(
+  "keeps each build's regenerated ISG page while two builds share the store",
+  {
+    node: run,
+    cloudflare: run,
+    netlify: na("Netlify's durable cache is per deploy"),
+    "vercel-edge": na("Vercel's prerender cache is per deployment"),
+    "vercel-node": na("Vercel's prerender cache is per deployment"),
+    "static-preview": NO_APP,
+    dev: na("dev has no ISG store"),
+  },
+  async (target) => {
+    const sharedCache = createMockCache();
+    const builds = [createFixture({ build: "A" }), createFixture({ build: "B" })];
+    const sessions: Session[] = [];
+    for (const build of builds) {
+      const session =
+        target === "cloudflare"
+          ? await startCloudflare(build, output, sharedCache)
+          : await start(target, build);
+      if (target === "cloudflare") open.push(session);
+      sessions.push(session);
+    }
+    // Both regenerate the stale page, A then B, then each is asked again.
+    for (const session of sessions) {
+      await (await session.fetch(ISG_PATHS.page, { headers: { accept: "text/html" } })).text();
+      await session.settle();
+    }
+    for (const [index, session] of sessions.entries()) {
+      const response = await session.fetch(ISG_PATHS.page, { headers: { accept: "text/html" } });
+      expect(await response.text()).toContain(`render-of:${builds[index]!.build}`);
+    }
+    // Neither had to render again to get its page back.
+    expect(builds.map((build) => build.renders.get(ISG_PATHS.page))).toEqual([1, 1]);
+  },
+);
+
 // ---------------------------------------------------------------------------
 // Revalidation webhook
 // ---------------------------------------------------------------------------

@@ -426,7 +426,7 @@ export function createNodeRequestHandler<TContext = unknown>(
         if (!isISGSnapshotRejection(snapshot)) {
           try {
             await writeISGSnapshot(htmlPath, snapshot);
-            compressedAssetCache.invalidatePath(getISGSnapshotPath(htmlPath));
+            compressedAssetCache.invalidatePath(getISGSnapshotPath(htmlPath, snapshot.buildId));
           } catch (error) {
             // The render succeeded; an unwritable static directory must not
             // turn it into a 500. The next request renders again.
@@ -1088,7 +1088,7 @@ async function regenerateISGPageAndInvalidateCache<TContext>(
   waitUntil: (promise: Promise<unknown>) => void,
 ): Promise<boolean> {
   const regenerated = await regenerateISGPage(options, pathname, htmlPath, origin, waitUntil);
-  if (regenerated) compression?.cache.invalidatePath(getISGSnapshotPath(htmlPath));
+  if (regenerated) compression?.cache.invalidatePath(getISGSnapshotPath(htmlPath, options.buildId));
   return regenerated;
 }
 
