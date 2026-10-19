@@ -142,8 +142,7 @@ describe("R445-2: chunk recovery honours replace", () => {
 describe("a traversal whose route state redirects internally", () => {
   // `navigate(redirect, { ...opts })` carries `_popstate`, so the redirect
   // target commits without touching history.
-  // seams step G
-  it.fails("shows the target page under the target's URL", async () => {
+  it("shows the target page under the target's URL", async () => {
     const harness = await mountRouter({
       app,
       routeModules: modules(),
@@ -212,11 +211,8 @@ describe("the SPA boot's own document exits", () => {
   // history and Back lands on it to redirect again. As in the exit table, a
   // row returns early (and so reports itself) once today's hand-off changes.
   for (const target of ["https://elsewhere.example/x", "/b"]) {
-    // seams step G
-    it.fails(`replaces the entry for a redirect to ${target}`, async () => {
+    it(`replaces the entry for a redirect to ${target}`, async () => {
       const harness = await boot(reply.redirect(target));
-      const today = harness.handoffs;
-      if (today.length !== 1 || today[0].kind !== "href" || today[0].url !== target) return;
       expect(harness.handoffs).toEqual([{ kind: "replace", url: target }]);
     });
   }
@@ -332,8 +328,7 @@ describe("#487: the prefetch-invalidation generation", () => {
   });
 
   // R487-2: the redirect is followed before the generation is compared.
-  // seams step G
-  it.fails("does not follow a redirect held from before a mutation", async () => {
+  it("does not follow a redirect held from before a mutation", async () => {
     const held = createDeferred<RouteStateResult>();
     const harness = await mountRouter({
       app,
@@ -355,8 +350,7 @@ describe("#487: the prefetch-invalidation generation", () => {
   });
 
   // R487-3: a view transition runs the commit after the generation check.
-  // seams step G
-  it.fails("does not commit stale state from inside a deferred view transition", async () => {
+  it("does not commit stale state from inside a deferred view transition", async () => {
     const harness = await mountRouter({
       app,
       routeModules: modules(async () => ({ default: CountPage })),

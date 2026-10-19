@@ -14,8 +14,7 @@
  *   document, so handing that URL back loops; a hand-off to another URL must
  *   replace the boot entry.
  *
- * A cell whose `fails` is set records a bug: today's behaviour breaks the
- * contract, so it runs as `it.fails` until `leaveToDocument()` lands.
+ * `leaveToDocument()` in `router.ts` applies these rules at every exit.
  */
 import { h } from "preact";
 import { describe, expect, it } from "vitest";
@@ -89,13 +88,6 @@ interface Cell {
   renders?: string;
   /** A console error the router must log. */
   logs?: RegExp;
-  /**
-   * Today's behaviour breaks the contract. The row runs as `it.fails`, and
-   * only while today's hand-off is still the single `location.href`
-   * assignment recorded here: once that changes, the row reports itself so it
-   * can be turned into a plain `it`.
-   */
-  fails?: { todayHref: string; why: string };
 }
 
 interface NotApplicable {
@@ -126,10 +118,6 @@ export const EXIT_ROWS: ExitRow[] = [
     push: { expect: [pushes("/nowhere")] },
     replace: {
       expect: [replaces("/nowhere")],
-      fails: {
-        todayHref: "/nowhere",
-        why: "the unmatched exit assigns location.href and ignores replace",
-      }, // seams step G
     },
     popstate: { expect: [inPlace("/nowhere")] },
     // The boot only navigates a matched SPA route, so it reaches this exit
@@ -138,10 +126,6 @@ export const EXIT_ROWS: ExitRow[] = [
       path: "/a",
       state: { "/a": reply.redirect("/nowhere") },
       expect: [replaces("/nowhere")],
-      fails: {
-        todayHref: "/nowhere",
-        why: "the redirect target leaves by href, keeping the redirecting boot entry",
-      }, // seams step G
     },
   },
   {
@@ -150,20 +134,12 @@ export const EXIT_ROWS: ExitRow[] = [
     push: { expect: [pushes("/mpa")] },
     replace: {
       expect: [replaces("/mpa")],
-      fails: {
-        todayHref: "/mpa",
-        why: "the islands/none exit assigns location.href and ignores replace",
-      }, // seams step G
     },
     popstate: { expect: [inPlace("/mpa")] },
     staticFallback: {
       path: "/a",
       state: { "/a": reply.redirect("/mpa") },
       expect: [replaces("/mpa")],
-      fails: {
-        todayHref: "/mpa",
-        why: "the redirect target leaves by href, keeping the redirecting boot entry",
-      }, // seams step G
     },
   },
   {
@@ -189,10 +165,6 @@ export const EXIT_ROWS: ExitRow[] = [
     push: { expect: [pushes(EXTERNAL)] },
     replace: {
       expect: [replaces(EXTERNAL)],
-      fails: {
-        todayHref: EXTERNAL,
-        why: "the external-URL exit assigns location.href and ignores replace",
-      }, // seams step G
     },
     popstate: { na: SAME_ORIGIN_ONLY },
     staticFallback: { na: SAME_ORIGIN_ONLY },
@@ -204,24 +176,12 @@ export const EXIT_ROWS: ExitRow[] = [
     push: { expect: [pushes(EXTERNAL)] },
     replace: {
       expect: [replaces(EXTERNAL)],
-      fails: {
-        todayHref: EXTERNAL,
-        why: "the external-redirect exit assigns location.href and ignores replace",
-      }, // seams step G
     },
     popstate: {
       expect: [replaces(EXTERNAL)],
-      fails: {
-        todayHref: EXTERNAL,
-        why: "a traversal's redirect adds an entry, so Back lands on the redirect again",
-      }, // seams step G
     },
     staticFallback: {
       expect: [replaces(EXTERNAL)],
-      fails: {
-        todayHref: EXTERNAL,
-        why: "the boot's redirect adds an entry, so Back lands on the redirect again",
-      }, // seams step G
     },
   },
   {
@@ -231,24 +191,12 @@ export const EXIT_ROWS: ExitRow[] = [
     push: { expect: [pushes("/b#section")] },
     replace: {
       expect: [replaces("/b#section")],
-      fails: {
-        todayHref: "/b#section",
-        why: "the same-origin fragment-redirect exit ignores replace",
-      }, // seams step G
     },
     popstate: {
       expect: [replaces("/b#section")],
-      fails: {
-        todayHref: "/b#section",
-        why: "a traversal's redirect adds an entry, so Back lands on the redirect again",
-      }, // seams step G
     },
     staticFallback: {
       expect: [replaces("/b#section")],
-      fails: {
-        todayHref: "/b#section",
-        why: "the boot's redirect adds an entry, so Back lands on the redirect again",
-      }, // seams step G
     },
   },
   {
@@ -259,25 +207,16 @@ export const EXIT_ROWS: ExitRow[] = [
     replace: {
       expect: [replaces("/r/20")],
       logs: /too many redirects/,
-      fails: { todayHref: "/r/20", why: "the redirect-overflow exit ignores replace" }, // seams step G
     },
     popstate: {
       expect: [replaces("/r/20")],
       logs: /too many redirects/,
-      fails: {
-        todayHref: "/r/20",
-        why: "a traversal's redirect chain leaves by href onto another URL",
-      }, // seams step G
     },
     // Static redirects are followed only by the client, so handing the chain
     // to the fallback document restarts it there: a cycle never ends.
     staticFallback: {
       expect: [],
       logs: /too many redirects/,
-      fails: {
-        todayHref: "/r/20",
-        why: "the fallback hands the chain to a document that restarts it",
-      }, // seams step G
     },
   },
   {
@@ -287,18 +226,10 @@ export const EXIT_ROWS: ExitRow[] = [
     push: { expect: [pushes("/a")] },
     replace: {
       expect: [replaces("/a")],
-      fails: {
-        todayHref: "/a",
-        why: "the opaque-redirect exit assigns location.href and ignores replace",
-      }, // seams step G
     },
     popstate: { expect: [inPlace("/a")] },
     staticFallback: {
       expect: [],
-      fails: {
-        todayHref: "/a",
-        why: "the fallback hands its own URL back to the host, which serves the fallback again",
-      }, // seams step G
     },
   },
   {
@@ -308,10 +239,6 @@ export const EXIT_ROWS: ExitRow[] = [
     push: { expect: [pushes("/a")] },
     replace: {
       expect: [replaces("/a")],
-      fails: {
-        todayHref: "/a",
-        why: "the fetch-failed exit assigns location.href and ignores replace",
-      }, // seams step G
     },
     popstate: { expect: [inPlace("/a")] },
     staticFallback: { expect: [], renders: "page a" },
@@ -322,7 +249,7 @@ export const EXIT_ROWS: ExitRow[] = [
     push: { expect: [pushes("/chunk")] },
     replace: { expect: [replaces("/chunk")] },
     popstate: { expect: [inPlace("/chunk")] },
-    staticFallback: { expect: [], logs: /could not load the route module/ },
+    staticFallback: { expect: [], logs: /would only load this fallback page again/ },
   },
   {
     reason: "render-error",
@@ -340,18 +267,10 @@ export const EXIT_ROWS: ExitRow[] = [
     push: { expect: [pushes("/a")] },
     replace: {
       expect: [replaces("/a")],
-      fails: {
-        todayHref: "/a",
-        why: "the not-found exit assigns location.href and ignores replace",
-      }, // seams step G
     },
     popstate: { expect: [inPlace("/a")] },
     staticFallback: {
       expect: [],
-      fails: {
-        todayHref: "/a",
-        why: "the fallback hands its own URL back to the host, which serves the fallback again",
-      }, // seams step G
     },
   },
 ];
@@ -383,19 +302,9 @@ export function defineExitTable(modes: readonly ExitMode[]): void {
       for (const mode of modes) {
         const cell = row[mode];
         if ("na" in cell) continue;
-        const name = `${mode}: ${cell.expect.length === 0 ? "stays" : "leaves"}`;
-        const body = async () => {
+        it(`${mode}: ${cell.expect.length === 0 ? "stays" : "leaves"}`, async () => {
           const lengthBefore = history.length;
           const harness = await drive(mode, row, cell);
-          if (cell.fails) {
-            const today = harness.handoffs;
-            const unchanged =
-              today.length === 1 &&
-              today[0].kind === "href" &&
-              today[0].url === cell.fails.todayHref;
-            // Returning without throwing makes `it.fails` report the row.
-            if (!unchanged) return;
-          }
           expect(
             matchesHandoffs(harness.handoffs, cell.expect),
             `hand-offs ${JSON.stringify(harness.handoffs)} ≠ ${JSON.stringify(cell.expect)}`,
@@ -412,13 +321,7 @@ export function defineExitTable(modes: readonly ExitMode[]): void {
             expect(window.location.pathname).toBe("/");
             expect(history.length).toBe(lengthBefore);
           }
-        };
-        if (cell.fails) {
-          // seams step G
-          it.fails(`${name} (${cell.fails.why})`, body);
-        } else {
-          it(name, body);
-        }
+        });
       }
     });
   }

@@ -1388,7 +1388,7 @@ const blocker = useBlocker(
 ```
 
 **Where the guard runs.** `<Link>` clicks and `useNavigate()` calls are checked
-at the top of the router's `navigate()`, before `latestNavigationId` moves — a
+at the top of the router's `navigate()`, before it aborts the live navigation — a
 guard that ran later would cancel the page already on screen in order to refuse
 the one replacing it. Back/forward traversals are checked in the `popstate`
 handler instead, because by then the URL has already changed and refusing means

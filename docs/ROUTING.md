@@ -1055,10 +1055,14 @@ Client side (`router.ts`, `runtime-shell-data.ts`):
   data it was fetched against: `revalidateRouteData()` (so `useRevalidate()`
   and capability revalidation), a non-`GET`/`HEAD` `apiFetch()`, a successful
   non-read `CAPABILITY_SETTLED_EVENT` (even with `revalidate: false`), and a
-  `<Form>` submission. Each clear bumps `prefetchGeneration`; a navigation
-  whose generation moved before it commits (it may hold a promise taken from
-  the cache, or a response fetched before the mutation) re-runs once as a
-  `_reloadRouteState` navigation instead of rendering that state.
+  `<Form>` submission. `test/prefetch-invalidation-seam.test.ts` makes a new
+  mutation path fail until it is classified and clears the cache. Each clear
+  bumps `prefetchGeneration`; a navigation whose generation moved (it may hold
+  a promise taken from the cache, or a response fetched before the mutation)
+  re-runs once as a `_reloadRouteState` navigation instead of acting on that
+  state. It checks after the route-state await, before a redirect is followed,
+  again before history moves, and inside the commit, which a view transition
+  defers; a re-run from there replaces the entry the navigation already pushed.
 - `hasShellLoader` is a build-time route hint (the loader bit of the shell's
   row in the client hint table, which scans shells and pages `_app` files too). A
   loaderless, headless, middleware-free route skips the route-state request

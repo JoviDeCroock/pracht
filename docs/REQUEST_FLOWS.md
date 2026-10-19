@@ -759,18 +759,31 @@ Pass debugErrors: true to handlePrachtRequest() to expose raw error details.
 islands or `hydration: "none"` page, the URL is external (an unsafe one is refused and logged),
 a redirect chain passes 20 hops, a redirect is opaque, the route-state fetch fails, a route or
 shell chunk fails to load, a committed render throws past every app `ErrorBoundary`, or a 404
-has no boundary to render. The rules every exit must follow:
+has no boundary to render. Every exit goes through `leaveToDocument(url, reason, opts)` in
+`router.ts`, which applies the rules once:
 
-- a `replace` navigation replaces the current entry;
-- a traversal (`popstate`) adds no entry: the browser already moved it;
-- a navigation superseded by a newer one never leaves (checked after every await);
+- a `replace` navigation replaces the current entry, and so does a traversal (`popstate`): the
+  browser already moved the entry, and a redirect's target must not add one;
 - the static-export SPA fallback (`200.html`) never hands back its own URL, because the host
-  would serve the same fallback document again.
+  would serve the same fallback document again. `LeaveReason` is ordered so that every reason
+  after `MpaRoute` reloads the navigation's own URL; a fallback boot refuses those and gets
+  `false` back, and leaves for the others (another URL) with `replace`;
+- development logs the reason (`console.debug`); production carries only the enum number.
+
+A render error that reaches the outermost boundary reloads (`location.reload()`), since the URL
+is already committed. The SPA boot's own redirect replaces its entry, as a server redirect would.
+
+`stale(navigation)` (the navigation's `AbortSignal`, aborted by the next navigation) is checked
+after every await in `navigate()` and inside the commit callback, so a superseded navigation
+neither commits nor leaves. A traversal whose route state redirects internally follows the
+redirect as a `replace` navigation, not as another traversal.
+
+Seam guards: `test/router-exit-seam.test.ts` fails on a raw `location.href =`,
+`location.replace(`, `location.assign(` or `location.reload(` outside `leaveToDocument()`, and on
+an await in `navigate()` with no `stale()` check after it.
 
 `packages/framework/test/router-harness.ts` mounts the client router in jsdom with a fake
 `fetch`, fake chunks and a recording `window.location`. `router-exit-table.ts` crosses every
 exit with push, replace, popstate and the static fallback boot
 (`router-document-exits*.test.ts`); `router-exit-regressions.test.ts` covers supersession, the
-SPA boot's own exits, and the prefetch-invalidation generation. Exits that break a rule today
-run as `it.fails` rows tagged `// seams step G`; each reports itself once today's hand-off
-changes, so it can become a plain `it`.
+SPA boot's own exits, and the prefetch-invalidation generation.

@@ -19,40 +19,24 @@ import { parseSafeNavigationUrl } from "./runtime-client-fetch.ts";
 export const MAX_REDIRECT_HOPS = 20;
 
 export interface RedirectTarget {
+  /** Another origin, or a URL with a fragment: the browser loads it as a document. */
   documentUrl?: string;
-  externalUrl?: string;
+  /** Same origin, no fragment: the router navigates to it. */
   internalPath?: string;
-  isCurrentLocation: boolean;
+  /** The redirect points at the URL already on screen. */
+  isCurrentLocation?: boolean;
   unsafe?: boolean;
 }
 
 export function resolveRedirectTarget(location: string): RedirectTarget {
   const targetUrl = parseSafeNavigationUrl(location, window.location.href);
-  if (!targetUrl) {
-    return { isCurrentLocation: false, unsafe: true };
+  if (!targetUrl) return { unsafe: true };
+  const { hash, origin, pathname, search } = window.location;
+  if (targetUrl.origin !== origin) return { documentUrl: targetUrl.toString() };
+  if (targetUrl.pathname + targetUrl.search + targetUrl.hash === pathname + search + hash) {
+    return { isCurrentLocation: true };
   }
-  const fullInternalTarget = targetUrl.pathname + targetUrl.search + targetUrl.hash;
-  const internalPath = targetUrl.pathname + targetUrl.search;
-  const currentPath = window.location.pathname + window.location.search + window.location.hash;
-  const isCurrentLocation =
-    targetUrl.origin === window.location.origin && fullInternalTarget === currentPath;
-
-  if (targetUrl.origin !== window.location.origin) {
-    return {
-      externalUrl: targetUrl.toString(),
-      isCurrentLocation: false,
-    };
-  }
-
-  if (targetUrl.hash) {
-    return {
-      documentUrl: targetUrl.toString(),
-      isCurrentLocation,
-    };
-  }
-
-  return {
-    internalPath,
-    isCurrentLocation,
-  };
+  return targetUrl.hash
+    ? { documentUrl: targetUrl.toString() }
+    : { internalPath: targetUrl.pathname + targetUrl.search };
 }
