@@ -272,10 +272,10 @@ describe("published package tree shaking", () => {
     // transition commits, plus a traversal's redirect replacing its entry,
     // about 55; and putting the server markup back when hydration throws
     // about 25. These ceilings measure the router with Preact external.
-    it("keeps the router runtime below 11,070 gzip bytes", async () => {
+    it("keeps the router runtime below 11,065 gzip bytes", async () => {
       const { gzipBytes } = await bundleExport("initClientRouter", production);
 
-      expect(gzipBytes).toBeLessThanOrEqual(11_070);
+      expect(gzipBytes).toBeLessThanOrEqual(11_065);
     });
 
     it("drops compat Suspense when the app renders no Suspense boundary", async () => {
@@ -470,7 +470,7 @@ describe("published package tree shaking", () => {
       // for the feature, including the index stamped on every history entry.
       const { gzipBytes } = await routerBundle({ __PRACHT_CLIENT_BLOCKER__: "false" });
 
-      expect(gzipBytes).toBeLessThanOrEqual(10_780);
+      expect(gzipBytes).toBeLessThanOrEqual(10_775);
     });
 
     it("keeps guards when the feature is enabled", async () => {
@@ -563,7 +563,7 @@ describe("published package tree shaking", () => {
       const { code, gzipBytes } = await routerBundle({ __PRACHT_SHELL_LOADERS__: "true" });
 
       expect(code).toContain("x-pracht-shell-data");
-      expect(gzipBytes).toBeLessThanOrEqual(11_490);
+      expect(gzipBytes).toBeLessThanOrEqual(11_485);
     });
 
     // Both opt-in router features at once: a route with a `search` schema
@@ -574,7 +574,7 @@ describe("published package tree shaking", () => {
         __PRACHT_SHELL_LOADERS__: "true",
       });
 
-      expect(gzipBytes).toBeLessThanOrEqual(11_590);
+      expect(gzipBytes).toBeLessThanOrEqual(11_585);
     });
   });
 
