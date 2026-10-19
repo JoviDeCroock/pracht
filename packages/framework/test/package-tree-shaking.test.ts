@@ -857,5 +857,19 @@ describe("published package tree shaking", () => {
       expect(code).toContain("web-bot-auth");
       expect(code).toContain("unknown_capability");
     });
+
+    it("drops the human-approval startup gate only when the build proves no agent surface", async () => {
+      // Every generated server module awaits this gate, so without the define
+      // it would carry the approval code into apps with no capabilities.
+      const message = "nothing identifies the end user";
+      const proven = await bundleExport("assertHumanApprovalIdentity", {
+        entry: serverEntry,
+        define: { __PRACHT_AGENT_SURFACE__: "false" },
+      });
+      const unproven = await bundleExport("assertHumanApprovalIdentity", { entry: serverEntry });
+
+      expect(proven.code).not.toContain(message);
+      expect(unproven.code).toContain(message);
+    });
   });
 });

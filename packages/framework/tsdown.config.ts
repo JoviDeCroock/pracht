@@ -25,4 +25,5 @@ export default defineConfig({
   dts: true,
   unbundle: true,
   external: ["preact", "preact/hooks", "preact-render-to-string", "vite", /^node:/],
+  outputOptions: { comments: { jsdoc: false } },
 });

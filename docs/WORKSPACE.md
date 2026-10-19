@@ -261,7 +261,14 @@ on it.
   browser, client, manifest, and server subpath entries so the Vite plugin can
   keep server-only runtime code and route-only browser helpers out of the
   critical client bootstrap graph while generated server modules avoid the
-  browser export condition. The CLI remains plain JS.
+  browser export condition. The CLI remains plain JS. Every package whose code
+  lands in an app bundle (`@pracht/core`, `@pracht/capabilities`, the adapters,
+  and the satellites) sets `outputOptions: { comments: { jsdoc: false } }`:
+  Vite does not minify the server build, so doc comments in the published ESM
+  would otherwise ship in every server bundle (about a third of its gzip
+  size). The `.d.mts` files keep the JSDoc, and `@__PURE__` / `@vite-ignore`
+  annotations survive. The build-time tools (`@pracht/cli`, `@pracht/vite-plugin`,
+  `@pracht/test`, `@pracht/preact-ssr-precompile`) keep their comments.
 - **Node adapter** — Translates Node requests to Web `Request` objects, calls
   `handlePrachtRequest()`, and implements ISG stale-while-revalidate plus
   webhook regeneration of on-disk HTML.

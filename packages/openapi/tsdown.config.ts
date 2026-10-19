@@ -6,4 +6,5 @@ export default defineConfig({
   format: "esm",
   dts: true,
   external: ["@pracht/core", "vite", /^node:/],
+  outputOptions: { comments: { jsdoc: false } },
 });
