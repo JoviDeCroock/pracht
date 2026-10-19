@@ -1,5 +1,7 @@
 import { isAbsolute, relative } from "node:path";
 
+import { stripAnsi } from "@pracht/core/error-overlay";
+
 export const CONFIG_FILE_NAMES = new Set([
   "vite.config.ts",
   "vite.config.mts",
@@ -45,7 +47,9 @@ export interface Check {
 }
 
 export function createCheck(status: Check["status"], message: string): Check {
-  return { message, status };
+  // A check message is data (`--json`, `pracht plan`, MCP), and the errors it
+  // quotes from Vite carry terminal colour.
+  return { message: stripAnsi(message), status };
 }
 
 export function isWithinDirectory(filePath: string, directoryPath: string): boolean {

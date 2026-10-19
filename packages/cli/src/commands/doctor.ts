@@ -1,5 +1,6 @@
 import { defineCommand } from "citty";
 
+import { handleCliError } from "../utils.js";
 import { runDoctor } from "../verification.js";
 
 export default defineCommand({
@@ -14,7 +15,12 @@ export default defineCommand({
     },
   },
   async run({ args }) {
-    const report = await runDoctor(process.cwd());
+    let report: Awaited<ReturnType<typeof runDoctor>>;
+    try {
+      report = await runDoctor(process.cwd());
+    } catch (error) {
+      handleCliError(error, { json: Boolean(args.json) });
+    }
 
     if (args.json) {
       console.log(JSON.stringify(report, null, 2));

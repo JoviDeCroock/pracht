@@ -2,6 +2,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { gzipSync } from "node:zlib";
 
+import { colorEnabled } from "./utils.js";
+
 const SIZE_UNITS: Record<string, number> = {
   b: 1,
   kb: 1024,
@@ -328,8 +330,7 @@ export interface FormatOptions {
 }
 
 export function shouldUseColor(): boolean {
-  if (process.env.NO_COLOR) return false;
-  return Boolean(process.stdout.isTTY);
+  return colorEnabled(process.stdout);
 }
 
 function paint(text: string, code: string, color: boolean): string {
