@@ -188,6 +188,34 @@ describe("client router: a render error without an app ErrorBoundary", () => {
     expect(shellMounts).not.toHaveBeenCalled();
   });
 
+  it("keeps the server markup when hydration throws, and reports the error", async () => {
+    root.innerHTML = '<main>home <a href="/crash">crash</a></main><footer>end</footer>';
+    const reported = vi.fn();
+    vi.stubGlobal("reportError", reported);
+    const BrowserOnlyCrash = () => {
+      throw new Error("window is not what it seems");
+    };
+
+    await initClientRouter({
+      app,
+      routeModules: { "./routes/home.tsx": async () => ({ default: BrowserOnlyCrash }) },
+      shellModules: {},
+      initialState: { data: null, routeId: "home", url: "/" },
+      root,
+      findModuleKey: (_modules, file) => file,
+    });
+    await flush();
+
+    expect(root.innerHTML).toBe('<main>home <a href="/crash">crash</a></main><footer>end</footer>');
+    expect(reported).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "window is not what it seems" }),
+    );
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining("Hydration failed"));
+    // The router stays out: links are plain document navigations.
+    expect(window.__PRACHT_NAVIGATE__).toBeUndefined();
+    expect(reload).not.toHaveBeenCalled();
+  });
+
   it("leaves a render error to the route's own ErrorBoundary", async () => {
     await initRouter({
       default: Crash,
