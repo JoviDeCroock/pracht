@@ -78,12 +78,13 @@ export function staticPathCandidates(
   if (!pathname.startsWith("/") || pathname.includes("\\") || pathname.includes("\0")) {
     return null;
   }
+  // Every segment, raw or percent-encoded, before anything is decoded: a
+  // malformed escape earlier in the path must not hide a later `%2e%2e`.
   for (const segment of pathname.split("/")) {
-    if (segment === "." || segment === "..") return null;
+    if (DOT_SEGMENT_RE.test(segment)) return null;
   }
 
   const decoded = decodeStaticPath(pathname);
-  if (!decoded.ok && decoded.reason === "relative") return null;
 
   const candidates: string[] = [];
   const add = (path: string): void => {
@@ -95,6 +96,9 @@ export function staticPathCandidates(
   add(pathname);
   return candidates;
 }
+
+/** A `.` or `..` segment, each dot raw or percent-encoded. */
+const DOT_SEGMENT_RE = /^(?:\.|%2e){1,2}$/i;
 
 /**
  * The same URL path with every percent-escape in upper case, the spelling the
