@@ -406,7 +406,7 @@ describe("collectCapabilityChecks", () => {
 
     const errors = checks.filter((check) => check.status === "error");
     expect(errors.map((error) => error.message)).toContainEqual(
-      expect.stringContaining("is destructive and exposed as a WebMCP page tool"),
+      expect.stringContaining("destructive capabilities cannot be exposed to WebMCP page tools"),
     );
   });
 
@@ -856,7 +856,7 @@ describe("collectCapabilityChecks", () => {
 
     const errors = checks.filter((check) => check.status === "error");
     expect(errors.map((error) => error.message)).toContainEqual(
-      expect.stringContaining("sets expose.webmcp without expose.http"),
+      expect.stringContaining("expose.webmcp requires expose.http"),
     );
   });
 
@@ -872,7 +872,7 @@ describe("collectCapabilityChecks", () => {
 
     expect(
       checks.filter((check) => check.status === "error").map((check) => check.message),
-    ).toContainEqual(expect.stringContaining("sets expose.webmcp without expose.http"));
+    ).toContainEqual(expect.stringContaining("expose.webmcp requires expose.http"));
   });
 
   it("accepts the webmcp options object and rejects invalid shapes", () => {
@@ -899,7 +899,9 @@ describe("collectCapabilityChecks", () => {
     );
     expect(
       badShape.filter((check) => check.status === "error").map((check) => check.message),
-    ).toContainEqual(expect.stringContaining('"expose.webmcp" must be true or an options object'));
+    ).toContainEqual(
+      expect.stringContaining('"expose.webmcp" must be a boolean or an options object'),
+    );
 
     const badOption = runChecks(
       capabilitySource(
@@ -1213,7 +1215,7 @@ describe("collectCapabilityChecks", () => {
     );
 
     expect(checks.map((check) => check.message)).toContainEqual(
-      expect.stringContaining("exposed as a WebMCP page tool"),
+      expect.stringContaining("cannot be exposed to WebMCP page tools"),
     );
   });
 

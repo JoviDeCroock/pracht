@@ -1,7 +1,12 @@
 import type { StandardJSONSchemaV1, StandardSchemaV1 } from "@standard-schema/spec";
 
 import {
-  isValidCapabilityHttpPath,
+  capabilityExposureFromDescriptor,
+  DESTRUCTIVE_EXPOSURE_ERROR,
+  normalizeCapabilityDescriptor,
+  type CapabilityDescriptor,
+} from "./descriptor.ts";
+import {
   isValidCapabilityName,
   type CapabilityErrorCode,
   type PrachtAgentIdentity,
@@ -207,11 +212,7 @@ export interface CapabilityErrorPayload {
   retryAfterSeconds?: number;
 }
 
-export const DESTRUCTIVE_EXPOSURE_ERROR =
-  "destructive capabilities cannot be exposed to WebMCP page tools — a browser host's " +
-  "approval UX is not a security boundary. Use expose.http, or expose.mcp with " +
-  "agents.mcp.destructive, where the server-verified prepare/commit confirmation flow " +
-  "gates every call";
+export { DESTRUCTIVE_EXPOSURE_ERROR };
 
 export const MCP_SCHEMA_ROOT_ERROR =
   'expose.mcp requires "input" and "output" schemas with type: "object" for the supported MCP protocol versions';
@@ -242,19 +243,9 @@ export function defineCapability<TInput = unknown, TOutput = unknown, TContext =
     input: schemas.input,
     output: schemas.output,
   };
-  assertDefinition(resolvedDefinition);
+  const descriptor = assertDefinition(resolvedDefinition);
+  const expose = capabilityExposureFromDescriptor(descriptor);
 
-  const expose = normalizeExposure(definition.expose);
-
-  if (definition.effect === "destructive" && expose?.webmcp) {
-    throw new Error(`defineCapability("${definition.title}"): ${DESTRUCTIVE_EXPOSURE_ERROR}.`);
-  }
-  if (expose?.webmcp && !expose.http) {
-    throw new Error(
-      `defineCapability("${definition.title}"): expose.webmcp requires expose.http — ` +
-        "WebMCP page tools dispatch through the HTTP projection so all enforcement stays server-side.",
-    );
-  }
   if (expose?.mcp && (schemas.input.type !== "object" || schemas.output.type !== "object")) {
     throw new Error(`defineCapability("${definition.title}"): ${MCP_SCHEMA_ROOT_ERROR}.`);
   }
@@ -390,25 +381,23 @@ function resolveDefinitionSchema(
   return portable;
 }
 
-function assertDefinition(definition: CapabilityDefinition<never, unknown, never>): void {
+function assertDefinition(
+  definition: CapabilityDefinition<never, unknown, never>,
+): CapabilityDescriptor {
   const label = typeof definition?.title === "string" ? definition.title : "<untitled>";
 
   if (!definition || typeof definition !== "object") {
     throw new Error("defineCapability expects a definition object.");
   }
-  for (const field of ["title", "description"] as const) {
-    if (typeof definition[field] !== "string" || definition[field].trim() === "") {
-      throw new Error(`defineCapability("${label}"): "${field}" must be a non-empty string.`);
-    }
-  }
-  if (
-    definition.effect !== "read" &&
-    definition.effect !== "write" &&
-    definition.effect !== "destructive"
-  ) {
-    throw new Error(
-      `defineCapability("${label}"): "effect" must be "read", "write", or "destructive".`,
-    );
+  // The contract fields every reader shares (title, effect, exposure, guards)
+  // are validated by the descriptor normalizer, so `pracht verify` and the
+  // build-time extractor report exactly what this throws.
+  const { descriptor, problems } = normalizeCapabilityDescriptor(definition, {
+    source: "executed",
+  });
+  const [problem] = problems;
+  if (problem) {
+    throw new Error(`defineCapability("${label}"): ${problem.message}.`);
   }
   if (typeof definition.run !== "function") {
     throw new Error(`defineCapability("${label}"): "run" must be a function.`);
@@ -442,94 +431,5 @@ function assertDefinition(definition: CapabilityDefinition<never, unknown, never
       );
     }
   }
-
-  if (
-    definition.middleware !== undefined &&
-    (!Array.isArray(definition.middleware) ||
-      definition.middleware.some((name) => typeof name !== "string"))
-  ) {
-    throw new Error(`defineCapability("${label}"): "middleware" must be an array of names.`);
-  }
-
-  if (
-    definition.agentPolicy !== undefined &&
-    definition.agentPolicy !== "observe" &&
-    definition.agentPolicy !== "require"
-  ) {
-    throw new Error(`defineCapability("${label}"): "agentPolicy" must be "observe" or "require".`);
-  }
-}
-
-/** RFC 6749 Appendix A.4 `scope-token`: printable ASCII except space, `"`, and `\\`. */
-function isOAuthScopeToken(value: unknown): value is string {
-  return typeof value === "string" && /^[\x21\x23-\x5b\x5d-\x7e]+$/.test(value);
-}
-
-function normalizeExposure(expose: CapabilityExposeConfig | undefined): CapabilityExposure | null {
-  if (!expose) return null;
-
-  let http: CapabilityHttpExposure | null = null;
-  if (expose.http === true) {
-    http = { method: "POST" };
-  } else if (expose.http && typeof expose.http === "object") {
-    if (expose.http.method !== undefined && expose.http.method !== "POST") {
-      throw new Error('Capability HTTP exposure only supports method: "POST" for now.');
-    }
-    if (expose.http.path !== undefined) {
-      if (!isValidCapabilityHttpPath(expose.http.path)) {
-        throw new Error(
-          'Capability HTTP exposure "path" must be an exact same-origin pathname starting with "/".',
-        );
-      }
-      http = { method: "POST", path: expose.http.path };
-    } else {
-      http = { method: "POST" };
-    }
-  }
-
-  let webmcp = false;
-  let webmcpUntrustedContent = false;
-  if (expose.webmcp === true) {
-    webmcp = true;
-  } else if (expose.webmcp && typeof expose.webmcp === "object" && !Array.isArray(expose.webmcp)) {
-    if (
-      expose.webmcp.untrustedContent !== undefined &&
-      typeof expose.webmcp.untrustedContent !== "boolean"
-    ) {
-      throw new Error('Capability WebMCP exposure "untrustedContent" must be a boolean.');
-    }
-    webmcp = true;
-    webmcpUntrustedContent = expose.webmcp.untrustedContent === true;
-  } else if (expose.webmcp !== undefined && expose.webmcp !== false && expose.webmcp !== null) {
-    throw new Error('Capability "expose.webmcp" must be a boolean or an options object.');
-  }
-
-  let mcp = false;
-  let mcpScopes: readonly string[] | undefined;
-  if (expose.mcp === true) {
-    mcp = true;
-  } else if (expose.mcp && typeof expose.mcp === "object" && !Array.isArray(expose.mcp)) {
-    mcp = true;
-    const { scopes } = expose.mcp;
-    if (scopes !== undefined) {
-      if (!Array.isArray(scopes) || scopes.some((scope) => !isOAuthScopeToken(scope))) {
-        throw new Error(
-          'Capability MCP exposure "scopes" must be an array of OAuth scope tokens ' +
-            "(printable ASCII without spaces, quotes, or backslashes).",
-        );
-      }
-      if (scopes.length > 0) mcpScopes = Object.freeze([...new Set<string>(scopes)]);
-    }
-  }
-
-  const normalized: CapabilityExposure = {
-    http,
-    mcp,
-    ...(mcpScopes ? { mcpScopes } : {}),
-    webmcp,
-    webmcpUntrustedContent,
-  };
-
-  if (!normalized.http && !normalized.mcp && !normalized.webmcp) return null;
-  return normalized;
+  return descriptor;
 }

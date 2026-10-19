@@ -7,10 +7,14 @@
  * module platform-neutral.
  */
 
-import { capabilityHttpPath, mcpToolServing } from "@pracht/capabilities";
+import { mcpToolServing } from "@pracht/capabilities";
 import {
-  extractCapabilityProjection,
-  type CapabilityProjection,
+  capabilityDescriptorFromGraph,
+  capabilityGraphFields,
+  describeCapability,
+  extractCapabilityDescriptor,
+  staticWebmcpInputSchema,
+  type StaticCapabilityRead,
 } from "@pracht/capabilities/static";
 
 import { resolveMcpEndpoint } from "./mcp-config.ts";
@@ -251,33 +255,30 @@ export function serializeApiRoutesStatic(
 }
 
 /**
- * Serialize registered capabilities by loading their modules. Modules that
- * fail to load (or don't export a capability) still appear in the graph with
- * null metadata so inspect/devtools can surface the broken registration.
+ * Read a capability's descriptor from source with the build's rules, or
+ * `null` when the build could not read it either.
  */
-function readProjection(
+function readStaticDescriptor(
   name: string,
   file: string,
   access: AppGraphModuleAccess,
-): CapabilityProjection | null {
+): StaticCapabilityRead | null {
   try {
-    return extractCapabilityProjection(name, access.readSource(file), (detail) => detail);
+    return extractCapabilityDescriptor(name, access.readSource(file), (detail) => detail);
   } catch {
     return null;
   }
 }
 
-function projectionTransports(projection: CapabilityProjection | null): string[] {
-  if (!projection) return [];
-  const transports: string[] = [];
-  if (projection.httpPath) transports.push("http");
-  // Order matches the executed path so a fallback entry diffs against a
-  // normally-read one without spurious churn.
-  if (projection.mcp) transports.push("mcp");
-  if (projection.webmcp) transports.push("webmcp");
-  return transports;
-}
-
+/**
+ * Serialize registered capabilities by loading their modules. Modules that
+ * fail to load (or don't export a capability) still appear in the graph with
+ * null metadata so inspect/devtools can surface the broken registration.
+ *
+ * Every branch projects a `CapabilityDescriptor` through the same
+ * `capabilityGraphFields()`, so an executed entry and a statically read one
+ * cannot differ in shape.
+ */
 export function serializeCapabilities(
   capabilities: Record<string, string> | undefined,
   access: AppGraphModuleAccess,
@@ -286,26 +287,19 @@ export function serializeCapabilities(
   return Promise.all(
     Object.entries(capabilities ?? {}).map(async ([name, file]) => {
       if (options.preferStatic) {
-        const projection = readProjection(name, file, access);
+        const read = readStaticDescriptor(name, file, access);
         if (
-          projection &&
-          projection.agentPolicy !== undefined &&
-          projection.middleware !== undefined
+          read &&
+          read.descriptor.agentPolicy !== undefined &&
+          read.descriptor.middleware !== undefined
         ) {
           return {
-            agentPolicy: projection.agentPolicy,
-            description: projection.description,
-            effect: projection.effect,
+            ...capabilityGraphFields(read.descriptor),
             hasUi: false as const,
-            httpPath: projection.httpPath,
-            input: projection.inputSchema,
-            middleware: projection.middleware,
+            input: staticWebmcpInputSchema(read),
             name,
             output: null,
             source: file,
-            title: projection.title || null,
-            transports: projectionTransports(projection),
-            ...(projection.mcpScopes ? { mcpScopes: [...projection.mcpScopes] } : {}),
           };
         }
       }
@@ -316,29 +310,13 @@ export function serializeCapabilities(
           throw new Error("module does not default-export a capability");
         }
 
-        const transports: string[] = [];
-        if (capability.expose?.http) transports.push("http");
-        if (capability.expose?.mcp) transports.push("mcp");
-        if (capability.expose?.webmcp) transports.push("webmcp");
-
         return {
-          agentPolicy: capability.agentPolicy ?? null,
-          description: capability.description,
-          effect: capability.effect,
+          ...capabilityGraphFields(describeCapability(capability, name)),
           hasUi: false as const,
-          httpPath: capability.expose?.http
-            ? (capability.expose.http.path ?? capabilityHttpPath(name))
-            : null,
           input: capability.input ?? null,
-          middleware: capability.middleware ?? [],
           name,
           output: capability.output ?? null,
           source: file,
-          title: capability.title,
-          transports,
-          ...(capability.expose?.mcpScopes?.length
-            ? { mcpScopes: [...capability.expose.mcpScopes] }
-            : {}),
         };
       } catch (cause) {
         if (options.strict) {
@@ -359,32 +337,32 @@ export function serializeCapabilities(
         // types alike. The same extractor the browser projection is built from
         // reads `expose` and `effect` straight out of the source, so use it and
         // keep `error` set for the diagnostic.
-        const projection = readProjection(name, file, access);
-        // `undefined` from the extractor means "declared, but not readable
-        // statically". Recording it as `null` / `[]` would claim the
-        // capability has no agent policy and no middleware — the two fields a
+        //
+        // An unknown `agentPolicy` or `middleware` — "declared, but not
+        // readable statically" — sets `unverifiedContract` instead of reading
+        // as "no agent policy, no middleware": those are the two fields a
         // reviewer reads to decide whether a change weakened a guard, and the
-        // ones `pracht plan` warns on. `unverifiedContract` says so instead.
-        const unverified =
-          !projection ||
-          projection.agentPolicy === undefined ||
-          projection.middleware === undefined;
+        // ones `pracht plan` warns on.
+        const read = readStaticDescriptor(name, file, access);
         return {
-          agentPolicy: projection?.agentPolicy ?? null,
-          description: projection?.description ?? null,
-          effect: projection?.effect ?? null,
+          ...(read
+            ? capabilityGraphFields(read.descriptor)
+            : {
+                agentPolicy: null,
+                description: null,
+                effect: null,
+                httpPath: null,
+                middleware: [],
+                title: null,
+                transports: [],
+                unverifiedContract: true as const,
+              }),
           error: cause instanceof Error ? cause.message : String(cause),
-          unverifiedContract: unverified ? (true as const) : undefined,
           hasUi: false as const,
-          httpPath: projection?.httpPath ?? null,
-          input: projection?.inputSchema ?? null,
-          middleware: projection?.middleware ?? [],
+          input: read ? staticWebmcpInputSchema(read) : null,
           name,
           output: null,
           source: file,
-          title: null,
-          transports: projectionTransports(projection),
-          ...(projection?.mcpScopes ? { mcpScopes: [...projection.mcpScopes] } : {}),
         };
       }
     }),
@@ -410,18 +388,11 @@ export function isMcpToolServed(
   capability: Pick<AppGraphCapability, "effect" | "mcpScopes" | "transports">,
 ): boolean {
   return (
-    mcpToolServing(
-      {
-        effect: capability.effect,
-        mcp: capability.transports.includes("mcp"),
-        mcpScopes: capability.mcpScopes,
-      },
-      {
-        endpoint: agents?.mcp !== undefined,
-        destructive: agents?.mcp?.destructive === true,
-        auth: !!agents?.mcp?.auth,
-      },
-    ) === "served"
+    mcpToolServing(capabilityDescriptorFromGraph(capability), {
+      endpoint: agents?.mcp !== undefined,
+      destructive: agents?.mcp?.destructive === true,
+      auth: !!agents?.mcp?.auth,
+    }) === "served"
   );
 }
 

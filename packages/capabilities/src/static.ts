@@ -13,11 +13,29 @@
  */
 
 import {
-  capabilityFileStem,
-  capabilityHttpPath,
-  isValidCapabilityHttpPath,
-  isValidCapabilityName,
-} from "./protocol.ts";
+  normalizeCapabilityDescriptor,
+  type CapabilityDescriptor,
+  type CapabilityDescriptorProblem,
+} from "./descriptor.ts";
+import { capabilityFileStem, isValidCapabilityName } from "./protocol.ts";
+
+export {
+  CAPABILITY_DESCRIPTOR_FIELDS,
+  capabilityDescriptorFromGraph,
+  capabilityGraphFields,
+  describeCapability,
+  diffCapabilityDescriptors,
+  isValidOAuthScopeToken,
+  normalizeCapabilityDescriptor,
+} from "./descriptor.ts";
+export type {
+  CapabilityDescriptor,
+  CapabilityDescriptorField,
+  CapabilityDescriptorProblem,
+  CapabilityGraphFields,
+  NormalizeCapabilityDescriptorContext,
+} from "./descriptor.ts";
+export { MCP_AUTH_CONFIG_KEYS, MCP_CONFIG_KEYS } from "./agents-config-keys.ts";
 
 /**
  * The parts of a capability contract that decide what gets projected to the
@@ -467,25 +485,83 @@ export function readDeclaredCapabilityName(source: string): string | null {
   return typeof literal === "string" ? literal : null;
 }
 
-export function extractCapabilityProjection(
+/** Top-level `defineCapability()` keys that make up the descriptor. */
+const DESCRIPTOR_SOURCE_KEYS = [
+  "title",
+  "description",
+  "effect",
+  "expose",
+  "agentPolicy",
+  "middleware",
+] as const;
+
+/** What static analysis reads from one capability source. */
+export interface StaticCapabilityRead {
+  descriptor: CapabilityDescriptor;
+  problems: CapabilityDescriptorProblem[];
+  /** Declared keys that are not inline literals (or hidden behind a spread). */
+  unreadable: ReadonlySet<string>;
+  /** Top-level property texts of the `defineCapability({ ... })` argument. */
+  properties: Map<string, string>;
+  /** The property scan stopped at a spread or computed key. */
+  truncated: boolean;
+}
+
+/**
+ * Read a capability's descriptor from source without executing it, through
+ * the same normalizer `defineCapability()` runs. `null` when the source has
+ * no default-exported `defineCapability({ ... })` call.
+ *
+ * After a truncated scan an absent key means "not seen", not "not declared",
+ * so every absent descriptor key except `expose` is unreadable then. `expose`
+ * stays absent: callers decide what an unseen exposure means.
+ */
+export function readStaticCapability(name: string, source: string): StaticCapabilityRead | null {
+  const args = extractDefineCapabilityArgs(source);
+  if (!args) return null;
+  const { properties, truncated } = scanTopLevelPropertyEntries(args);
+  const raw: Record<string, unknown> = {};
+  const unreadable = new Set<string>();
+  for (const key of DESCRIPTOR_SOURCE_KEYS) {
+    const text = properties.get(key);
+    if (text === undefined) {
+      if (truncated && key !== "expose") unreadable.add(key);
+      continue;
+    }
+    const value = evaluateLiteral(text);
+    if (value === undefined) unreadable.add(key);
+    else raw[key] = value;
+  }
+  const { descriptor, problems } = normalizeCapabilityDescriptor(raw, {
+    name,
+    source: "static",
+    unreadable,
+  });
+  return { descriptor, problems, unreadable, properties, truncated };
+}
+
+/**
+ * Read a capability's descriptor the way the build does, throwing (through
+ * `describe`) whenever the exposure cannot be read or breaks a rule — the
+ * browser endpoint table is generated from it, so a guess is never safe.
+ */
+export function extractCapabilityDescriptor(
   name: string,
   source: string,
   describe: (detail: string) => string,
-): CapabilityProjection {
-  const args = extractDefineCapabilityArgs(source);
-  if (!args) {
+): StaticCapabilityRead {
+  const read = readStaticCapability(name, source);
+  if (!read) {
     throw new Error(
       describe("does not contain a defineCapability({ ... }) call the build can analyze."),
     );
   }
 
-  const { properties, truncated } = scanTopLevelPropertyEntries(args);
-  const exposeText = properties.get("expose");
   // A truncated scan cannot tell "no `expose`" from "`expose` sat after the
   // token we could not parse". Treating that as private would commit an
   // http+mcp-exposed capability to the graph as unreachable, so refuse instead
   // — which is also what the documented contract says a spread does.
-  if (!exposeText && truncated) {
+  if (!read.properties.has("expose") && read.truncated) {
     throw new Error(
       describe(
         "contains a spread or computed key the build cannot analyze, so its `expose` could not be " +
@@ -493,78 +569,21 @@ export function extractCapabilityProjection(
       ),
     );
   }
-  if (!exposeText) {
-    // Private capability: server-only, nothing to project to the client.
-    return {
-      title: "",
-      description: "",
-      effect: null,
-      httpPath: null,
-      webmcp: false,
-      webmcpUntrustedContent: false,
-      inputSchema: null,
-      mcp: false,
-      ...readGuardProperties(properties, truncated),
-    };
-  }
-
-  const expose = evaluateLiteral(exposeText);
-  if (!isPlainObject(expose)) {
+  if (read.unreadable.has("expose")) {
     throw new Error(
       describe(
         '"expose" must be an inline object literal so the client projection can be generated at build time.',
       ),
     );
   }
+  // Exposure decides which browser endpoints exist, so its problems fail the
+  // build. The other fields are `pracht verify`'s and `defineCapability()`'s to
+  // report — a private capability's prose never reaches the client.
+  const exposeProblem = read.problems.find((problem) => problem.field === "expose");
+  if (exposeProblem) throw new Error(describe(`${exposeProblem.message}.`));
 
-  const http = expose.http;
-  let httpPath: string | null = null;
-  if (http === true) {
-    httpPath = capabilityHttpPath(name);
-  } else if (isPlainObject(http)) {
-    httpPath = typeof http.path === "string" ? http.path : capabilityHttpPath(name);
-  }
-  if (httpPath && !isValidCapabilityHttpPath(httpPath)) {
-    throw new Error(
-      describe('HTTP exposure "path" must be an exact same-origin pathname starting with "/".'),
-    );
-  }
-
-  let webmcp = false;
-  let webmcpUntrustedContent = false;
-  if (expose.webmcp === true) {
-    webmcp = true;
-  } else if (isPlainObject(expose.webmcp)) {
-    webmcp = true;
-    webmcpUntrustedContent = expose.webmcp.untrustedContent === true;
-  } else if (expose.webmcp !== undefined && expose.webmcp !== false && expose.webmcp !== null) {
-    throw new Error(describe('"expose.webmcp" must be a boolean or an options object.'));
-  }
-  if (webmcp && !httpPath) {
-    throw new Error(describe("expose.webmcp requires expose.http."));
-  }
-
-  let title = "";
-  const titleText = properties.get("title");
-  if (titleText) {
-    const value = evaluateLiteral(titleText);
-    if (typeof value === "string") title = value;
-  }
-
-  let description = "";
-  const descriptionText = properties.get("description");
-  if (descriptionText) {
-    const value = evaluateLiteral(descriptionText);
-    if (typeof value === "string") description = value;
-  }
-
-  let effect: string | null = null;
-  const effectText = properties.get("effect");
-  if (effectText) {
-    const value = evaluateLiteral(effectText);
-    if (typeof value === "string") effect = value;
-  }
-  if (httpPath && effect !== "read" && effect !== "write" && effect !== "destructive") {
+  const { descriptor } = read;
+  if (descriptor.http && descriptor.effect === undefined) {
     throw new Error(
       describe(
         'is exposed via HTTP, but its "effect" could not be extracted at build time. ' +
@@ -573,74 +592,48 @@ export function extractCapabilityProjection(
       ),
     );
   }
-
-  let inputSchema: Record<string, unknown> | null = null;
-  if (webmcp) {
-    const inputText = properties.get("input");
-    const value = inputText ? evaluateLiteral(inputText) : undefined;
-    // Imported and builder-produced schemas are resolved by the Vite plugin
-    // from the server-only capability module. Keep this pass non-executing:
-    // callers that cannot load the module receive null and can report the
-    // same conservative unknown state they use for other opaque metadata.
-    if (isPlainObject(value)) inputSchema = value;
-  }
-
-  return {
-    title,
-    description,
-    effect,
-    httpPath,
-    webmcp,
-    webmcpUntrustedContent,
-    inputSchema,
-    mcp: expose.mcp === true || isPlainObject(expose.mcp),
-    ...readStaticMcpScopes(expose.mcp),
-    ...readGuardProperties(properties, truncated),
-  };
-}
-
-function readStaticMcpScopes(mcp: unknown): { mcpScopes?: readonly string[] } {
-  if (!isPlainObject(mcp) || !Array.isArray(mcp.scopes)) return {};
-  const scopes = mcp.scopes.filter((scope): scope is string => typeof scope === "string");
-  return scopes.length > 0 ? { mcpScopes: [...new Set(scopes)] } : {};
+  return read;
 }
 
 /**
- * Recover the guard-shaped fields — the ones a reviewer reads to decide whether
- * a change widened what agents can reach.
- *
- * Each is `undefined` when it is declared but not as a literal this pass can
- * evaluate, so a caller can say "unverifiable" rather than "absent". `null`
- * `agentPolicy` and `[]` middleware are real answers meaning "not declared".
+ * The inline input schema a WebMCP tool advertises, or `null` when the tool
+ * is not a WebMCP tool or its schema is not an inline literal. Imported and
+ * builder-produced schemas are resolved by the Vite plugin from the
+ * server-only capability module. Keep this pass non-executing: callers that
+ * cannot load the module receive null and can report the same conservative
+ * unknown state they use for other opaque metadata.
  */
-function readGuardProperties(
-  properties: Map<string, string>,
-  truncated: boolean,
-): Pick<CapabilityProjection, "agentPolicy" | "middleware"> {
-  // After a truncated scan an absent key means "not seen", not "not declared".
-  // Reporting `null` / `[]` there is the fail-open case: a capability whose
-  // guards arrive via `...gated` would read as ungated, with everything else
-  // correct, so the entry looks like a verified contract.
-  if (truncated) return { agentPolicy: undefined, middleware: undefined };
+export function staticWebmcpInputSchema(
+  read: Pick<StaticCapabilityRead, "descriptor" | "properties">,
+): Record<string, unknown> | null {
+  if (!read.descriptor.webmcp) return null;
+  const inputText = read.properties.get("input");
+  const value = inputText ? evaluateLiteral(inputText) : undefined;
+  return isPlainObject(value) ? value : null;
+}
 
-  const policyText = properties.get("agentPolicy");
-  let agentPolicy: string | null | undefined = null;
-  if (policyText) {
-    const value = evaluateLiteral(policyText);
-    agentPolicy = typeof value === "string" ? value : undefined;
-  }
-
-  const middlewareText = properties.get("middleware");
-  let middleware: string[] | undefined = [];
-  if (middlewareText) {
-    const value = evaluateLiteral(middlewareText);
-    middleware =
-      Array.isArray(value) && value.every((entry) => typeof entry === "string")
-        ? (value as string[])
-        : undefined;
-  }
-
-  return { agentPolicy, middleware };
+export function extractCapabilityProjection(
+  name: string,
+  source: string,
+  describe: (detail: string) => string,
+): CapabilityProjection {
+  const read = extractCapabilityDescriptor(name, source, describe);
+  const { descriptor } = read;
+  return {
+    title: descriptor.title ?? "",
+    description: descriptor.description ?? "",
+    effect: descriptor.effect ?? null,
+    httpPath: descriptor.http?.path ?? null,
+    webmcp: !!descriptor.webmcp,
+    webmcpUntrustedContent: descriptor.webmcp?.untrustedContent === true,
+    inputSchema: staticWebmcpInputSchema(read),
+    mcp: !!descriptor.mcp,
+    ...(descriptor.mcp && descriptor.mcp.scopes.length > 0
+      ? { mcpScopes: descriptor.mcp.scopes }
+      : {}),
+    agentPolicy: descriptor.agentPolicy,
+    middleware: descriptor.middleware === undefined ? undefined : [...descriptor.middleware],
+  };
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

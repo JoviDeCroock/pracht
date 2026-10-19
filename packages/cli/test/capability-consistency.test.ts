@@ -151,4 +151,48 @@ describe("assertCapabilityProjectionsAgree", () => {
 
     expect(() => assertCapabilityProjectionsAgree(project, [graphEntry()])).not.toThrow();
   });
+
+  it("reports mismatched MCP exposure", () => {
+    const project = createApp({ "notes-search.ts": capabilitySource() });
+
+    expect(() =>
+      assertCapabilityProjectionsAgree(project, [graphEntry({ transports: ["http", "mcp"] })]),
+    ).toThrow(/MCP exposure is on without scopes in the app graph but off in static analysis/);
+  });
+
+  it("reports mismatched MCP scopes", () => {
+    const project = createApp({
+      "notes-search.ts": capabilitySource({
+        expose: '{ http: true, mcp: { scopes: ["notes:read"] } }',
+      }),
+    });
+
+    expect(() =>
+      assertCapabilityProjectionsAgree(project, [
+        graphEntry({ transports: ["http", "mcp"], mcpScopes: ["notes:write"] }),
+      ]),
+    ).toThrow(
+      /MCP exposure is on with scopes "notes:write" in the app graph but on with scopes "notes:read" in static analysis/,
+    );
+    expect(() =>
+      assertCapabilityProjectionsAgree(project, [
+        graphEntry({ transports: ["http", "mcp"], mcpScopes: ["notes:read"] }),
+      ]),
+    ).not.toThrow();
+  });
+
+  it("reports mismatched guards, and skips guards the graph could not verify", () => {
+    const project = createApp({ "notes-search.ts": capabilitySource() });
+
+    expect(() =>
+      assertCapabilityProjectionsAgree(project, [
+        graphEntry({ agentPolicy: "require", middleware: ["auth"] }),
+      ]),
+    ).toThrow(/agentPolicy is "require" in the app graph but inherited in static analysis/);
+    expect(() =>
+      assertCapabilityProjectionsAgree(project, [
+        graphEntry({ agentPolicy: "require", middleware: ["auth"], unverifiedContract: true }),
+      ]),
+    ).not.toThrow();
+  });
 });
