@@ -1012,8 +1012,9 @@ async function serveStaticFile(
     ? null
     : staticByteRange(request.headers, headers, body.byteLength);
   if (range === null) return new Response(body, { headers });
-  // A partial answer is never a durable CDN entry for the whole file.
-  headers.delete("netlify-cdn-cache-control");
+  // A partial answer is never a durable CDN entry for the whole file, under
+  // any of the cache policies Netlify's CDN reads.
+  for (const name of NETLIFY_CACHE_POLICY_HEADERS) headers.delete(name);
   headers.set("cache-control", "no-store");
   if (range === "unsatisfiable") {
     headers.set("content-range", `bytes */${body.byteLength}`);
