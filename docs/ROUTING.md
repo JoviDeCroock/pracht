@@ -79,7 +79,9 @@ Build tools that need to evaluate one declared pattern without constructing an
 app can use `matchRoutePath(pattern, pathname)`. It returns decoded params or
 `null` and shares the runtime router's static, dynamic, catch-all, and malformed
 percent-encoding behavior. `routePathIsDynamic(pattern)` reports whether that
-same parsed pattern contains a parameter or catch-all segment.
+same parsed pattern contains a parameter or catch-all segment, and
+`parseRouteSegments(pattern)` returns the parsed `RouteSegment`s themselves
+(`static`, `param`, or `catchall`, where a bare `*` is named `"*"`).
 
 ### `defineApp(config)`
 
@@ -744,11 +746,14 @@ segments after a catch-all never take part):
   or overlap, in id order, taken from the narrowest list a query's segments
   pick. A query with only parameters before a catch-all gets every id.
 
-`route-pattern-seam.test.ts` is the seam guard: a framework source outside
-`route-matching.ts` that classifies a pattern segment by its text
+`route-pattern-seam.test.ts` is the seam guard: a framework, Vite plugin or CLI
+source outside `route-matching.ts` that classifies a pattern segment by its text
 (`startsWith(":")`, `=== "*"`) or defines a covers, overlap or index function
-fails it. Its exceptions name why (route-id naming, constraint globs, the
-islands client table) and fail once stale.
+fails it. The pages router (specificity sort) and the CLI (typegen params,
+`generate` scaffolds, the static export's SPA fallback) read patterns through
+the public `parseRouteSegments()`. Its exceptions name why (route-id naming,
+constraint globs, the islands client table, Cloudflare `_headers`
+placeholders) and fail once stale.
 
 `route-pattern-algebra.test.ts` checks all three against the matcher run over
 every path of up to four segments: exhaustively for every pattern pair, and

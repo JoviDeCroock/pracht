@@ -19,6 +19,7 @@ export {
   pagesShellName,
   findOwningPagesShell,
 } from "@pracht/capabilities/static";
+import { parseRouteSegments, type RouteSegment } from "@pracht/core";
 import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, extname, join, relative, resolve } from "node:path";
 
@@ -482,6 +483,7 @@ function scan(
 
     const rel = relative(root, abs);
     const routePath = filePathToRoutePath(rel);
+    const segments = parseRouteSegments(routePath);
     const { renderMode, hydrationMode, streaming, capabilities, revalidate, ...exported } =
       readPageFacts(abs, rel, stat);
     if (streaming !== undefined && (isRootApp || routePath === "/404"))
@@ -498,8 +500,8 @@ function scan(
       relativePath: rel,
       routePath,
       isIndex: name === "index",
-      isCatchAll: routePath.split("/").includes("*"),
-      isDynamic: routePath.split("/").some((segment) => segment.startsWith(":")),
+      isCatchAll: segments.some((segment) => segment.type === "catchall"),
+      isDynamic: segments.some((segment) => segment.type === "param"),
       renderMode,
       hydrationMode,
       streaming,
@@ -623,8 +625,8 @@ export function sortRoutes(pages: ScannedPage[]): ScannedPage[] {
 }
 
 function comparePagesBySpecificity(left: ScannedPage, right: ScannedPage): number {
-  const leftSegments = splitRoutePath(left.routePath);
-  const rightSegments = splitRoutePath(right.routePath);
+  const leftSegments = parseRouteSegments(left.routePath);
+  const rightSegments = parseRouteSegments(right.routePath);
   const length = Math.max(leftSegments.length, rightSegments.length);
 
   for (let index = 0; index < length; index += 1) {
@@ -642,21 +644,21 @@ function comparePagesBySpecificity(left: ScannedPage, right: ScannedPage): numbe
       return rightScore - leftScore;
     }
 
-    if (leftScore === 3 && leftSegment !== rightSegment) {
-      return leftSegment.localeCompare(rightSegment);
+    if (
+      leftSegment.type === "static" &&
+      rightSegment.type === "static" &&
+      leftSegment.value !== rightSegment.value
+    ) {
+      return leftSegment.value.localeCompare(rightSegment.value);
     }
   }
 
   return left.routePath.localeCompare(right.routePath);
 }
 
-function splitRoutePath(routePath: string): string[] {
-  return routePath.split("/").filter(Boolean);
-}
-
-function getRouteSegmentSpecificity(segment: string): number {
-  if (segment === "*") return 1;
-  if (segment.startsWith(":")) return 2;
+function getRouteSegmentSpecificity(segment: RouteSegment): number {
+  if (segment.type === "catchall") return 1;
+  if (segment.type === "param") return 2;
   return 3;
 }
 

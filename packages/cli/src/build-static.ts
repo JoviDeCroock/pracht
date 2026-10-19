@@ -5,6 +5,8 @@ import { describeCapability } from "@pracht/capabilities/static";
 import {
   buildStaticRouteStateUrl,
   decodeStaticPath,
+  parseRouteSegments,
+  routePathIsDynamic,
   staticPathCandidates,
 } from "@pracht/core/server";
 
@@ -310,7 +312,7 @@ export async function validateStaticExport(serverMod: StaticServerModuleView): P
 
   if (serverMod.staticExportConfig?.fallback && !serverMod.staticExportConfig.fallbackHead) {
     const dynamicSpaRoutes = routes.filter(
-      (route) => hasDynamicSegments(route.path) && isClientRoutableSpaRoute(route),
+      (route) => routePathIsDynamic(route.path) && isClientRoutableSpaRoute(route),
     );
     const fallbackRenderedRoutes = notFound ? [...dynamicSpaRoutes, notFound] : dynamicSpaRoutes;
     const headRoutes: string[] = [];
@@ -743,11 +745,8 @@ function readStaticNotFoundState(html: string): StaticNotFoundState {
  * blank. A single dynamic segment (`/:slug`) only covers one path depth.
  */
 function matchesEveryPath(routePath: string): boolean {
-  return routePath === "/*" || /^\/:[^/]+\*$/.test(routePath);
-}
-
-function hasDynamicSegments(routePath: string): boolean {
-  return routePath.split("/").some((segment) => segment === "*" || segment.startsWith(":"));
+  const segments = parseRouteSegments(routePath);
+  return segments.length === 1 && segments[0]!.type === "catchall";
 }
 
 function isClientRoutableSpaRoute(route: StaticRouteView): boolean {
@@ -779,7 +778,7 @@ function hasUnshadowedClientRoutableSpaCatchAll(routes: StaticRouteView[]): bool
 
   return routes
     .slice(0, catchAllIndex)
-    .every((route) => !hasDynamicSegments(route.path) || isClientRoutableSpaRoute(route));
+    .every((route) => !routePathIsDynamic(route.path) || isClientRoutableSpaRoute(route));
 }
 
 function assertNoFixedArtifactRouteCollisions(
