@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { Component, h, render, type ComponentChildren } from "preact";
+import { useEffect } from "preact/hooks";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ErrorBoundary, defineApp, initClientRouter, resolveApp, route } from "../src/index.ts";
@@ -214,6 +215,30 @@ describe("client router: a render error without an app ErrorBoundary", () => {
     // The router stays out: links are plain document navigations.
     expect(window.__PRACHT_NAVIGATE__).toBeUndefined();
     expect(reload).not.toHaveBeenCalled();
+  });
+
+  it("starts no effect of the half-hydrated tree when hydration throws", async () => {
+    root.innerHTML = "<main><p>ok</p><p>crash</p></main>";
+    vi.stubGlobal("reportError", vi.fn());
+    const effect = vi.fn();
+    const Sibling = () => {
+      useEffect(effect, []);
+      return h("p", null, "ok");
+    };
+    const Page = () => h("main", null, h(Sibling, null), h(Crash, null));
+
+    await initClientRouter({
+      app,
+      routeModules: { "./routes/home.tsx": async () => ({ default: Page }) },
+      shellModules: {},
+      initialState: { data: null, routeId: "home", url: "/" },
+      root,
+      findModuleKey: (_modules, file) => file,
+    });
+    await new Promise<void>((resolve) => setTimeout(resolve, 60));
+
+    expect(root.innerHTML).toBe("<main><p>ok</p><p>crash</p></main>");
+    expect(effect).not.toHaveBeenCalled();
   });
 
   it("leaves a render error to the route's own ErrorBoundary", async () => {

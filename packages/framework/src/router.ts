@@ -1552,13 +1552,15 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
           if (import.meta.env?.DEV || HYDRATION_WARNINGS_FORCED) installHydrationMismatchWarning();
           markHydrating();
           // A render error no app ErrorBoundary catches escapes `hydrate()`
-          // after Preact dropped every node it had not claimed yet. Put the
-          // server markup back: the page stays readable, links and forms work
-          // as plain HTML, and the router stays out of a half-mounted tree.
+          // after Preact dropped every node it had not claimed yet. Unmount
+          // the half-mounted tree, so none of its queued effects start, and
+          // put the server markup back: the page stays readable, and links
+          // and forms work as plain HTML.
           const markup = root.innerHTML;
           try {
             hydrate(h(RouterRoot, { initialState: initialRouteState }), root);
           } catch (error) {
+            render(null, root);
             root.innerHTML = markup;
             if (import.meta.env?.DEV) {
               console.error(
