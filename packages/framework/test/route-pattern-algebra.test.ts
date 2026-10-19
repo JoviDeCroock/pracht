@@ -33,13 +33,16 @@ const PATHS = sequences(ALPHABET, 4);
 const PATTERNS = sequences(POOL, 3).map((segments) => `/${segments.join("/")}`);
 const WORDS = Math.ceil(PATHS.length / 32);
 
+/** The flag every matcher computes once per path, as `matchRouteSegments` expects. */
+const hasEscape = (path: string[]): boolean => path.some((segment) => segment.includes("%"));
+
 /** The paths a pattern matches, as a bitset over `PATHS`. */
 const matchSets = new Map<string, Uint32Array>();
 for (const pattern of PATTERNS) {
   const segments = parseRouteSegments(pattern);
   const set = new Uint32Array(WORDS);
   PATHS.forEach((path, index) => {
-    if (matchRouteSegments(segments, path)) set[index >>> 5]! |= 1 << (index & 31);
+    if (matchRouteSegments(segments, path, hasEscape(path))) set[index >>> 5]! |= 1 << (index & 31);
   });
   matchSets.set(pattern, set);
 }
@@ -123,7 +126,7 @@ describe("route-pattern algebra", () => {
           wrong.push(`unordered ${path.join("/")}`);
         }
         segments.forEach((s, id) => {
-          if (matchRouteSegments(s, path) && !candidates.includes(id)) {
+          if (matchRouteSegments(s, path, hasEscape(path)) && !candidates.includes(id)) {
             wrong.push(`${patterns[id]} misses /${path.join("/")}`);
           }
         });
@@ -158,7 +161,9 @@ describe("route-pattern algebra", () => {
       );
       for (const path of PATHS.filter((_, at) => at % 3 === table % 3)) {
         const pathname = `/${path.join("/")}`;
-        const scan = app.routes.find((candidate) => matchRouteSegments(candidate.segments, path));
+        const scan = app.routes.find((candidate) =>
+          matchRouteSegments(candidate.segments, path, hasEscape(path)),
+        );
         const indexed = matchIndexedResolvedRoute(app, pathname)?.route.id;
         if (indexed !== scan?.id) wrong.push(`${pathname} in ${paths.join(" ")}`);
       }

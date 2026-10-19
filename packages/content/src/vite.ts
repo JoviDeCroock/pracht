@@ -676,4 +676,3 @@ function portableOutputKey(fileName: string): string {
     .map((segment) => segment.normalize("NFC").toLowerCase())
     .join("/");
 }
-
