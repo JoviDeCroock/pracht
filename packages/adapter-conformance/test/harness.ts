@@ -37,6 +37,7 @@ import {
   createVercelNodeListener,
   type VercelExecutionContext,
 } from "../../adapter-vercel/src/index.ts";
+import { relocateClientManifest } from "../../cli/src/build-metadata.ts";
 import { PRACHT_SERVER_MODULE_ID } from "../../vite-plugin/src/plugin-assets.ts";
 import { createDevSSRMiddleware } from "../../vite-plugin/src/plugin-dev-ssr.ts";
 
@@ -296,6 +297,9 @@ export const STATIC_FILES: Record<string, string | Buffer> = {
   "posts/caf%C3%A9/index.html": "<!doctype html><p>café</p>",
 };
 
+/** Where Vite writes the client build's manifest, relative to the client directory. */
+export const CLIENT_VITE_MANIFEST = ".vite/manifest.json";
+
 export interface StaticOutput {
   root: string;
   clientDir: string;
@@ -318,6 +322,11 @@ export function createStaticOutput(
   }
   const secretPath = join(root, "secret.txt");
   writeFileSync(secretPath, "top-secret");
+  // Vite writes the client manifest into the client directory; `pracht build`
+  // moves it out once it has read it.
+  mkdirSync(join(clientDir, ".vite"));
+  writeFileSync(join(clientDir, CLIENT_VITE_MANIFEST), JSON.stringify({ "src/x.tsx": {} }));
+  relocateClientManifest(root, clientDir);
 
   const writePrerenderedISG = (path: string, html: string, mtimeMs: number) => {
     // `pracht build` writes the encoded spelling for Node, and the decoded one

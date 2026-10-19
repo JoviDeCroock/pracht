@@ -7,6 +7,7 @@ import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  CLIENT_VITE_MANIFEST,
   createFixture,
   createMockCache,
   createStaticOutput,
@@ -125,6 +126,22 @@ row("never serves a file outside the static directory", STATIC_CELLS, async (tar
     expect(body, path).not.toContain(readFileSync(output.secretPath, "utf-8"));
   }
 });
+
+// Vercel publishes dist/client as its static output, the static export ships
+// it and Cloudflare uploads it: the build moving the manifest out is what
+// keeps it private there, and the mocked assets binding serves the result.
+row(
+  "never serves the client build's Vite manifest",
+  { ...STATIC_CELLS, cloudflare: run },
+  async (target) => {
+    const session = await start(target);
+    for (const path of [`/${CLIENT_VITE_MANIFEST}`, "/.vite/", "/.vite"]) {
+      const response = await session.fetch(path);
+      expect(response.status, path).not.toBe(200);
+      expect(await response.text(), path).not.toContain("src/x.tsx");
+    }
+  },
+);
 
 /** Content-Type per extension; the media type (before `;`) must match. */
 const MEDIA_TYPES: Record<string, string> = {

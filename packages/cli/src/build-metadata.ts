@@ -1,7 +1,20 @@
-import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmdirSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 
-const MANIFEST_PATHS = ["dist/client/.vite/manifest.json", "dist/.vite/manifest.json"];
+/**
+ * Where `pracht build` keeps the client build's Vite manifest once the build
+ * has read it: beside the server entry, outside every deployed static
+ * directory, so no host serves the app's module graph publicly.
+ */
+export const CLIENT_MANIFEST_PATH = "dist/server/.vite/client-manifest.json";
+// Vite writes the manifest at one of the first two, and a build from an older
+// pracht leaves it there. A manifest still at Vite's own location is the
+// freshest: the current build has not relocated it yet.
+const MANIFEST_PATHS = [
+  "dist/client/.vite/manifest.json",
+  "dist/.vite/manifest.json",
+  CLIENT_MANIFEST_PATH,
+];
 const PAGE_CSS_MANIFEST_PATH = "dist/server/css-manifest.json";
 const PRACHT_CLIENT_MODULE_QUERY = "pracht-client";
 
@@ -62,6 +75,25 @@ export function readBuiltPageCssManifest(
     if (Array.isArray(urls) && urls.every((url) => typeof url === "string")) manifest[file] = urls;
   }
   return manifest;
+}
+
+/**
+ * Move the client build's Vite manifest out of the client directory, which
+ * every adapter serves or uploads as-is. Call it after the last read of the
+ * manifest and before an adapter turns `dist/client` into its deploy layout.
+ */
+export function relocateClientManifest(root: string, clientDir: string): void {
+  const from = resolve(clientDir, ".vite/manifest.json");
+  if (!existsSync(from)) return;
+  const to = resolve(root, CLIENT_MANIFEST_PATH);
+  mkdirSync(dirname(to), { recursive: true });
+  renameSync(from, to);
+  try {
+    // Vite writes nothing else there; a directory something else wrote to stays.
+    rmdirSync(dirname(from));
+  } catch {
+    // Not empty.
+  }
 }
 
 export function readClientBuildAssets(root: string = process.cwd(), base = "/"): ClientBuildAssets {

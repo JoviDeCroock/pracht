@@ -244,8 +244,9 @@ that manifest.
   streamed, and static responses support `ETag` / `Last-Modified` conditional
   revalidation and single byte ranges (`206`, `416`, `If-Range` by date;
   multi-range requests get the whole file).
-- **Vite manifest**: reads `.vite/manifest.json` to inject correct `<script>` and
-  `<link>` tags into server-rendered HTML.
+- **Vite manifest**: the server bundle embeds the asset URLs it needs at build
+  time; `pracht build` then moves the client manifest to
+  `dist/server/.vite/client-manifest.json`, so no adapter serves it.
 - **Response headers**: preserves multiple `Set-Cookie` headers from framework
   responses by writing them as an array to Node's `ServerResponse`.
 - **Response compression**: brotli/gzip content negotiation on every response
