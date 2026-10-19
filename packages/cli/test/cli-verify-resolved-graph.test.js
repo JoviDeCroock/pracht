@@ -176,4 +176,51 @@ export const more = [
     ]);
     expect(status).toBe(1);
   });
+
+  // F3-2: the graph fails on the import itself, and the fallback must still
+  // name the deleted file as an error.
+  it("reports a manifest import of a deleted local file as an error", () => {
+    const appDir = createRepoTempDir("pracht-cli-verify-graph-deleted-import-");
+    writeManifestApp(appDir, {
+      routesSource: `import { defineApp, route } from "@pracht/core";
+import more from "./more.ts";
+
+export const app = defineApp({
+  routes: [route("/", "./routes/home.tsx", { render: "ssr" }), ...more],
+});
+`,
+    });
+    writeProjectFile(appDir, "src/routes/home.tsx", "export function Component() { return null; }");
+
+    for (const command of ["verify", "doctor"]) {
+      const { status, report } = verify(appDir, command);
+      expect(messages(report, "error")).toContain('Manifest imports missing files: "./more.ts".');
+      expect(status).toBe(1);
+    }
+  });
+
+  // A manifest that does not parse has no refs, so it must not claim that
+  // every one of its zero module paths resolves.
+  it("reports an unparseable manifest instead of zero resolved module paths", () => {
+    const appDir = createRepoTempDir("pracht-cli-verify-graph-syntax-");
+    writeManifestApp(appDir, {
+      routesSource: `import { defineApp, route } from "@pracht/core";
+
+export const app = defineApp({
+  routes: [route("/" "./routes/home.tsx")],
+});
+`,
+    });
+    writeProjectFile(appDir, "src/routes/home.tsx", "export function Component() { return null; }");
+
+    for (const command of ["verify", "doctor"]) {
+      const { status, report } = verify(appDir, command);
+      const all = messages(report);
+      expect(all.join("\n")).not.toMatch(/manifest module paths? resolve/);
+      expect(messages(report, "error").join("\n")).toContain(
+        "Could not read the app manifest: src/routes.ts:",
+      );
+      expect(status).toBe(1);
+    }
+  });
 });

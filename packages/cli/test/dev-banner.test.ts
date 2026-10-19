@@ -270,6 +270,20 @@ describe("formatDevBanner", () => {
     expect(banner).toContain("Capabilities (0)  MCP endpoint /mcp");
     expect(banner).toContain("    (none)");
   });
+
+  it("prints the MCP endpoint under the deployment base", () => {
+    const banner = formatDevBanner({
+      apiRoutes,
+      base: "/app/",
+      capabilities: [],
+      color: false,
+      localUrls: ["http://localhost:3000/app/"],
+      mcpEndpoint: "/mcp",
+      routes,
+    });
+
+    expect(banner).toContain("MCP endpoint /app/mcp");
+  });
   it("adds a hydration column only when a route opts out of full hydration", () => {
     const withoutIslands = formatDevBanner({
       apiRoutes: [],

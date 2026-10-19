@@ -121,6 +121,24 @@ describe("assertCapabilityProjectionsAgree", () => {
     ).toThrow(/WebMCP exposure is on in the app graph but off in static analysis/);
   });
 
+  it("reports a mismatched WebMCP untrustedContent annotation", () => {
+    const project = createApp({
+      "notes-search.ts": capabilitySource({
+        expose: "{ http: true, webmcp: { untrustedContent: true } }",
+      }),
+    });
+    const transports = ["http", "webmcp"];
+
+    expect(() =>
+      assertCapabilityProjectionsAgree(project, [
+        graphEntry({ transports, webmcpUntrustedContent: true }),
+      ]),
+    ).not.toThrow();
+    expect(() => assertCapabilityProjectionsAgree(project, [graphEntry({ transports })])).toThrow(
+      /WebMCP exposure .*untrusted/i,
+    );
+  });
+
   it("reports an exposed capability whose projection static analysis cannot read", () => {
     // The most common real divergence: `expose` computed from a hoisted const.
     // The graph read it by executing the module, the client projection cannot

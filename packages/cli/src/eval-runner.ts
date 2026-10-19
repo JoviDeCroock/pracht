@@ -126,7 +126,7 @@ export interface EvalStep {
    * an `agentPolicy: "require"` capability rejects unsigned callers.
    */
   sign?: boolean;
-  /** Cancel a WebMCP tool invocation after this many milliseconds. */
+  /** Cancel a WebMCP tool invocation after this many milliseconds. WebMCP scenarios only. */
   cancelAfterMs?: number;
   expect?: EvalExpectation;
 }
@@ -339,13 +339,20 @@ export function parseScenario(file: string): EvalScenario {
   }
   for (const [index, step] of scenario.steps.entries()) {
     if (step.cancelAfterMs === undefined) continue;
+    if (scenario.transport !== "webmcp") {
+      throw new Error(
+        `step ${index} sets "cancelAfterMs", which only applies to WebMCP scenarios ` +
+          '("transport": "webmcp")',
+      );
+    }
     if (
-      scenario.transport !== "webmcp" ||
       typeof step.cancelAfterMs !== "number" ||
       !Number.isFinite(step.cancelAfterMs) ||
       step.cancelAfterMs < 0
     ) {
-      throw new Error(`step ${index} "cancelAfterMs" must be a non-negative WebMCP delay`);
+      throw new Error(
+        `step ${index} "cancelAfterMs" must be a non-negative number of milliseconds`,
+      );
     }
   }
   // Validated here rather than at first use: a malformed identity would

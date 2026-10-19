@@ -516,8 +516,9 @@ and pages mode, with only the edited file parsed again after a save.
 and the local modules it imports write, each with its kind (route, not-found,
 shell, middleware, capability, loader, or a path-shaped `mention`), its id
 (`null` for a computed ref) and its route's hydration; whether that list is
-`complete`; the registered `appRoot`; and whether the manifest is an ejected
-pages layout. In pages mode the same shape comes from the pages scanner. Each
+`complete`; the registered `appRoot`; whether the manifest is an ejected
+pages layout; the local imports that name no file (`unresolvedImports`); and why
+a manifest module did not parse (`error`). In pages mode the same shape comes from the pages scanner. Each
 manifest module is parsed once per file stamp with Vite's `parseAst`. Registry
 codegen (external keyed imports), the non-full-hydration exclusion, the
 unreferenced-module exclusion, external feature hints, the client transform's
@@ -525,7 +526,13 @@ external-route identity and `findAppRootModule()` all read these facts, and
 `test/analysis-seam.test.ts` fails when another module parses the manifest,
 re-derives route exports, or spells module identity itself. The plugin hands
 the same facts to the CLI as `api.pracht.manifestFacts()`, which `pracht
-verify` and the dev banner read when the app graph cannot be resolved.
+verify` and the dev banner read when the app graph cannot be resolved, and which
+verify's middleware-in-client-registry check reads for `ejectedLayout` in every
+case. `packages/cli/test/manifest-facts-seam.test.ts` keeps the CLI from
+growing its own reader: it runs every regex literal, `new RegExp()` and string
+search in the CLI source against manifest text and the same text with its
+vocabulary renamed (`route(`, `group(`, the ejected-layout marker, `head`
+exports), and fails on any that tells the two apart.
 
 ### Route hint tables
 

@@ -6,4 +6,5 @@ export default defineConfig({
   format: "esm",
   dts: true,
   external: ["@pracht/capabilities", "vite", "yaml", /^node:/],
+  outputOptions: { comments: { jsdoc: false } },
 });

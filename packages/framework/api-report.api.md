@@ -1103,6 +1103,7 @@ apiValidationErrorResponse: function
 applyDefaultSecurityHeaders: function
 applyHeadersManifest: function
 applyTrailingSlash: function
+assertHumanApprovalIdentity: function
 buildAppGraph: function
 buildHref: function
 buildLlmsTxt: function

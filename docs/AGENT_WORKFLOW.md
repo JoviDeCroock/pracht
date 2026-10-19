@@ -111,9 +111,11 @@ resolved app, so routes spread in from other modules, extensionless imports, and
 a `constraints` variable passed by shorthand are all seen. When the graph cannot
 be resolved but the Vite config loads, the manifest checks read the pracht
 plugin's static manifest facts (`api.pracht.manifestFacts()`, the same
-`AnalysisSession.manifest()` the build uses), so a bare ref resolves and the
-route count covers imported fragments; a warning names the resolution error (an
-error when a graph check needed it). Only when the config itself does not load
+`AnalysisSession.manifest()` the build uses), so a bare ref resolves, the
+route count covers imported fragments, a manifest import of a missing local file
+is an error, and a manifest that does not parse is reported instead of passing
+with zero module paths; a warning names the resolution error (an error when a
+graph check needed it). Only when the config itself does not load
 are the manifest's literal relative paths checked, with no route count. `pracht
 dev` prints the same error and route count under Vite's URLs when its banner
 cannot resolve the graph.

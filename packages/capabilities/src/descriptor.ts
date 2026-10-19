@@ -27,8 +27,8 @@ import { capabilityHttpPath, isValidCapabilityHttpPath } from "./protocol.ts";
  *
  * `undefined` in any position means "this reader could not determine it": a
  * value written as something other than an inline literal (static analysis),
- * or a fact the reader does not carry (the serialized app graph has no WebMCP
- * `untrustedContent`). `diffCapabilityDescriptors()` skips unknown values
+ * or a fact the reader does not carry (an app-graph entry that omits a guard
+ * field). `diffCapabilityDescriptors()` skips unknown values
  * rather than reporting them as drift. Every key is required, so a new field
  * fails to compile until every producer fills it in.
  */
@@ -95,6 +95,7 @@ export function isValidOAuthScopeToken(value: unknown): value is string {
 }
 
 const EFFECTS: readonly string[] = ["read", "write", "destructive"];
+const EXPOSE_KEYS: readonly string[] = ["http", "mcp", "webmcp"];
 const AGENT_POLICIES: readonly string[] = ["observe", "require"];
 const NO_KEYS: ReadonlySet<string> = new Set();
 
@@ -193,6 +194,16 @@ function normalizeExpose(
     return { http: null, mcp: null, webmcp: null };
   }
 
+  // A misspelled key (`mpc`) would otherwise leave that transport silently off.
+  for (const key of Object.keys(expose)) {
+    if (!EXPOSE_KEYS.includes(key)) {
+      report(
+        "expose",
+        `unknown "expose" key ${JSON.stringify(key)}; expected "http", "mcp", or "webmcp"`,
+      );
+    }
+  }
+
   const defaultPath = context.name === undefined ? null : capabilityHttpPath(context.name);
   let http: { path: string | null } | null = null;
   if (expose.http === true) {
@@ -226,8 +237,6 @@ function normalizeExpose(
     report("expose", '"expose.webmcp" must be a boolean or an options object');
   }
 
-  // Anything other than `true` or an options object leaves MCP off, as it
-  // always has: the projection fails closed on a value it does not recognize.
   let mcp: { scopes: readonly string[] } | null = null;
   if (expose.mcp === true) {
     mcp = { scopes: [] };
@@ -245,6 +254,8 @@ function normalizeExpose(
       );
       mcp = { scopes: [] };
     }
+  } else if (expose.mcp !== undefined && expose.mcp !== false && expose.mcp !== null) {
+    report("expose", '"expose.mcp" must be a boolean or an options object');
   }
 
   return { http, mcp, webmcp };
@@ -307,6 +318,8 @@ export interface CapabilityGraphFields {
   title: string | null;
   transports: string[];
   mcpScopes?: string[];
+  /** The WebMCP tool's `untrustedContentHint`; present only when set. */
+  webmcpUntrustedContent?: true;
   unverifiedContract?: true;
 }
 
@@ -332,6 +345,9 @@ export function capabilityGraphFields(descriptor: CapabilityDescriptor): Capabil
     ...(descriptor.mcp && descriptor.mcp.scopes.length > 0
       ? { mcpScopes: [...descriptor.mcp.scopes] }
       : {}),
+    ...(descriptor.webmcp?.untrustedContent === true
+      ? { webmcpUntrustedContent: true as const }
+      : {}),
     ...(unverified ? { unverifiedContract: true as const } : {}),
   };
 }
@@ -345,7 +361,13 @@ export function capabilityDescriptorFromGraph(
     Partial<
       Pick<
         CapabilityGraphFields,
-        "agentPolicy" | "description" | "httpPath" | "middleware" | "title" | "unverifiedContract"
+        | "agentPolicy"
+        | "description"
+        | "httpPath"
+        | "middleware"
+        | "title"
+        | "unverifiedContract"
+        | "webmcpUntrustedContent"
       >
     >,
 ): CapabilityDescriptor {
@@ -363,7 +385,9 @@ export function capabilityDescriptorFromGraph(
           ? null
           : { path: entry.httpPath },
     mcp: entry.transports.includes("mcp") ? { scopes: [...(entry.mcpScopes ?? [])] } : null,
-    webmcp: entry.transports.includes("webmcp") ? { untrustedContent: undefined } : null,
+    webmcp: entry.transports.includes("webmcp")
+      ? { untrustedContent: entry.webmcpUntrustedContent === true }
+      : null,
     agentPolicy: unverified ? undefined : (entry.agentPolicy as CapabilityAgentPolicy | null),
     middleware: unverified ? undefined : entry.middleware,
   };

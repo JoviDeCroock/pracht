@@ -126,6 +126,23 @@ export function collectManifestVerification(
       ? resolveProjectPath(project.root, modulePath)
       : resolve(dirname(manifestPath), modulePath);
 
+  // A manifest module that does not parse yields no refs, so "every module
+  // path resolves" would be vacuously true.
+  if (manifest?.readError !== undefined) {
+    checks.push(createCheck("error", `Could not read the app manifest: ${manifest.readError}`));
+    return;
+  }
+  // An import the manifest's modules make of a local file that is gone. The
+  // graph would fail on it, so it is only seen here when that fallback runs.
+  if (manifest?.missingImports?.length) {
+    checks.push(
+      createCheck(
+        "error",
+        `Manifest imports missing files: ${manifest.missingImports.map((item) => JSON.stringify(item)).join(", ")}.`,
+      ),
+    );
+  }
+
   if (scope === "full") {
     checks.push(createCheck("ok", `Found app manifest at ${project.appFile}.`));
 
@@ -164,7 +181,7 @@ export function collectManifestVerification(
         project,
         checks,
         manifestPath,
-        source,
+        manifest?.ejectedLayout === true,
         middlewareEntries,
       );
     }
@@ -269,11 +286,6 @@ function collectMiddlewareExportChecks(
   );
 }
 
-/** The marker an ejected pages manifest keeps so the build preserves its
- * server-only boundaries. Written by `generateRoutesFile`. */
-const EJECTED_PAGES_LAYOUT_RE =
-  /export\s+const\s+__PRACHT_EJECTED_PAGES_LAYOUT__\s*(?::[^=]+)?=\s*true/;
-
 /**
  * Middleware is server-only, but the client route and shell registries glob
  * whole directories. A middleware module inside one of those directories is
@@ -284,12 +296,15 @@ const EJECTED_PAGES_LAYOUT_RE =
  * the middleware source to every visitor. That is source disclosure of the
  * app's auth boundary, so it fails rather than warns: a warning is something a
  * CI run scrolls past.
+ *
+ * `ejectedLayout` is the build's own reading of that marker (the plugin's
+ * manifest facts); when it is unknown the exclusion is not assumed.
  */
 function collectMiddlewareClientBoundaryChecks(
   project: ProjectConfig,
   checks: Check[],
   manifestPath: string,
-  manifestSource: string,
+  ejectedLayout: boolean,
   entries: { name: string; path: string }[],
 ): void {
   const manifestDir = dirname(manifestPath);
@@ -297,7 +312,6 @@ function collectMiddlewareClientBoundaryChecks(
     { dir: resolveProjectPath(project.root, project.routesDir), label: "routesDir" },
     { dir: resolveProjectPath(project.root, project.shellsDir), label: "shellsDir" },
   ];
-  const declaresPagesLayout = EJECTED_PAGES_LAYOUT_RE.test(manifestSource);
   const exposed: string[] = [];
 
   for (const entry of entries) {
@@ -312,7 +326,7 @@ function collectMiddlewareClientBoundaryChecks(
     const underscoreReserved = relative(registry.dir, file)
       .split(/[/\\]/)
       .some((segment) => segment.startsWith("_"));
-    if (declaresPagesLayout && underscoreReserved) continue;
+    if (ejectedLayout && underscoreReserved) continue;
 
     exposed.push(`${entry.name} (${displayPath(project.root, file)}, inside ${registry.label})`);
   }

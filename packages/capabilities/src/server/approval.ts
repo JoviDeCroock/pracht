@@ -28,12 +28,15 @@
 
 import { hmacSha256Base64Url, type CapabilityConfirmationMode } from "./confirmation.ts";
 import { globalSlot } from "./global-state.ts";
+import { resolveRegistryModule } from "./registry.ts";
 import type { PrachtAgentIdentity } from "../protocol.ts";
 import type {
   CapabilityApprovalConsumeResult,
   CapabilityApprovalPrincipalResolver,
   CapabilityApprovalRecord,
   CapabilityApprovalStore,
+  CapabilityModuleRegistry,
+  ModuleImporter,
   PrachtAgentsConfig,
 } from "./types.ts";
 
@@ -98,6 +101,58 @@ export function humanApprovalPreconditionError(
     "with agents.mcp.auth. A Web Bot Auth key names the agent, which all of its users share, so " +
     "it cannot bind an approval."
   );
+}
+
+/**
+ * Startup gate for {@link humanApprovalPreconditionError}: throws when human
+ * approval is configured but nothing can identify the end user.
+ *
+ * A resolver may be registered by a module that only loads on demand — a
+ * capability module, or middleware applied to a capability or the capability
+ * API chain — so those are imported first. A module that fails to load is
+ * skipped here; the request that needs it reports its own failure.
+ */
+export async function assertHumanApprovalIdentity(
+  app: {
+    agents?: Pick<PrachtAgentsConfig, "confirmation"> & { mcp?: { auth?: unknown } };
+    api?: { middleware?: readonly string[] };
+    capabilities?: Record<string, string>;
+    middleware?: Record<string, string>;
+  },
+  registry: CapabilityModuleRegistry | undefined,
+): Promise<void> {
+  const capabilities = Object.values(app.capabilities ?? {});
+  if (capabilities.length === 0 || humanApprovalPreconditionError(app.agents) === null) return;
+
+  const middleware = new Set(app.api?.middleware ?? []);
+  const load = async <T>(modules: Record<string, ModuleImporter<T>> | undefined, file: string) => {
+    try {
+      return await resolveRegistryModule<T>(modules, file);
+    } catch {
+      return undefined;
+    }
+  };
+  await Promise.all(
+    capabilities.map(async (file) => {
+      const module = await load(registry?.capabilityModules, file);
+      for (const name of module?.default?.middleware ?? []) middleware.add(name);
+    }),
+  );
+  await Promise.all(
+    [...middleware].map((name) => {
+      const file = app.middleware?.[name];
+      return file === undefined ? undefined : load(registry?.middlewareModules, file);
+    }),
+  );
+
+  const error = humanApprovalPreconditionError(app.agents);
+  if (error !== null) {
+    throw new Error(
+      `[pracht] ${error} Register the resolver in a capability module, in middleware applied ` +
+        "to the capability or the capability API chain, or in a module your server entry " +
+        "imports before the pracht server module.",
+    );
+  }
 }
 
 export interface ResolvedCapabilityApprovalPrincipal {

@@ -515,6 +515,14 @@ async function runCapabilityPipeline<TContext>(
         waitUntil: options.waitUntil,
       });
     } catch (error: unknown) {
+      // The caller only sees "Capability failed.", so say on the server that
+      // the request budget ended the run, not the capability's own code.
+      if ((options.signal.reason as { name?: string } | undefined)?.name === "TimeoutError") {
+        console.error(
+          `[pracht] Capability "${name}" was aborted because the request ran past its time ` +
+            "budget (loaderTimeoutMs).",
+        );
+      }
       holder.settled = {
         status: 500,
         envelope: errorEnvelope({

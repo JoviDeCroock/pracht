@@ -36,19 +36,25 @@ export type LiveGraphResult =
   | { metadata: LiveGraphMetadata }
   | { error: string; manifest?: ManifestModuleFacts };
 
-export async function tryResolveLiveGraph(root: string): Promise<LiveGraphResult> {
+export async function tryResolveLiveGraph(
+  root: string,
+  manifestPath?: string,
+): Promise<LiveGraphResult> {
   let plugins: readonly Plugin[] | undefined;
   try {
-    return {
-      metadata: await resolveLiveGraphMetadata(root, {
-        onServer: (server) => (plugins = server.config.plugins),
-      }),
-    };
+    const metadata = await resolveLiveGraphMetadata(root, {
+      onServer: (server) => (plugins = server.config.plugins),
+    });
+    // The resolved app does not say whether the manifest is an ejected pages
+    // layout; the plugin's facts do.
+    const ejectedLayout = plugins ? readPluginManifestFacts(plugins)?.ejectedLayout : undefined;
+    if (typeof ejectedLayout === "boolean") metadata.manifest.ejectedLayout = ejectedLayout;
+    return { metadata };
   } catch (error) {
     const facts = plugins ? readPluginManifestFacts(plugins) : null;
     return {
       error: error instanceof Error ? error.message : String(error),
-      ...(facts ? { manifest: manifestModuleFactsFromPlugin(facts) } : {}),
+      ...(facts ? { manifest: manifestModuleFactsFromPlugin(facts, manifestPath) } : {}),
     };
   }
 }

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   CAPABILITY_TRANSPORT_HEADER,
@@ -1554,17 +1554,29 @@ describe("destructive capabilities over MCP", () => {
 
   it("fails closed when the opt-in is on without an approval store", async () => {
     setCapabilityApprovalStore(null);
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    const list = await mcp(
-      { jsonrpc: "2.0", id: 1, method: "tools/list" },
-      { agents: DESTRUCTIVE_AGENTS },
-    );
-    expect(list.json?.error.code).toBe(-32603);
-    expect(list.json?.error.message).toContain("approval store");
+    try {
+      const list = await mcp(
+        { jsonrpc: "2.0", id: 1, method: "tools/list" },
+        { agents: DESTRUCTIVE_AGENTS },
+      );
+      expect(list.json?.error.code).toBe(-32603);
+      expect(list.json?.error.message).toContain("approval store");
 
-    const call = await callDestructive("notes_purge", { titlePrefix: "Old" });
-    expect(call.json?.error.message).toContain("approval store");
-    expect(purged).toEqual([]);
+      const call = await callDestructive("notes_purge", { titlePrefix: "Old" });
+      expect(call.json?.error.message).toContain("approval store");
+      expect(purged).toEqual([]);
+
+      // The server says why once, not once per request.
+      const refusals = logged.mock.calls.filter(([message]) =>
+        String(message).includes("The remote MCP endpoint refuses every request"),
+      );
+      expect(refusals).toHaveLength(1);
+      expect(String(refusals[0][0])).toContain("approval store");
+    } finally {
+      logged.mockRestore();
+    }
   });
 
   it("fails closed when no confirmation secret is configured", async () => {

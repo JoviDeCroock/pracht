@@ -6,4 +6,5 @@ export default defineConfig({
   format: "esm",
   dts: true,
   external: ["@pracht/content", "@pracht/image", "marked", /^node:/],
+  outputOptions: { comments: { jsdoc: false } },
 });

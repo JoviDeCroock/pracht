@@ -184,6 +184,7 @@ async function printDevBanner(server: ViteDevServer, root: string): Promise<void
   console.log(
     formatDevBanner({
       apiRoutes: graph.api,
+      base: server.config.base,
       capabilities: graph.capabilities,
       color: supportsColor(),
       localUrls: urls.local,

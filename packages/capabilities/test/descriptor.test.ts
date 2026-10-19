@@ -184,6 +184,9 @@ describe("normalizeCapabilityDescriptor", () => {
     [{ expose: { http: { method: "GET" } } }, 'HTTP exposure only supports method: "POST"'],
     [{ expose: { http: { path: "//evil.example" } } }, 'HTTP exposure "path" must be an exact'],
     [{ expose: { http: "yes" } }, '"expose.http" must be true or an object'],
+    [{ expose: { mcp: "yes" } }, '"expose.mcp" must be a boolean or an options object'],
+    [{ expose: { mcp: 1 } }, '"expose.mcp" must be a boolean or an options object'],
+    [{ expose: { http: true, mpc: true } }, 'unknown "expose" key "mpc"'],
     [{ expose: { http: true, webmcp: "on" } }, '"expose.webmcp" must be a boolean'],
     [
       { expose: { http: true, webmcp: { untrustedContent: "yes" } } },

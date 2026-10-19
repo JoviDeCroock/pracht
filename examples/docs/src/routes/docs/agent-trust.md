@@ -253,7 +253,7 @@ export async function POST({ request, context }: ApiRouteArgs) {
 
 Before enabling a store, know that:
 
-- `mode: "human"` fails closed without a store and an end-user identity (a principal resolver, or `agents.mcp.auth` on MCP). A Web Bot Auth key names only the agent, so it is refused.
+- `mode: "human"` needs an end-user identity: a principal resolver, or `agents.mcp.auth` on MCP. With neither, the server refuses to start, and `pracht build` and `pracht verify` fail. A Web Bot Auth key names only the agent, so it never counts. Without a store, destructive calls are refused.
 - Prepare and commit must reach the same store. A valid token whose proposal is unknown is refused.
 - Any exception from the store or principal resolver closes the gate.
 - `createMemoryApprovalStore()` is for tests and development. It is lost on restart and not shared across replicas.

@@ -5,8 +5,14 @@
  * because it has always been part of `@pracht/core`'s surface.
  */
 
-import { setCapabilityApprovalPrincipalResolver as setCapabilityApprovalPrincipalResolverShared } from "@pracht/capabilities/server/internal";
+import {
+  assertHumanApprovalIdentity as assertHumanApprovalIdentityShared,
+  setCapabilityApprovalPrincipalResolver as setCapabilityApprovalPrincipalResolverShared,
+} from "@pracht/capabilities/server/internal";
 import type { CapabilityApprovalPrincipalResolver, PrachtRequestContext } from "./types.ts";
+
+/** Build-time define; `false` proves the manifest configures no capabilities and no `agents`. */
+declare const __PRACHT_AGENT_SURFACE__: boolean | undefined;
 
 export {
   capabilityApprovalId,
@@ -38,3 +44,17 @@ export const setCapabilityApprovalPrincipalResolver =
   setCapabilityApprovalPrincipalResolverShared as <TContext = PrachtRequestContext>(
     resolver: CapabilityApprovalPrincipalResolver<TContext> | null,
   ) => void;
+
+/**
+ * Startup gate awaited by the generated server module: human approval with
+ * nothing to identify the end user throws. An app the build proves has no
+ * agent surface cannot configure human approval, so the check, and the
+ * approval code it reaches, leave that app's server bundle.
+ */
+export async function assertHumanApprovalIdentity(
+  ...args: Parameters<typeof assertHumanApprovalIdentityShared>
+): Promise<void> {
+  if (typeof __PRACHT_AGENT_SURFACE__ === "undefined" || __PRACHT_AGENT_SURFACE__) {
+    await assertHumanApprovalIdentityShared(...args);
+  }
+}

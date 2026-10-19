@@ -824,6 +824,18 @@ describe("transport scenario validation", () => {
       }),
     );
     expect(parseScenario(file).steps[0].cancelAfterMs).toBe(0);
+
+    for (const transport of ["http", "mcp"]) {
+      writeFileSync(
+        file,
+        JSON.stringify({
+          ...base,
+          transport,
+          steps: [{ capability: "notes.search", cancelAfterMs: 200 }],
+        }),
+      );
+      expect(() => parseScenario(file)).toThrow(/only applies to WebMCP scenarios/);
+    }
   });
 });
 
