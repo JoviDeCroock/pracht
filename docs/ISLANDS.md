@@ -408,7 +408,7 @@ browser navigates as usual and nothing is fetched twice:
   not reloads;
 - the destination, with the deploy base stripped (outside the base: not this
   app), matches a `+` entry of the *live* document's route table (`matchRoute()`),
-  using the server's matching rules (first match wins, statics compared raw, a
+  using the server's matching rules (first match wins, statics compared in either percent-escape case, a
   parameter takes one decodable segment, a catch-all the rest), and that entry
   is not in this tab's skip list (below);
 - the clicked anchor has no `data-pracht-reload`;
