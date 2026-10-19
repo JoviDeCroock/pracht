@@ -3,6 +3,7 @@ import { once } from "node:events";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import {
   createServer,
+  Agent as HttpAgent,
   request as httpRequest,
   type IncomingMessage,
   type ServerResponse,
@@ -479,6 +480,32 @@ describe("graceful shutdown of the generated Node entry", () => {
     expect(Date.now() - startedAt).toBeLessThan(5_000);
     // Work the stream's abort listener registered was drained, not cut off.
     expect(existsSync(streamMarker)).toBe(true);
+  }, 20_000);
+
+  it("closes a keep-alive event stream's socket once the stream ends", async () => {
+    const { child, exited, port } = await startEntry({ workMs: 0 });
+    const agent = new HttpAgent({ keepAlive: true });
+
+    const stream = await new Promise<IncomingMessage>((resolveStream, reject) => {
+      const req = httpRequest(
+        { agent, hostname: "127.0.0.1", port, path: "/api/events" },
+        resolveStream,
+      );
+      req.on("error", reject);
+      req.end();
+    });
+    await once(stream, "data");
+    const ended = once(stream, "end");
+    stream.resume();
+
+    const startedAt = Date.now();
+    child.kill("SIGTERM");
+    // The stream completes as a response, not a dropped connection.
+    await ended;
+    await exited;
+    // Its socket, idle once the stream ended, does not hold server.close().
+    expect(Date.now() - startedAt).toBeLessThan(1_500);
+    agent.destroy();
   }, 20_000);
 
   it("stops waiting at shutdownTimeoutMs", async () => {
