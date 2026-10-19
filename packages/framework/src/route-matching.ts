@@ -86,6 +86,21 @@ function assertSafeStaticRouteSegment(segment: string): void {
   }
 }
 
+// The server matches a static segment in either percent-escape case
+// (`caf%c3%a9` is `caf%C3%A9`, RFC 3986): an ISG page is looked up and
+// regenerated under its canonical spelling, whatever case the route path was
+// written in. Declared here so client builds fold it away; the client router
+// sends a spelling it does not match to the server as a document request.
+const MATCH_ESCAPE_CASE = import.meta.env?.SSR !== false;
+
+function sameEscapedSegment(value: string, target: string): boolean {
+  return target.includes("%") && upperEscapes(value) === upperEscapes(target);
+}
+
+function upperEscapes(segment: string): string {
+  return segment.replace(/%[0-9a-f]{2}/gi, (escape) => escape.toUpperCase());
+}
+
 export function matchRouteSegments(
   routeSegments: RouteSegment[],
   targetSegments: string[],
@@ -134,21 +149,6 @@ export function matchRouteSegments(
   }
 
   return targetIndex === targetSegments.length ? params : null;
-}
-
-// The server matches a static segment in either percent-escape case
-// (`caf%c3%a9` is `caf%C3%A9`, RFC 3986): an ISG page is looked up and
-// regenerated under its canonical spelling, whatever case the route path was
-// written in. Declared here so client builds fold it away; the client router
-// sends a spelling it does not match to the server as a document request.
-const MATCH_ESCAPE_CASE = import.meta.env?.SSR !== false;
-
-function sameEscapedSegment(value: string, target: string): boolean {
-  return target.includes("%") && upperEscapes(value) === upperEscapes(target);
-}
-
-function upperEscapes(segment: string): string {
-  return segment.replace(/%[0-9a-f]{2}/gi, (escape) => escape.toUpperCase());
 }
 
 /** Match one declared route pattern against a concrete pathname. */
