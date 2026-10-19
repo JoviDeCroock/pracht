@@ -86,31 +86,25 @@ function assertSafeStaticRouteSegment(segment: string): void {
   }
 }
 
-// The server matches a static segment in either percent-escape case
-// (`caf%c3%a9` is `caf%C3%A9`, RFC 3986): an ISG page is looked up and
-// regenerated under its canonical spelling, whatever case the route path was
-// written in. Declared here so client builds fold it away; the client router
-// sends a spelling it does not match to the server as a document request.
-const MATCH_ESCAPE_CASE = import.meta.env?.SSR !== false;
-
-function sameEscapedSegment(value: string, target: string): boolean {
-  return target.includes("%") && upperEscapes(value) === upperEscapes(target);
-}
-
+// A static segment matches in either percent-escape case (`caf%c3%a9` is
+// `caf%C3%A9`, RFC 3986): an ISG page is looked up and regenerated under its
+// canonical spelling, whatever case the route path was written in, and the
+// client router matches the same routes the server does instead of sending
+// the other spelling to the server as a document request.
 function upperEscapes(segment: string): string {
   return segment.replace(/%[0-9a-f]{2}/gi, (escape) => escape.toUpperCase());
 }
 
 /**
  * Match parsed route segments against a path's segments. `escapes` says
- * whether the path holds a `%` at all; a caller matching one path against
- * many routes passes it, so a path without one skips the escape-case
+ * whether the path holds a `%` at all: a caller matching one path against
+ * many routes checks once, so a path without one skips the escape-case
  * comparison on every static segment that differs.
  */
 export function matchRouteSegments(
   routeSegments: RouteSegment[],
   targetSegments: string[],
-  escapes?: boolean,
+  escapes: boolean,
 ): RouteParams | null {
   const params: RouteParams = {};
   let routeIndex = 0;
@@ -139,11 +133,7 @@ export function matchRouteSegments(
     if (currentSegment.type === "static") {
       if (
         currentSegment.value !== targetSegment &&
-        !(
-          MATCH_ESCAPE_CASE &&
-          escapes !== false &&
-          sameEscapedSegment(currentSegment.value, targetSegment)
-        )
+        !(escapes && upperEscapes(currentSegment.value) === upperEscapes(targetSegment))
       ) {
         return null;
       }
@@ -164,7 +154,11 @@ export function matchRouteSegments(
 
 /** Match one declared route pattern against a concrete pathname. */
 export function matchRoutePath(pattern: string, pathname: string): RouteParams | null {
-  return matchRouteSegments(parseRouteSegments(pattern), splitPathSegments(pathname));
+  return matchRouteSegments(
+    parseRouteSegments(pattern),
+    splitPathSegments(pathname),
+    pathname.includes("%"),
+  );
 }
 
 /** Whether a declared route pattern contains a parameter or catch-all segment. */
