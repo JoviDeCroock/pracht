@@ -83,6 +83,7 @@ import {
 import {
   createDevCssInjectionMiddleware,
   createDevMcpPreflightMiddleware,
+  useBeforeViteCors,
   createOwnedDevEntryMiddleware,
   createDevSSRMiddleware,
   injectDevCssForPath,
@@ -714,7 +715,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         maxBodySize: resolved.maxBodySize,
         waitUntil: backgroundWork.waitUntil,
       });
-      server.middlewares.use(createDevMcpPreflightMiddleware(server, ssrMiddleware));
+      useBeforeViteCors(server, createDevMcpPreflightMiddleware(server, ssrMiddleware));
       return () => {
         server.middlewares.use(ssrMiddleware);
       };

@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
+import { isIP } from "node:net";
 import { join, resolve } from "node:path";
 import type { Connect, EnvironmentModuleNode, ViteDevServer } from "vite";
 import {
@@ -111,10 +112,11 @@ export function createOwnedDevEntryMiddleware(server: ViteDevServer): Connect.Ne
 }
 
 /**
- * Vite's own CORS middleware answers every `OPTIONS` request before plugin
- * middleware runs. Registered ahead of Vite's internals, this hands pracht the
- * `OPTIONS` requests production answers itself, and leaves every other request
- * (Vite's own paths included) to Vite:
+ * Vite's own CORS middleware answers every `OPTIONS` request, and Vite
+ * registers it before any plugin's `configureServer` hook runs. Placed ahead
+ * of it with `useBeforeViteCors`, this hands pracht the `OPTIONS` requests
+ * production answers itself, for a `Host` the dev server accepts, and leaves
+ * every other request (Vite's own paths included) to Vite:
  *
  * - a preflight to the remote MCP endpoint from one of its
  *   `agents.mcp.allowedOrigins`, which needs the headers the endpoint grants;
@@ -127,7 +129,7 @@ export function createDevMcpPreflightMiddleware(
 ): Connect.NextHandleFunction {
   const devBase = server.config.base || "/";
   return (req, res, next) => {
-    if (req.method !== "OPTIONS") return next();
+    if (req.method !== "OPTIONS" || !isAllowedDevHost(server, req)) return next();
     void (async () => {
       let pathname = new URL(req.url ?? "/", "http://localhost").pathname;
       // This runs before Vite strips the base, so strip it the same way.
@@ -149,6 +151,46 @@ export function createDevMcpPreflightMiddleware(
       await handler(req, res, next);
     })().catch(next);
   };
+}
+
+/**
+ * Register `handle` ahead of Vite's CORS middleware, which Vite adds before
+ * plugin hooks run and which ends every preflight itself. With `server.cors`
+ * off there is no such layer, and `handle` stays where `use` put it.
+ */
+export function useBeforeViteCors(server: ViteDevServer, handle: Connect.NextHandleFunction): void {
+  server.middlewares.use(handle);
+  const stack = server.middlewares.stack;
+  const cors = stack.findIndex((layer) => layer.handle.name === "corsMiddleware");
+  if (cors === -1) return;
+  stack.splice(cors, 0, ...stack.splice(stack.length - 1, 1));
+}
+
+/**
+ * Vite checks `Host` after its CORS middleware; a request this middleware
+ * takes from in front of it gets the same check first: `localhost`, an IP
+ * address, `server.host` and `server.allowedHosts`.
+ */
+function isAllowedDevHost(server: ViteDevServer, req: IncomingMessage): boolean {
+  const { allowedHosts, host } = server.config.server ?? {};
+  if (allowedHosts === true) return true;
+  const header = req.headers.host;
+  if (typeof header !== "string") return false;
+  let hostname: string;
+  try {
+    hostname = new URL(`http://${header}`).hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+  if (hostname.startsWith("[")) hostname = hostname.slice(1, -1);
+  if (hostname === "localhost" || hostname.endsWith(".localhost") || isIP(hostname)) return true;
+  if (typeof host === "string" && host.toLowerCase() === hostname) return true;
+  return (allowedHosts ?? []).some((allowed) => {
+    const entry = allowed.toLowerCase();
+    return entry.startsWith(".")
+      ? hostname === entry.slice(1) || hostname.endsWith(entry)
+      : hostname === entry;
+  });
 }
 
 function isListedMcpPreflight(
