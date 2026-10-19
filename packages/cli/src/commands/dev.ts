@@ -58,13 +58,18 @@ export default defineCommand({
     );
 
     const routeTypes = createGeneratedRouteTypesSync(root);
+    // Per pracht plugin instance (a restart creates a new one): the manifest
+    // updates it had applied when the banner last printed.
+    const printedManifestUpdates = new WeakMap<object, number>();
+    let bannerReprint: ReturnType<typeof setTimeout> | undefined;
     // Set once the first server listens; servers created after that are
     // restarts, whose banner follows Vite's own "server restarted".
     let listened = false;
     const server = await createServer({
       cacheDir: args.cacheDir,
       // Vite re-creates the dev server (and its file watcher) on every
-      // restart: a `routes.ts` edit, a config or `.env` change. Inline plugins
+      // restart: a config or `.env` change, or a `routes.ts` edit under an
+      // adapter that runs its own dev server. Inline plugins
       // survive that, so the watcher is re-attached to each new server here
       // instead of being bound once to the first one.
       plugins: [
@@ -81,8 +86,8 @@ export default defineCommand({
                 if (dotEnvFiles.has(resolve(file))) dotEnv.load();
               });
             }
-            // A restart (a `routes.ts` edit, above all) can change every table
-            // in the banner, so print it again once the new server listens.
+            // A restart can change every table in the banner, so print it
+            // again once the new server listens.
             if (listened) {
               devServer.httpServer?.once("listening", () => {
                 setTimeout(() => {
@@ -93,6 +98,25 @@ export default defineCommand({
                 }, 0);
               });
             }
+          },
+          // The pracht plugin (`enforce: "pre"`) runs first and counts each
+          // manifest edit it applies in place, so the banner reflects the new
+          // route table. An edit it answers with a restart instead gets its
+          // banner from the restart path above.
+          handleHotUpdate({ server: devServer }) {
+            const api = devServer.config.plugins.find((plugin) => plugin.name === "pracht")?.api
+              ?.pracht as { manifestUpdates?: unknown } | undefined;
+            const updates = api?.manifestUpdates;
+            if (!listened || !api || typeof updates !== "number") return;
+            if (updates === (printedManifestUpdates.get(api) ?? 0)) return;
+            printedManifestUpdates.set(api, updates);
+            clearTimeout(bannerReprint);
+            bannerReprint = setTimeout(() => {
+              void printDevBanner(devServer, root).catch(() => {
+                // A manifest that no longer loads is reported by the error
+                // overlay; the banner prints again once it is fixed.
+              });
+            }, 100);
           },
         },
       ],

@@ -35,6 +35,44 @@ function makeTempProject(): string {
   return dir;
 }
 
+function clientRouteHints(source: string): Record<string, number> {
+  const match = /^const routeHints = (.*);$/m.exec(source);
+  if (!match) throw new Error("client entry has no route hint table");
+  return JSON.parse(match[1]!) as Record<string, number>;
+}
+
+function generatedFunction(source: string, name: string): string {
+  const start = source.indexOf(`function ${name}(`);
+  if (start === -1) throw new Error(`client entry has no ${name}()`);
+  return source.slice(start, source.indexOf("\n}\n", start) + 2);
+}
+
+interface HintedRoute {
+  file: string;
+  shellFile?: string;
+  hasLoader?: boolean;
+  hasShellLoader?: boolean;
+  hasHead?: boolean;
+  hasStaticPaths?: boolean;
+}
+
+/** Runs the client entry's own `applyRouteHints` against `routes`. */
+function applyClientRouteHints(source: string, routes: HintedRoute[]): HintedRoute[] {
+  const appDir = /^const APP_DIR = (.*);$/m.exec(source)![1]!;
+  const run = new Function(
+    "resolvedApp",
+    "hints",
+    [
+      `const APP_DIR = ${appDir};`,
+      generatedFunction(source, "canonicalModuleKey"),
+      generatedFunction(source, "applyRouteHints"),
+      "applyRouteHints(resolvedApp, hints);",
+    ].join("\n"),
+  );
+  run({ routes }, clientRouteHints(source));
+  return routes;
+}
+
 const MANIFEST_PLUGIN_OPTIONS = { appFile: "/src/routes.ts" } as const;
 
 /**
@@ -843,6 +881,65 @@ describe("client route module build", () => {
       expect(source).toContain('"!/src/routes/static.tsx"');
     });
 
+    it("keeps a route whose own hydration is not a literal", () => {
+      // It may resolve to "full" at runtime, and client navigation to a full
+      // route needs its module in the registry.
+      const source = clientSourceFor([
+        '    group({ hydration: "islands" }, [',
+        '      route("/flag", "./routes/flag.tsx", { hydration: FLAG ? "full" : "islands" }),',
+        '      route("/shared", "./routes/shared.tsx", sharedMeta),',
+        '      route("/spread", "./routes/spread.tsx", { id: "spread", ...extraMeta }),',
+        '      route("/static", "./routes/static.tsx"),',
+        "    ]),",
+      ]);
+      expect(source).not.toContain('"!/src/routes/flag.tsx"');
+      expect(source).not.toContain('"!/src/routes/shared.tsx"');
+      expect(source).not.toContain('"!/src/routes/spread.tsx"');
+      expect(source).toContain('"!/src/routes/static.tsx"');
+    });
+
+    it("keeps a full route whose meta merely holds a hydration-looking value", () => {
+      const source = clientSourceFor([
+        '    route("/doc", "./routes/doc.tsx", { id: "doc", meta: { hydration: "islands" } } as never),',
+      ]);
+      expect(source).not.toContain('"!/src/routes/doc.tsx"');
+    });
+
+    it("keeps a group's routes when the group's own mode is not a literal", () => {
+      const source = clientSourceFor([
+        '    group({ hydration: "islands" }, [',
+        "      group({ hydration: MODE }, [",
+        '        route("/inner", "./routes/inner.tsx"),',
+        "      ]),",
+        "    ]),",
+      ]);
+      expect(source).not.toContain('"!/src/routes/inner.tsx"');
+    });
+
+    it("reads a config-object route's own hydration over its group's", () => {
+      const source = clientSourceFor([
+        '    group({ hydration: "islands" }, [',
+        '      route("/full", { component: "./routes/full.tsx", hydration: "full" }),',
+        '      route("/maybe", { component: "./routes/maybe.tsx", hydration: FLAG ? "full" : "none" }),',
+        '      route("/plain", { component: "./routes/plain.tsx" }),',
+        // The config overload ignores a third argument.
+        '      route("/meta", { component: "./routes/meta.tsx" }, { hydration: "full" }),',
+        "    ]),",
+      ]);
+      expect(source).not.toContain('"!/src/routes/full.tsx"');
+      expect(source).not.toContain('"!/src/routes/maybe.tsx"');
+      expect(source).toContain('"!/src/routes/plain.tsx"');
+      expect(source).toContain('"!/src/routes/meta.tsx"');
+    });
+
+    it("counts a template-literal ref to a shared module like a string one", () => {
+      const source = clientSourceFor([
+        '    route("/a", "./routes/shared.tsx"),',
+        '    route("/b", `./routes/shared.tsx`, { hydration: "none" }),',
+      ]);
+      expect(source).not.toContain('"!/src/routes/shared.tsx"');
+    });
+
     it("applies the innermost group's mode to nested groups", () => {
       const source = clientSourceFor([
         '    group({ middleware: ["locale"] }, [',
@@ -891,12 +988,106 @@ describe("client route module build", () => {
       { root },
     );
 
-    expect(clientSource).toContain('"./routes/index.tsx":true');
-    expect(clientSource).toContain('"/src/routes/index.tsx":true');
-    expect(clientSource).toContain('"./routes/about.tsx":false');
-    expect(clientSource).toContain('"/src/routes/about.tsx":false');
+    // The client keeps one root-absolute key per module and a bitfield.
+    const clientHints = clientRouteHints(clientSource);
+    expect(clientHints["/src/routes/index.tsx"]).toBe(1);
+    expect(clientHints["/src/routes/about.tsx"]).toBe(0);
+    expect(Object.keys(clientHints).every((key) => key.startsWith("/"))).toBe(true);
     expect(serverSource).toContain('"./routes/index.tsx":true');
     expect(serverSource).toContain('"./routes/about.tsx":false');
+  });
+
+  it("applies the compact client hints with the server's rules", () => {
+    const root = makeTempProject();
+    mkdirSync(join(root, "src", "routes"), { recursive: true });
+    mkdirSync(join(root, "src", "shells"), { recursive: true });
+    writeFileSync(join(root, "src", "routes.ts"), "export const app = {};\n");
+    writeFileSync(
+      join(root, "src", "routes", "data.tsx"),
+      "export async function loader() { return {}; }\nexport default function Data() {}\n",
+    );
+    writeFileSync(
+      join(root, "src", "routes", "titled.tsx"),
+      "export function head() { return {}; }\nexport default function Titled() {}\n",
+    );
+    writeFileSync(join(root, "src", "routes", "plain.tsx"), "export default function Plain() {}\n");
+    writeFileSync(
+      join(root, "src", "shells", "app.tsx"),
+      "export async function loader() { return {}; }\nexport function head() { return {}; }\nexport function Shell() {}\n",
+    );
+    writeFileSync(join(root, "src", "shells", "bare.tsx"), "export function Shell() {}\n");
+
+    const source = createPrachtClientModuleSource({ appFile: "/src/routes.ts" }, { root });
+    const [data, titled, plain, inShell, unknown, unknownShell] = applyClientRouteHints(source, [
+      { file: "./routes/data.tsx" },
+      { file: "/src/routes/titled.tsx" },
+      { file: "./routes/plain.tsx", shellFile: "./shells/bare.tsx" },
+      { file: "./routes/plain.tsx", shellFile: "./shells/app.tsx" },
+      { file: "./routes/missing.tsx" },
+      { file: "./routes/plain.tsx", shellFile: "./shells/missing.tsx" },
+    ]);
+
+    expect(data).toMatchObject({ hasLoader: true, hasHead: false });
+    expect(titled).toMatchObject({ hasLoader: false, hasHead: true });
+    expect(plain).toMatchObject({ hasLoader: false, hasShellLoader: false, hasHead: false });
+    expect(inShell).toMatchObject({ hasLoader: false, hasShellLoader: true, hasHead: true });
+    // A module the scan never saw keeps the runtime's conservative default.
+    expect(unknown.hasLoader).toBeUndefined();
+    expect(unknown.hasHead).toBeUndefined();
+    expect(unknownShell.hasShellLoader).toBeUndefined();
+    expect(unknownShell.hasHead).toBeUndefined();
+    // getStaticPaths() presence is only read by static-export builds.
+    expect(data.hasStaticPaths).toBeUndefined();
+  });
+
+  it("keys the client hints the way the entry canonicalizes refs", () => {
+    const root = makeTempProject();
+    mkdirSync(join(root, "src", "routes"), { recursive: true });
+    writeFileSync(join(root, "src", "routes.ts"), "export const app = {};\n");
+    writeFileSync(
+      join(root, "src", "routes", "data.tsx"),
+      "export async function loader() { return {}; }\nexport default function Data() {}\n",
+    );
+
+    const source = createPrachtClientModuleSource(
+      { appFile: "/src/routes.ts", routesDir: "/src/other/../routes" },
+      { root },
+    );
+    expect(clientRouteHints(source)["/src/routes/data.tsx"]).toBe(1);
+    const [data] = applyClientRouteHints(source, [{ file: "./routes/data.tsx" }]);
+    expect(data!.hasLoader).toBe(true);
+  });
+
+  it("ships getStaticPaths() hints to the client only for static-export builds", () => {
+    const root = makeTempProject();
+    mkdirSync(join(root, "src", "routes"), { recursive: true });
+    writeFileSync(join(root, "src", "routes.ts"), "export const app = {};\n");
+    writeFileSync(
+      join(root, "src", "routes", "post.tsx"),
+      "export function getStaticPaths() { return []; }\nexport default function Post() {}\n",
+    );
+    const staticAdapter = {
+      id: "custom-static",
+      serverImports: "",
+      staticTarget: true,
+      createServerEntryModule: () => "",
+    };
+
+    const server = createPrachtClientModuleSource({ appFile: "/src/routes.ts" }, { root });
+    expect(source(server)).not.toContain("hasStaticPaths");
+    expect(clientRouteHints(server)["/src/routes/post.tsx"]).toBe(0);
+
+    const exported = createPrachtClientModuleSource(
+      { appFile: "/src/routes.ts", adapter: staticAdapter },
+      { root },
+    );
+    expect(clientRouteHints(exported)["/src/routes/post.tsx"]).toBe(4);
+    const [post] = applyClientRouteHints(exported, [{ file: "./routes/post.tsx" }]);
+    expect(post!.hasStaticPaths).toBe(true);
+
+    function source(code: string): string {
+      return generatedFunction(code, "applyRouteHints");
+    }
   });
 
   // A shell loader alone makes a loaderless route fetch route state when the
@@ -937,7 +1128,9 @@ describe("client route module build", () => {
     expect(pages["/src/pages/index.tsx"]).toBe(false);
 
     const client = createPrachtClientModuleSource({ appFile: "/src/routes.ts" }, { root });
-    expect(client).toContain("route.hasShellLoader = shellLoaderHint");
+    expect(client).toContain("route.hasShellLoader =");
+    expect(clientRouteHints(client)["/src/shells/app.tsx"]).toBe(1);
+    expect(clientRouteHints(client)["/src/shells/public.tsx"]).toBe(0);
   });
 
   // `__PRACHT_SHELL_LOADERS__` and the client entry both follow this flag, so
@@ -963,9 +1156,7 @@ describe("client route module build", () => {
     expect(createRouteHintsForVirtualModules(manifestOptions, root).shellLoaders).toBe(false);
     const client = createPrachtClientModuleSource({ appFile: "/src/routes.ts" }, { root });
     expect(client).not.toContain("hasShellLoader");
-    expect(client).toContain(
-      'const routeLoaderHints = {"./routes/index.tsx":true,"/src/routes/index.tsx":true};',
-    );
+    expect(clientRouteHints(client)["/src/routes/index.tsx"]).toBe(1);
 
     const pagesOptions = resolveOptions({ pagesDir: "/src/pages" });
     expect(createRouteHintsForVirtualModules(pagesOptions, root).shellLoaders).toBe(false);
@@ -997,8 +1188,8 @@ describe("client route module build", () => {
 
     const source = createPrachtClientModuleSource({ pagesDir: "/src/pages" }, { root });
 
-    expect(source).toContain('"/src/pages/_app.tsrx":true');
-    expect(source).toContain('"/src/pages/index.tsx":false');
+    expect(clientRouteHints(source)["/src/pages/_app.tsrx"]! & 2).toBe(2);
+    expect(clientRouteHints(source)["/src/pages/index.tsx"]).toBe(0);
   });
 
   it("keeps configured route and shell extensions conservative for transformed heads", () => {
@@ -1028,10 +1219,8 @@ describe("client route module build", () => {
 
     // The companion transform can synthesize head() from syntax that does not
     // exist in the raw custom-format source, so false would be unsound here.
-    expect(source).toContain('"./routes/index.custom":true');
-    expect(source).toContain('"/src/routes/index.custom":true');
-    expect(source).toContain('"./shells/app.custom":true');
-    expect(source).toContain('"/src/shells/app.custom":true');
+    expect(clientRouteHints(source)["/src/routes/index.custom"]! & 2).toBe(2);
+    expect(clientRouteHints(source)["/src/shells/app.custom"]! & 2).toBe(2);
   });
 
   it("keeps ejected pages middleware out of the client bundle", async () => {

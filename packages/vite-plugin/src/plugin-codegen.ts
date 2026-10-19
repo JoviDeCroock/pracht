@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
-import { dirname, extname, join, resolve } from "node:path";
+import { dirname, extname, join, posix, resolve } from "node:path";
 import { parseAst } from "vite";
 import { getRolldownLang, PRACHT_CLIENT_MODULE_QUERY } from "./client-module-query.ts";
 import {
@@ -19,7 +19,14 @@ import {
   type PrachtPluginOptions,
   type ResolvedPrachtPluginOptions,
 } from "./plugin-options.ts";
-import { createRouteHints, createRouteLoaderHints, type RouteHints } from "./route-loader-hints.ts";
+import {
+  createRouteHints,
+  createRouteLoaderHints,
+  fileStamp,
+  sameFileStamp,
+  type FileStamp,
+  type RouteHints,
+} from "./route-loader-hints.ts";
 import { findAppRootModule } from "./plugin-app-root.ts";
 import { createWebmcpBootstrapSource, hasWebmcpCapabilities } from "./plugin-capabilities.ts";
 import {
@@ -36,73 +43,10 @@ import {
   nonModuleExcludes,
 } from "./source-files.ts";
 
-const NON_FULL_HYDRATION_RE = /hydration\s*:\s*["'](?:islands|none)["']/;
-const FULL_HYDRATION_RE = /hydration\s*:\s*["']full["']/;
 const PAGES_NON_FULL_HYDRATION_RE = /export\s+const\s+HYDRATION\s*=\s*["'](?:islands|none)["']/;
 
 function toPosixPath(path: string): string {
   return path.replace(/\\/g, "/");
-}
-
-function findMatching(source: string, start: number, open: string, close: string): number {
-  let depth = 0;
-  for (let i = start; i < source.length; i++) {
-    const ch = source[i];
-    if (ch === open) depth++;
-    if (ch === close) {
-      depth--;
-      if (depth === 0) return i;
-    }
-  }
-  return -1;
-}
-
-/**
- * Blanks comments, and string contents too when `strings` is set, keeping every
- * other character at its offset so positions found in the masked copy still
- * address the original source.
- */
-function maskSource(source: string, strings: boolean): string {
-  let result = "";
-  let index = 0;
-  while (index < source.length) {
-    const char = source[index]!;
-    if (char === '"' || char === "'" || char === "`") {
-      result += char;
-      index += 1;
-      while (index < source.length) {
-        const inner = source[index]!;
-        if (inner === "\\" && index + 1 < source.length) {
-          result += strings ? "  " : inner + source[index + 1];
-          index += 2;
-          continue;
-        }
-        index += 1;
-        if (inner === char) {
-          result += inner;
-          break;
-        }
-        result += strings && inner !== "\n" ? " " : inner;
-      }
-      continue;
-    }
-    if (char === "/" && source[index + 1] === "/") {
-      while (index < source.length && source[index] !== "\n") {
-        result += " ";
-        index += 1;
-      }
-      continue;
-    }
-    if (char === "/" && source[index + 1] === "*") {
-      const close = source.indexOf("*/", index + 2);
-      const end = close === -1 ? source.length : close + 2;
-      for (; index < end; index++) result += source[index] === "\n" ? "\n" : " ";
-      continue;
-    }
-    result += char;
-    index += 1;
-  }
-  return result;
 }
 
 function scanFiles(dir: string, files: string[], extensions: Set<string>): void {
@@ -129,6 +73,18 @@ function scanFiles(dir: string, files: string[], extensions: Set<string>): void 
   }
 }
 
+/** Per page file, by stamp: whether its source declares non-full hydration. */
+const pageNonFullHydrationCache = new Map<string, { stamp: FileStamp; nonFull: boolean }>();
+
+function pageDeclaresNonFullHydration(file: string): boolean {
+  const stamp = fileStamp(statSync(file));
+  const cached = pageNonFullHydrationCache.get(file);
+  if (cached && sameFileStamp(cached.stamp, stamp)) return cached.nonFull;
+  const nonFull = PAGES_NON_FULL_HYDRATION_RE.test(readFileSync(file, "utf-8"));
+  pageNonFullHydrationCache.set(file, { stamp, nonFull });
+  return nonFull;
+}
+
 function createNonFullHydrationExcludes(
   resolved: ResolvedPrachtPluginOptions,
   root: string = process.cwd(),
@@ -144,7 +100,7 @@ function createNonFullHydrationExcludes(
     );
     for (const file of files) {
       try {
-        if (PAGES_NON_FULL_HYDRATION_RE.test(readFileSync(file, "utf-8"))) {
+        if (pageDeclaresNonFullHydration(file)) {
           excludes.add(
             `!/${toPosixPath(file).replace(toPosixPath(root).replace(/\/$/, "") + "/", "")}`,
           );
@@ -154,41 +110,12 @@ function createNonFullHydrationExcludes(
     return [...excludes];
   }
 
-  const appFile = resolve(root, resolved.appFile.replace(/^\//, ""));
-  let source: string;
-  try {
-    source = readFileSync(appFile, "utf-8");
-  } catch {
-    return [];
-  }
-  // Brackets are located in a copy without comments or string contents, and
-  // the hydration mode is read from a copy without comments.
-  const structure = maskSource(source, true);
-  const code = maskSource(source, false);
-  const groups: Array<{ start: number; end: number; nonFull: boolean }> = [];
-  for (const match of structure.matchAll(/\bgroup\s*\(/g)) {
-    const parenStart = match.index! + match[0].lastIndexOf("(");
-    const parenEnd = findMatching(structure, parenStart, "(", ")");
-    if (parenEnd === -1) continue;
-    // `group(meta, routes)`: the mode comes from the meta object alone, and the
-    // routes array is searched for only after it, so an array inside the meta
-    // (a `middleware` list) is never mistaken for the routes.
-    let metaEnd = parenStart;
-    let nonFull = false;
-    const metaStart = parenStart + 1 + structure.slice(parenStart + 1).search(/\S/);
-    if (structure[metaStart] === "{") {
-      metaEnd = findMatching(structure, metaStart, "{", "}");
-      if (metaEnd === -1) continue;
-      nonFull = NON_FULL_HYDRATION_RE.test(code.slice(metaStart, metaEnd + 1));
-    }
-    const arrayStart = structure.indexOf("[", metaEnd);
-    if (arrayStart === -1 || arrayStart > parenEnd) continue;
-    const arrayEnd = findMatching(structure, arrayStart, "[", "]");
-    if (arrayEnd === -1) continue;
-    groups.push({ start: arrayStart, end: arrayEnd, nonFull });
-  }
+  // A ref the scan cannot see could be a full route's, so a partial scan
+  // excludes nothing.
+  const scan = scanManifestModules(resolved, root);
+  if (!scan.complete) return [];
 
-  const appDir = dirname(appFile);
+  const appDir = dirname(resolve(root, resolved.appFile.replace(/^\//, "")));
   const resolveRef = (ref: string): string =>
     toPosixPath(ref.startsWith("/") ? resolve(root, ref.slice(1)) : resolve(appDir, ref));
   // One module can back a full route and an islands route, and the full route
@@ -196,37 +123,14 @@ function createNonFullHydrationExcludes(
   // the manifest belongs to a non-full route; a ref this scan cannot attribute
   // (a full route, a shared constant, a `notFound` component) keeps it in.
   const nonFullRefs = new Map<string, number>();
-  const routeRe =
-    /\broute\s*\(\s*[^,]+,\s*(?:(?:\(\s*\)\s*=>\s*import\s*\(\s*)?["']([^"']+)["']\s*\)?|["']([^"']+)["'])/g;
-  for (const match of code.matchAll(routeRe)) {
-    const fileRef = match[1] ?? match[2];
-    const callStart = match.index!;
-    const parenStart = structure.indexOf("(", callStart);
-    const parenEnd = findMatching(structure, parenStart, "(", ")");
-    if (parenEnd === -1) continue;
-    const callSource = code.slice(parenStart, parenEnd);
-    const ownNonFull = NON_FULL_HYDRATION_RE.test(callSource);
-    const ownFull = FULL_HYDRATION_RE.test(callSource);
-    const inheritedNonFull = groups
-      .filter((group) => group.start < callStart && callStart < group.end)
-      .sort((a, b) => b.start - a.start)[0]?.nonFull;
-    if (ownFull || (!ownNonFull && inheritedNonFull !== true)) continue;
-    const file = resolveRef(fileRef);
+  for (const ref of scan.nonFullRefs) {
+    const file = resolveRef(ref);
     nonFullRefs.set(file, (nonFullRefs.get(file) ?? 0) + 1);
   }
   if (nonFullRefs.size === 0) return [];
 
-  let strings: string[];
-  try {
-    strings = collectManifestStrings(
-      parseAst(source, { lang: getRolldownLang(appFile) }) as unknown as StaticProgramNode,
-    ).strings;
-  } catch {
-    // An unparseable manifest is the dev server's error to report.
-    return [];
-  }
   const allRefs = new Map<string, number>();
-  for (const value of strings) {
+  for (const value of scan.strings) {
     if (!value.startsWith(".") && !value.startsWith("/")) continue;
     const file = resolveRef(value);
     if (nonFullRefs.has(file)) allRefs.set(file, (allRefs.get(file) ?? 0) + 1);
@@ -251,10 +155,26 @@ const IMPORTING_NODE_TYPES = new Set([
 /** Every string the manifest holds, and where it imports from. */
 function collectManifestStrings(program: StaticProgramNode): {
   localImports: string[];
+  valueImports: string[];
+  eagerDynamicImport: boolean;
   strings: string[];
 } {
   const strings: string[] = [];
   const localImports: string[] = [];
+  // Static imports that bring values (not just types) into the manifest.
+  const valueImports: string[] = [];
+  // `() => import("./x")` written where a module ref goes (a call argument,
+  // an object property value, an array element) is a lazy module ref. Any
+  // other literal `import()`, including one behind a named helper the manifest
+  // can call, hands the manifest values this scan never reads.
+  const lazyImports = new WeakSet<object>();
+  const markLazy = (candidate: unknown): void => {
+    const arrow = asStaticProgramNode(candidate);
+    if (arrow?.type !== "ArrowFunctionExpression") return;
+    const body = asStaticProgramNode(arrow.body);
+    if (body?.type === "ImportExpression") lazyImports.add(body);
+  };
+  let eagerDynamicImport = false;
 
   const walk = (value: unknown): void => {
     if (Array.isArray(value)) {
@@ -264,11 +184,24 @@ function collectManifestStrings(program: StaticProgramNode): {
     const node = asStaticProgramNode(value);
     if (!node) return;
 
+    if (node.type === "CallExpression" && Array.isArray(node.arguments)) {
+      for (const argument of node.arguments) markLazy(argument);
+    } else if (node.type === "ArrayExpression" && Array.isArray(node.elements)) {
+      for (const element of node.elements) markLazy(element);
+    } else if (node.type === "Property" || node.type === "ObjectProperty") {
+      markLazy(node.value);
+    }
+
     if (
       typeof node.value === "string" &&
       (node.type === "Literal" || node.type === "StringLiteral")
     )
       strings.push(node.value);
+    // `\`./routes/a.tsx\`` is a ref like "./routes/a.tsx", and counts as one.
+    if (node.type === "TemplateLiteral") {
+      const value = staticRefValue(node);
+      if (value !== null) strings.push(value);
+    }
 
     // A module ref can only be a plain string, so `import("./" + name)` never
     // contributes one — and a specifier that is not a literal is read below as
@@ -281,6 +214,11 @@ function collectManifestStrings(program: StaticProgramNode): {
       // capability the runtime loads), not manifest data: it is read as a
       // string above and never followed.
       if (node.type !== "ImportExpression" || value === "") localImports.push(value);
+      if (node.type === "ImportExpression") {
+        if (value !== "" && !lazyImports.has(node)) eagerDynamicImport = true;
+      } else if (node.importKind !== "type" && node.exportKind !== "type") {
+        valueImports.push(value);
+      }
     }
 
     for (const key of Object.keys(node)) {
@@ -290,7 +228,7 @@ function collectManifestStrings(program: StaticProgramNode): {
   };
 
   walk(program.body);
-  return { localImports, strings };
+  return { localImports, valueImports, eagerDynamicImport, strings };
 }
 
 /**
@@ -306,8 +244,8 @@ interface PositionalManifestRefs {
   loaders: string[];
 }
 
-/** The literal a ref position holds: a string, or `() => import("…")`. */
-function staticRefValue(value: unknown): string | null {
+/** The string a plain literal (or a template literal without expressions) holds. */
+function staticStringValue(value: unknown): string | null {
   const node = unwrapStaticExpression(value);
   if (!node) return null;
   if ((node.type === "Literal" || node.type === "StringLiteral") && typeof node.value === "string")
@@ -320,7 +258,15 @@ function staticRefValue(value: unknown): string | null {
       ?.cooked;
     return typeof cooked === "string" ? cooked : null;
   }
-  if (node.type === "ArrowFunctionExpression") {
+  return null;
+}
+
+/** The literal a ref position holds: a string, or `() => import("…")`. */
+function staticRefValue(value: unknown): string | null {
+  const literal = staticStringValue(value);
+  if (literal !== null) return literal;
+  const node = unwrapStaticExpression(value);
+  if (node?.type === "ArrowFunctionExpression") {
     const params = Array.isArray(node.params) ? node.params : [];
     const body = unwrapStaticExpression(node.body);
     if (params.length === 0 && body?.type === "ImportExpression")
@@ -437,6 +383,84 @@ function collectPositionalRefs(program: StaticProgramNode, refs: PositionalManif
   return literal;
 }
 
+type HydrationMode = "full" | "nonFull" | "unknown";
+
+/**
+ * The hydration mode a `route()`/`group()` meta argument gives, or `inherited`
+ * when it sets none. Anything this cannot read for certain — a meta held in a
+ * variable, a spread, a computed key, a non-literal value — is "unknown".
+ */
+function metaHydrationMode(meta: unknown, inherited: HydrationMode): HydrationMode {
+  if (meta === undefined) return inherited;
+  const node = unwrapStaticExpression(meta);
+  if (node?.type !== "ObjectExpression") return "unknown";
+  let mode = inherited;
+  for (const property of Array.isArray(node.properties) ? node.properties : []) {
+    const name = staticPropertyName(property);
+    if (name === null) return "unknown";
+    if (name !== "hydration") continue;
+    const value = staticStringValue(asStaticProgramNode(property)!.value);
+    mode =
+      value === "full" ? "full" : value === "islands" || value === "none" ? "nonFull" : "unknown";
+  }
+  return mode;
+}
+
+/** A `route()` second argument's component ref: the module itself or `{ component }`. */
+function componentRef(value: unknown): string | null {
+  const direct = staticRefValue(value);
+  if (direct !== null) return direct;
+  for (const property of staticObjectProperties(value)) {
+    if (property.name === "component") return staticRefValue(property.value);
+  }
+  return null;
+}
+
+/**
+ * Component refs of `route()` calls whose hydration is provably `"islands"` or
+ * `"none"`: their own literal mode or, without one, the innermost enclosing
+ * `group()`'s. A route whose mode this cannot read for certain counts as full,
+ * so its module stays in the client registry — dropping a module a route needs
+ * breaks client navigation to it.
+ */
+function collectNonFullRouteRefs(program: StaticProgramNode, refs: string[]): void {
+  const walk = (value: unknown, inherited: HydrationMode): void => {
+    if (Array.isArray(value)) {
+      for (const item of value) walk(item, inherited);
+      return;
+    }
+    const node = asStaticProgramNode(value);
+    if (!node) return;
+
+    if (node.type === "CallExpression") {
+      const name = calleeName(node.callee);
+      const args = Array.isArray(node.arguments) ? node.arguments : [];
+      if (name === "group") {
+        const mode = metaHydrationMode(args[0], inherited);
+        for (const arg of args.slice(1)) walk(arg, mode);
+        return;
+      }
+      if (name === "route") {
+        // `route(path, { component, …meta })` reads its options from the
+        // config object and ignores a third argument.
+        const config = unwrapStaticExpression(args[1]);
+        const meta = config?.type === "ObjectExpression" ? args[1] : args[2];
+        if (metaHydrationMode(meta, inherited) === "nonFull") {
+          const ref = componentRef(args[1]);
+          if (ref !== null) refs.push(ref);
+        }
+        return;
+      }
+    }
+
+    for (const key of Object.keys(node)) {
+      if (key === "type") continue;
+      walk(node[key], inherited);
+    }
+  };
+  walk(program.body, "full");
+}
+
 /** At most this many modules are read while following a manifest's imports. */
 const MANIFEST_MODULE_LIMIT = 64;
 const MANIFEST_IMPORT_EXTENSIONS = [".ts", ".tsx", ".mts", ".js", ".jsx", ".mjs"];
@@ -481,11 +505,92 @@ interface ManifestScan {
   refs: PositionalManifestRefs;
   /** Absolute paths of the manifest and every local module the scan read. */
   files: string[];
+  /** Component refs of routes whose hydration is provably not `"full"`. */
+  nonFullRefs: string[];
+  /**
+   * Whether a route may set `streaming`: some scanned module names it, the
+   * manifest imports a package other than pracht's, or the scan is incomplete.
+   */
+  mayStream: boolean;
+}
+
+/** What one manifest module says, independent of where the scan started. */
+interface ManifestModuleFacts {
+  localImports: string[];
+  strings: string[];
+  refs: PositionalManifestRefs;
+  nonFullRefs: string[];
+  /** Every route and shell ref position holds a literal. */
+  literalRefs: boolean;
+  mentionsStreaming: boolean;
+  /** Static value imports, which may supply route options. */
+  valueImports: string[];
+  /** A literal `import()` that is not a lazy `() => import(...)` ref. */
+  eagerDynamicImport: boolean;
+}
+
+/**
+ * Parsed facts per manifest module, checked against the file's stamp. The
+ * client, server, and dev modules each scan the manifest several times per
+ * regeneration; a file that has not changed is parsed once.
+ */
+const manifestModuleFactsCache = new Map<
+  string,
+  { stamp: FileStamp; facts: ManifestModuleFacts }
+>();
+
+/** Forget cached manifest facts for `file`, or for every file. */
+export function invalidateManifestModuleFacts(file?: string): void {
+  if (file === undefined) {
+    manifestModuleFactsCache.clear();
+    pageNonFullHydrationCache.clear();
+  } else {
+    manifestModuleFactsCache.delete(file);
+    pageNonFullHydrationCache.delete(file);
+  }
+}
+
+function readManifestModuleFacts(file: string): ManifestModuleFacts | null {
+  let stamp: FileStamp;
+  try {
+    stamp = fileStamp(statSync(file));
+  } catch {
+    manifestModuleFactsCache.delete(file);
+    return null;
+  }
+  const cached = manifestModuleFactsCache.get(file);
+  if (cached && sameFileStamp(cached.stamp, stamp)) return cached.facts;
+
+  try {
+    const source = readFileSync(file, "utf-8");
+    const program = parseAst(source, {
+      lang: getRolldownLang(file),
+    }) as unknown as StaticProgramNode;
+    const collected = collectManifestStrings(program);
+    const facts: ManifestModuleFacts = {
+      localImports: collected.localImports,
+      strings: collected.strings,
+      refs: { routes: [], shells: [], middleware: [], loaders: [] },
+      nonFullRefs: [],
+      literalRefs: true,
+      mentionsStreaming: /\bstreaming\b/.test(source),
+      valueImports: collected.valueImports,
+      eagerDynamicImport: collected.eagerDynamicImport,
+    };
+    facts.literalRefs = collectPositionalRefs(program, facts.refs);
+    collectNonFullRouteRefs(program, facts.nonFullRefs);
+    manifestModuleFactsCache.set(file, { stamp, facts });
+    return facts;
+  } catch {
+    manifestModuleFactsCache.delete(file);
+    return null;
+  }
 }
 
 function scanManifestModules(resolved: ResolvedPrachtPluginOptions, root: string): ManifestScan {
   const refs: PositionalManifestRefs = { routes: [], shells: [], middleware: [], loaders: [] };
   const strings: string[] = [];
+  const nonFullRefs: string[] = [];
   const appFile = resolve(root, resolved.appFile.replace(/^\//, ""));
   const ownedDirectories = [resolved.routesDir, resolved.shellsDir].map((directory) =>
     toPosixPath(resolve(root, directory.replace(/^\//, ""))),
@@ -496,35 +601,46 @@ function scanManifestModules(resolved: ResolvedPrachtPluginOptions, root: string
   const queue = [appFile];
   const seen = new Set(queue);
   let complete = true;
+  let mayStream = false;
   while (queue.length > 0) {
     const file = queue.shift()!;
-    let program: StaticProgramNode;
-    let collected: { localImports: string[]; strings: string[] };
-    try {
-      const source = readFileSync(file, "utf-8");
-      program = parseAst(source, { lang: getRolldownLang(file) }) as unknown as StaticProgramNode;
-      collected = collectManifestStrings(program);
-    } catch {
-      // An unreadable or unparseable manifest is the dev server's error to
-      // report, not a reason to reorganize the bundle.
-      return { complete: false, strings, refs, files: [...seen] };
+    const facts = readManifestModuleFacts(file);
+    // An unreadable or unparseable manifest is the dev server's error to
+    // report, not a reason to reorganize the bundle.
+    if (!facts) {
+      return { complete: false, strings, refs, files: [...seen], nonFullRefs, mayStream: true };
     }
-    strings.push(...collected.strings);
-    if (!collectPositionalRefs(program, refs)) complete = false;
+    mayStream ||= facts.mentionsStreaming || facts.eagerDynamicImport;
+    strings.push(...facts.strings);
+    for (const kind of ["routes", "shells", "middleware", "loaders"] as const) {
+      refs[kind].push(...facts.refs[kind]);
+    }
+    nonFullRefs.push(...facts.nonFullRefs);
+    if (!facts.literalRefs) complete = false;
 
-    for (const specifier of collected.localImports) {
+    for (const specifier of facts.localImports) {
       if (specifier === "") {
         complete = false;
         continue;
       }
-      if (!specifier.startsWith(".") && !specifier.startsWith("/")) continue;
+      if (!specifier.startsWith(".") && !specifier.startsWith("/")) {
+        // A package can hand the manifest route options this scan never reads.
+        if (!specifier.startsWith("@pracht/")) mayStream = true;
+        continue;
+      }
       const target = resolveManifestImport(specifier, file, root);
       if (target === null) {
         complete = false;
         continue;
       }
-      // A route or shell module is a leaf: it holds components, not refs.
-      if (isOwned(target) || seen.has(target)) continue;
+      // A route or shell module is a leaf: it holds components, not refs. A
+      // value imported from one may still be route options this scan never
+      // reads.
+      if (isOwned(target)) {
+        if (facts.valueImports.includes(specifier)) mayStream = true;
+        continue;
+      }
+      if (seen.has(target)) continue;
       if (seen.size >= MANIFEST_MODULE_LIMIT || !/\.[mc]?[jt]sx?$/.test(target)) {
         complete = false;
         continue;
@@ -534,7 +650,14 @@ function scanManifestModules(resolved: ResolvedPrachtPluginOptions, root: string
     }
   }
 
-  return { complete, strings, refs, files: [...seen] };
+  return {
+    complete,
+    strings,
+    refs,
+    files: [...seen],
+    nonFullRefs,
+    mayStream: mayStream || !complete,
+  };
 }
 
 /**
@@ -548,6 +671,23 @@ export function collectManifestModuleFiles(
 ): string[] {
   if (resolved.pagesDir) return [];
   return scanManifestModules(resolved, root).files.map(toPosixPath);
+}
+
+/**
+ * Whether any route may stream its document (`streaming: true`), which is the
+ * only way a page's hydration state carries `defer()` values out of band.
+ * Answers `true` whenever it cannot tell.
+ */
+export function appMayStream(resolved: ResolvedPrachtPluginOptions, root: string): boolean {
+  if (!resolved.pagesDir) return scanManifestModules(resolved, root).mayStream;
+  try {
+    return scanPagesDirectory(
+      resolve(root, resolved.pagesDir.replace(/^\//, "")),
+      resolved.additionalExtensions,
+    ).some((page) => page.streaming !== false && page.streaming !== undefined);
+  } catch {
+    return true;
+  }
 }
 
 /**
@@ -710,15 +850,20 @@ function createUnreferencedModuleExcludes(
 
 export function createPrachtClientModuleSource(
   options: PrachtPluginOptions = {},
-  buildOptions: { root?: string } = {},
+  buildOptions: { root?: string; routeHints?: VirtualModuleRouteHints } = {},
 ): string {
   const resolved = resolveOptions(options);
   const isPagesMode = !!resolved.pagesDir;
-  const routeHints = createRouteHintsForVirtualModules(resolved, buildOptions.root);
+  // `load()` scans once to record what this entry bakes in; reusing that
+  // scan keeps the two from disagreeing and skips a second directory walk.
+  const routeHints =
+    buildOptions.routeHints ?? createRouteHintsForVirtualModules(resolved, buildOptions.root);
   // An app whose shells export no loader ships no shell hints to the browser.
-  const routeLoaderHints = routeHints.shellLoaders ? routeHints.loader : routeHints.routeLoader;
-  const routeHeadHints = routeHints.head;
-  const routeStaticPathsHints = routeHints.staticPaths;
+  // `getStaticPaths()` presence is only read by static-export builds.
+  const clientRouteHints = createClientRouteHintTable(
+    routeHints,
+    resolved.adapter?.staticTarget === true,
+  );
   const webmcpEnabled = hasWebmcpCapabilities(resolved, buildOptions.root);
   // Client-side search validation ships only when a route module can export a
   // `search` schema. Dev keeps it regardless, so adding the first schema does
@@ -832,9 +977,8 @@ export function createPrachtClientModuleSource(
     appImport,
     ...(appRoot ? [`import * as rootModule from ${JSON.stringify(appRoot.id)};`] : []),
     "",
-    `const routeLoaderHints = ${JSON.stringify(routeLoaderHints)};`,
-    `const routeHeadHints = ${JSON.stringify(routeHeadHints)};`,
-    `const routeStaticPathsHints = ${JSON.stringify(routeStaticPathsHints)};`,
+    `const APP_DIR = ${JSON.stringify(appDir)};`,
+    `const routeHints = ${JSON.stringify(clientRouteHints)};`,
     `const routeModules = {`,
     `  ...import.meta.glob(${JSON.stringify(routeGlobPattern)}, { query: ${JSON.stringify(PRACHT_CLIENT_MODULE_QUERY)} }),`,
     `  ...import.meta.glob(${JSON.stringify(additionalRouteGlobPattern)}),`,
@@ -848,10 +992,12 @@ export function createPrachtClientModuleSource(
     `};`,
     "",
     "const resolvedApp = resolveApp(app);",
-    "applyRouteHints(resolvedApp, routeLoaderHints, routeHeadHints, routeStaticPathsHints);",
+    "applyRouteHints(resolvedApp, routeHints);",
     "",
-    ...createApplyRouteLoaderHintsSource(routeHints.shellLoaders),
-    `const APP_DIR = ${JSON.stringify(appDir)};`,
+    ...createApplyClientRouteHintsSource(
+      routeHints.shellLoaders,
+      resolved.adapter?.staticTarget === true,
+    ),
     "",
     "// Manifest refs are written relative to the app manifest file",
     '// ("./routes/home.tsx") while import.meta.glob keys are root-absolute',
@@ -1451,7 +1597,83 @@ function resolveLlmsTxtConfig(
   return config;
 }
 
-function createApplyRouteLoaderHintsSource(shellLoaders = true): string[] {
+/** Bits of a client route hint: what the scanned module exports. */
+const HINT_LOADER = 1;
+const HINT_HEAD = 2;
+const HINT_STATIC_PATHS = 4;
+
+/**
+ * The route hint table the browser entry carries: one root-absolute key per
+ * scanned route or shell module (`/src/routes/home.tsx`, which the entry's
+ * `canonicalModuleKey` turns any manifest ref into) and a bitfield of
+ * `HINT_*` flags. A module the scan saw exports none of them as `0`, so
+ * "known not to" stays distinct from "never scanned" (no key). The server
+ * tables keep their two keys and booleans; only the browser pays per route.
+ */
+function createClientRouteHintTable(
+  hints: VirtualModuleRouteHints,
+  staticPaths: boolean,
+): Record<string, number> {
+  const table: Record<string, number> = {};
+  const keys = new Set([...Object.keys(hints.loader), ...Object.keys(hints.head)]);
+  for (const key of keys) {
+    if (!key.startsWith("/")) continue;
+    // The entry canonicalizes every ref before the lookup (`..` and `.`
+    // segments collapse), so a configured directory like
+    // `/src/other/../routes` must produce the same key.
+    const canonical = posix.normalize(key);
+    table[canonical] =
+      (table[canonical] ?? 0) |
+      (hints.loader[key] === true ? HINT_LOADER : 0) |
+      (hints.head[key] === true ? HINT_HEAD : 0) |
+      (staticPaths && hints.staticPaths[key] === true ? HINT_STATIC_PATHS : 0);
+  }
+  return table;
+}
+
+/**
+ * `applyRouteHints` for the browser entry, reading the bitfield table above.
+ * The rules match the server copy: a hint only ever adds `true`, and narrows
+ * to `false` only when the scan saw the module.
+ */
+function createApplyClientRouteHintsSource(shellLoaders: boolean, staticPaths: boolean): string[] {
+  return [
+    "function applyRouteHints(resolvedApp, hints) {",
+    "  for (const route of resolvedApp.routes) {",
+    "    const hint = hints[canonicalModuleKey(route.file)];",
+    "    const shellHint = route.shellFile ? hints[canonicalModuleKey(route.shellFile)] : undefined;",
+    "    if (hint !== undefined) {",
+    `      if (hint & ${HINT_LOADER}) route.hasLoader = true;`,
+    "      else if (route.hasLoader === undefined) route.hasLoader = false;",
+    ...(staticPaths
+      ? [
+          "      if (route.hasStaticPaths === undefined) {",
+          `        route.hasStaticPaths = (hint & ${HINT_STATIC_PATHS}) !== 0;`,
+          "      }",
+        ]
+      : []),
+    "    }",
+    ...(shellLoaders
+      ? [
+          `    if (shellHint !== undefined) route.hasShellLoader = (shellHint & ${HINT_LOADER}) !== 0;`,
+        ]
+      : []),
+    `    if ((hint & ${HINT_HEAD}) || (shellHint & ${HINT_HEAD})) {`,
+    "      route.hasHead = true;",
+    "    } else if (",
+    "      route.hasHead === undefined &&",
+    "      hint !== undefined &&",
+    "      (!route.shellFile || shellHint !== undefined)",
+    "    ) {",
+    "      route.hasHead = false;",
+    "    }",
+    "  }",
+    "}",
+    "",
+  ];
+}
+
+function createApplyRouteLoaderHintsSource(): string[] {
   return [
     "function applyRouteHints(resolvedApp, routeLoaderHints, routeHeadHints, routeStaticPathsHints) {",
     "  for (const route of resolvedApp.routes) {",
@@ -1461,12 +1683,8 @@ function createApplyRouteLoaderHintsSource(shellLoaders = true): string[] {
     "    } else if (typeof route.hasLoader === 'undefined' && typeof hint === 'boolean') {",
     "      route.hasLoader = hint;",
     "    }",
-    ...(shellLoaders
-      ? [
-          "    const shellLoaderHint = route.shellFile ? routeLoaderHints[route.shellFile] : undefined;",
-          "    if (typeof shellLoaderHint === 'boolean') route.hasShellLoader = shellLoaderHint;",
-        ]
-      : []),
+    "    const shellLoaderHint = route.shellFile ? routeLoaderHints[route.shellFile] : undefined;",
+    "    if (typeof shellLoaderHint === 'boolean') route.hasShellLoader = shellLoaderHint;",
     "    const routeHeadHint = routeHeadHints[route.file];",
     "    const shellHeadHint = route.shellFile ? routeHeadHints[route.shellFile] : undefined;",
     "    const hasCompleteHeadHints = typeof routeHeadHint === 'boolean' &&",

@@ -436,6 +436,7 @@ describe("published package tree shaking", () => {
       __PRACHT_SHELL_LOADERS__: "false",
       __PRACHT_RICH_DATA__: "false",
       __PRACHT_APP_ROOT__: "false",
+      __PRACHT_STREAMING__: "false",
     };
 
     const routerBundle = (define: Record<string, string>) =>
@@ -569,6 +570,40 @@ describe("published package tree shaking", () => {
       });
 
       expect(gzipBytes).toBeLessThanOrEqual(11_500);
+    });
+  });
+
+  // The plugin sets `__PRACHT_STREAMING__` to `false` when no route streams, the
+  // only way hydration state carries `defer()` values to revive.
+  describe("__PRACHT_STREAMING__", () => {
+    const stateBundle = (define: Record<string, string>) =>
+      bundleExport("readHydrationState", {
+        define: {
+          "import.meta.env.DEV": "false",
+          __PRACHT_RICH_DATA__: "false",
+          __PRACHT_SHELL_LOADERS__: "false",
+          ...define,
+        },
+        entry: clientEntry,
+      });
+
+    it("drops deferred-data hydration when no route streams", async () => {
+      const off = await stateBundle({ __PRACHT_STREAMING__: "false" });
+      const on = await stateBundle({ __PRACHT_STREAMING__: "true" });
+
+      expect(on.code).toContain("Invalid deferred hydration path");
+      expect(off.code).not.toContain("Invalid deferred hydration path");
+      expect(off.code).not.toContain("__PRACHT_DEFER__");
+      expect(on.gzipBytes - off.gzipBytes).toBeGreaterThan(0);
+    });
+
+    it("keeps deferred-data hydration when the define is absent", async () => {
+      const { code } = await bundleExport("readHydrationState", {
+        define: { "import.meta.env.DEV": "false" },
+        entry: clientEntry,
+      });
+
+      expect(code).toContain("Invalid deferred hydration path");
     });
   });
 

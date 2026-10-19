@@ -188,8 +188,9 @@ during codegen.
 While `pracht dev` runs, the generated files refresh automatically whenever
 route files are added, removed, or renamed, and whenever the route manifest or
 one of its imported definition modules changes, and after every dev-server
-restart. The CLI re-attaches its watcher to each server Vite creates (a
-`routes.ts` edit restarts the server, replacing its file watcher). Regeneration
+restart. The CLI re-attaches its watcher to each server Vite creates (an
+adapter that runs its own dev server restarts it on a `routes.ts` edit,
+replacing its file watcher). Regeneration
 runs only while the default `src/pracht.d.ts` exists, so it starts as soon as
 `pracht typegen` creates it, even mid-session; until then the dev banner prints
 the command needed to enable typed routes. Handler signature

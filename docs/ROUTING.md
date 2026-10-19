@@ -762,8 +762,11 @@ not show — a route or shell ref that is not a literal (`"./routes/" + name`, a
 variable, a spread), an import that does not resolve to a parseable module, or a
 specifier built at runtime — the registry falls back to covering both
 directories whole, because dropping a module a route needs would break
-navigation to it. In dev, an edit to any of those manifest modules regenerates
-the registries like an edit to `src/routes.ts`. The pages router is unaffected
+navigation to it. In dev, an edit to `src/routes.ts` or any manifest module it
+imports is applied without a server restart: the plugin re-reads the
+manifest-derived state, invalidates every pracht virtual module and every
+module that imports the changed file, and sends the page a full reload. An
+adapter that runs its own dev server (`ownsDevServer`) still restarts. The pages router is unaffected
 either way: there the directory *is* the route list.
 
 The registries are directory globs, so a module outside them is added
@@ -782,6 +785,15 @@ registry with the runtime's own lookup and fails,
 naming each ref, when one matches nothing — those requests would 500.
 (`packages/vite-plugin/src/plugin-codegen.ts` `collectExternalManifestModules`,
 `packages/cli/src/manifest-modules.ts`.)
+
+A route module is also left out of the client registry when every ref to it
+belongs to a route whose hydration is provably `"islands"` or `"none"`: the
+route's own `hydration` string literal or, without one, the innermost enclosing
+`group()`'s. The same AST walk decides it. A mode it cannot read for certain — a
+meta object held in a variable, a spread, a computed key, a non-literal value
+such as `FLAG ? "full" : "islands"` — counts as full, and a scan that could not
+follow every manifest import excludes nothing, so a misread costs a lazy chunk
+instead of breaking client navigation to a full route.
 
 ---
 
@@ -1018,9 +1030,10 @@ Client side (`router.ts`, `runtime-shell-data.ts`):
   defines it `false` for a build in which no shell (manifest shells directory,
   pages `_app` files) exports a `loader`, fail-closed on an incomplete scan, and
   `true` in dev. With `false` the router, route-state fetch, prefetch and
-  revalidation fold their shell branches away and the client entry leaves the
-  shell rows out of its loader hint table, so such an app ships exactly what it
-  shipped before shell loaders existed (`bench:check` holds it to that).
+  revalidation fold their shell branches away and the client entry's
+  `applyRouteHints` drops its `hasShellLoader` line, so such an app ships no
+  shell-data code (`bench:check` holds it to that). Shell rows stay in the
+  hint table for their head bit.
 - The router records the committed shell and its data (`committedShell`,
   `committedShellState`), provides it through `ShellDataContext`, and
   publishes the held shell name through `setHeldShell()`. A navigation to a
@@ -1046,8 +1059,8 @@ Client side (`router.ts`, `runtime-shell-data.ts`):
   whose generation moved before it commits (it may hold a promise taken from
   the cache, or a response fetched before the mutation) re-runs once as a
   `_reloadRouteState` navigation instead of rendering that state.
-- `hasShellLoader` is a build-time route hint (shell loader presence from the
-  loader hint table, which scans shells and pages `_app` files too). A
+- `hasShellLoader` is a build-time route hint (the loader bit of the shell's
+  row in the client hint table, which scans shells and pages `_app` files too). A
   loaderless, headless, middleware-free route skips the route-state request
   only when its shell has no loader or the client already holds its data. The
   static export and `pracht verify` reject SPA routes whose shell has a loader.
@@ -1707,7 +1720,9 @@ reservation even after route files move elsewhere.
 ### Startup Banner
 
 `pracht dev` prints a route table when the server starts, and again after
-every dev-server restart (a `routes.ts` edit restarts it): the local (and
+every manifest edit the plugin applies in place (the `pracht:cli-dev`
+plugin's `handleHotUpdate` watches the pracht plugin's
+`api.pracht.manifestUpdates` count) and after every dev-server restart: the local (and
 network) URL, page routes with their render mode, shell, and middleware, plus
 API routes with their exported HTTP methods. Each table lists its first 25
 rows (`DEV_BANNER_ROW_LIMIT`) and ends with `… and N more (pracht inspect

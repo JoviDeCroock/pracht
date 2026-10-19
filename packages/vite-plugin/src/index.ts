@@ -61,6 +61,7 @@ import {
   resolveCapabilityModulePaths,
 } from "./plugin-capabilities.ts";
 import {
+  appMayStream,
   clearPagesAppSourceCache,
   collectExternalManifestModules,
   collectManifestModuleFiles,
@@ -73,8 +74,10 @@ import {
   routeHintsHaveSearch,
   createServerLoaderHintsForHotUpdates,
   createPrachtServerModuleSource,
+  invalidateManifestModuleFacts,
   isEjectedPagesLayout,
 } from "./plugin-codegen.ts";
+import { invalidatePageFacts } from "./pages-router.ts";
 import {
   createDevCssInjectionMiddleware,
   createDevMcpPreflightMiddleware,
@@ -94,7 +97,7 @@ import {
   withAdditionalExtensions,
 } from "./route-extensions.ts";
 import type { PrachtAdapter } from "./plugin-adapter.ts";
-import type { RouteHints } from "./route-loader-hints.ts";
+import { invalidateRouteFileAnalysis, type RouteHints } from "./route-loader-hints.ts";
 import { isNonModuleFile, moduleGlob } from "./source-files.ts";
 
 function emptyRouteHints(): RouteHints {
@@ -164,6 +167,21 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
   let externalRouteFiles = new Set<string>();
   // The manifest's own local imports: route fragments that feed the registries.
   let manifestModuleFiles = new Set<string>();
+  /**
+   * Everything this plugin derives from the app manifest outside the virtual
+   * modules. Read at startup and again whenever the manifest changes in dev.
+   */
+  const refreshManifestState = (): void => {
+    externalRouteFiles = computeExternalRouteFiles(root, resolved);
+    manifestModuleFiles = new Set(
+      collectManifestModuleFiles(resolved, root).flatMap((file) => [file, canonicalFilePath(file)]),
+    );
+    capabilityModulePaths = new Set(
+      resolveCapabilityModulePaths(resolved, root).map(canonicalFilePath),
+    );
+    usesEjectedPagesLayout = isEjectedPagesLayout(resolved, root);
+    appRootFile = resolveAppRootFile(resolved, root);
+  };
   const isRouteOrShellModule = (id: string): boolean =>
     isRouteOrShellFile(id, routeFileDirs, routeFileExtensions) ||
     isExternalRouteFile(id, externalRouteFiles, routeFileExtensions);
@@ -212,6 +230,16 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
   let base = "/";
   let configuredBase: string | undefined;
 
+  const prachtApi = {
+    llmsTxtEnabled: Boolean(resolved.llmsTxt),
+    pracht: {
+      staticTarget: resolved.adapter.staticTarget === true,
+      // `pracht build` calls the adapter's `finalizeBuild` once dist/ is complete.
+      adapter: resolved.adapter,
+      // Manifest edits dev applied in place, without restarting the server.
+      manifestUpdates: 0,
+    },
+  };
   const prachtPlugin: Plugin = {
     name: "pracht",
     enforce: "pre",
@@ -223,14 +251,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
     // The nested `pracht` bag carries the same kind of inter-plugin metadata
     // for tooling that executes the Vite config and needs the adapter Pracht
     // actually selected, without reinterpreting the config source.
-    api: {
-      llmsTxtEnabled: Boolean(resolved.llmsTxt),
-      pracht: {
-        staticTarget: resolved.adapter.staticTarget === true,
-        // `pracht build` calls the adapter's `finalizeBuild` once dist/ is complete.
-        adapter: resolved.adapter,
-      },
-    },
+    api: prachtApi,
 
     config(_config, env) {
       const isEdge = resolved.adapter.edge === true;
@@ -292,6 +313,12 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       // server runs takes effect without a restart.
       const appRootDefine =
         env.command === "build" ? String(findAppRootModule(resolved, configRoot) !== null) : "true";
+
+      // Only a streamed document hands the browser `defer()` values to revive
+      // during hydration, so a build with no streaming route drops that code.
+      // Dev keeps it on: `streaming: true` can be added while the server runs.
+      const streamingDefine =
+        env.command === "build" ? String(appMayStream(resolved, configRoot)) : "true";
 
       // Static-export builds bake the flag into both bundles: the client
       // router switches to `/_pracht/state/…` files and the server bundle's
@@ -394,6 +421,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
           __PRACHT_ROUTE_SEARCH__: routeSearchDefine,
           __PRACHT_SHELL_LOADERS__: shellLoadersDefine,
           __PRACHT_APP_ROOT__: appRootDefine,
+          __PRACHT_STREAMING__: streamingDefine,
           __PRACHT_STATIC_TARGET__: staticTargetDefine,
           __PRACHT_SERVER_ISLANDS__: serverIslandsDefine,
           // One URL policy for the server runtime, the client router, and the
@@ -497,18 +525,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       isBuild = config.command === "build";
       base = config.base;
       routeFileDirs = computeRouteFileDirs(root, resolved);
-      externalRouteFiles = computeExternalRouteFiles(root, resolved);
-      manifestModuleFiles = new Set(
-        collectManifestModuleFiles(resolved, root).flatMap((file) => [
-          file,
-          canonicalFilePath(file),
-        ]),
-      );
-      capabilityModulePaths = new Set(
-        resolveCapabilityModulePaths(resolved, root).map(canonicalFilePath),
-      );
-      usesEjectedPagesLayout = isEjectedPagesLayout(resolved, root);
-      appRootFile = resolveAppRootFile(resolved, root);
+      refreshManifestState();
       // Non-literal WebMCP schemas are evaluated in a short-lived server
       // module runner. Preserve app aliases without reloading the Vite config
       // (which would recursively instantiate this plugin).
@@ -575,7 +592,8 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         }
       }
       if (isClientModule(id)) {
-        clientRouteHints = createRouteHintsForVirtualModules(resolved, root);
+        const routeHints = createRouteHintsForVirtualModules(resolved, root);
+        clientRouteHints = routeHints;
         serverRouteLoaderHints = createServerLoaderHintsForHotUpdates(resolved, root);
         // These are the tables `createPrachtClientModuleSource()` is about to
         // bake into the module the browser receives.
@@ -584,7 +602,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         // routes, so the next hint-relevant edit still has to reload.
         routeHintsNeedResync = clientRouteHints.incomplete;
         appRootFile = resolveAppRootFile(resolved, root);
-        return createPrachtClientModuleSource(resolved, { root });
+        return createPrachtClientModuleSource(resolved, { root, routeHints });
       }
       if (isDevModule(id)) {
         return createPrachtDevModuleSource(resolved, { root, base });
@@ -717,6 +735,11 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
     },
 
     handleHotUpdate({ file, modules = [], server }) {
+      // The analysis caches check file stamps on every read; dropping the
+      // saved file as well covers filesystems with coarse timestamps.
+      invalidateRouteFileAnalysis(file);
+      invalidateManifestModuleFacts(file);
+      invalidatePageFacts(file);
       const serverRoot = toPosixPath(server.config.root);
       const normalizedFile = toPosixPath(file);
       const relative = normalizedFile.startsWith(serverRoot)
@@ -866,7 +889,33 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         !isPagesMode &&
         (relative === resolved.appFile || manifestModuleFiles.has(normalizedFile))
       ) {
-        server.restart();
+        // An adapter that runs its own dev server loads the manifest in its
+        // own runtime, which only a restart refreshes.
+        if (resolved.adapter.ownsDevServer) {
+          server.restart();
+          return [];
+        }
+        // Everything the manifest decides is regenerated in place: the state
+        // read from it here, every virtual module built from it, and every
+        // server-side module that evaluated the old one. The open page then
+        // reloads against the new route table. A module that gained or lost a
+        // route or capability role is transformed differently now, so its
+        // cached transform is dropped too.
+        const previousRoles = [externalRouteFiles, capabilityModulePaths];
+        const previousAppRoot = appRootFile;
+        refreshManifestState();
+        const changedRoles = [externalRouteFiles, capabilityModulePaths].flatMap((next, index) =>
+          symmetricDifference(previousRoles[index]!, next),
+        );
+        if (previousAppRoot !== appRootFile) {
+          for (const appRoot of [previousAppRoot, appRootFile]) {
+            if (appRoot !== null) changedRoles.push(appRoot);
+          }
+        }
+        invalidateManifestDependents(server, [file, ...changedRoles]);
+        server.ws.send({ type: "full-reload" });
+        // `pracht dev` reprints its banner when this count moves.
+        prachtApi.pracht.manifestUpdates += 1;
         return [];
       }
 
@@ -1527,6 +1576,43 @@ function invalidateVirtualModules(server: import("vite").ViteDevServer): void {
   if (clientMod) server.moduleGraph.invalidateModule(clientMod);
   if (serverMod) server.moduleGraph.invalidateModule(serverMod);
   if (devMod) server.moduleGraph.invalidateModule(devMod);
+}
+
+/**
+ * Invalidate what an edit to the app manifest (or a module it imports) makes
+ * stale: every virtual module generated from the manifest, and each of `files`
+ * (the changed file and any module whose role changed) with its importers,
+ * transitively, so nothing serves a transform or a route table from before.
+ */
+function invalidateManifestDependents(server: import("vite").ViteDevServer, files: string[]): void {
+  for (const id of [
+    PRACHT_CLIENT_MODULE_ID,
+    PRACHT_SERVER_MODULE_ID,
+    PRACHT_DEV_MODULE_ID,
+    PRACHT_CAPABILITIES_MODULE_ID,
+    PRACHT_WEBMCP_MODULE_ID,
+    PRACHT_ISLANDS_CLIENT_MODULE_ID,
+    PRACHT_DEV_PAGE_TOOLS_MODULE_ID,
+  ]) {
+    const mod = server.moduleGraph.getModuleById(id);
+    if (mod) server.moduleGraph.invalidateModule(mod);
+  }
+  const seen = new Set<unknown>();
+  const queue = files.flatMap((file) => [...(server.moduleGraph.getModulesByFile(file) ?? [])]);
+  while (queue.length > 0) {
+    const mod = queue.pop()!;
+    if (seen.has(mod)) continue;
+    seen.add(mod);
+    server.moduleGraph.invalidateModule(mod);
+    queue.push(...mod.importers);
+  }
+}
+
+function symmetricDifference(previous: Set<string>, next: Set<string>): string[] {
+  return [
+    ...[...previous].filter((file) => !next.has(file)),
+    ...[...next].filter((file) => !previous.has(file)),
+  ];
 }
 
 function computeRouteFileDirs(root: string, resolved: ResolvedPrachtPluginOptions): string[] {

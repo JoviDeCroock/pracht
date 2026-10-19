@@ -185,6 +185,13 @@ describe("@pracht/cli dev typegen", () => {
         30_000,
         () => output,
       );
+      // The probe prints while the restart is still evaluating the config; an
+      // edit made before the new server's watcher exists is never seen.
+      await waitFor(
+        () => output.includes("server restarted"),
+        30_000,
+        () => output,
+      );
 
       writeProjectFile(appDir, ".env", "# emptied\n");
       await waitFor(
@@ -278,10 +285,10 @@ export const routes = [
     }
   }, 120_000);
 
-  it("pracht dev keeps route types in sync across manifest-triggered restarts", async () => {
-    // Every edit to src/routes.ts restarts the Vite server, which replaces its
-    // file watcher. The route-type watcher used to stay bound to the first
-    // server's watcher, so only the first manifest edit was ever picked up.
+  it("pracht dev keeps route types in sync across repeated manifest edits", async () => {
+    // The route-type watcher used to pick up only the first manifest edit. Dev
+    // now applies src/routes.ts edits in place instead of restarting, so every
+    // edit must still regenerate the declaration.
     const appDir = createRepoTempDir("pracht-cli-dev-typegen-restart-");
     writeTypedManifestApp(appDir);
     runCli(["typegen"], { cwd: appDir });
@@ -348,29 +355,22 @@ export const routes = [
       );
 
       for (const id of ["first-edit", "second-edit", "third-edit"]) {
-        const restarts = output.split("server restarted").length;
         await saveUntilObserved("src/routes.ts", addRoute(id));
         await waitFor(
           () => declaration().includes(`"${id}"`),
           30_000,
           () => output,
         );
-        // Let the restart this edit triggered finish before the next edit, so
-        // the next one is observed by the replacement server's watcher.
-        await waitFor(
-          () => output.split("server restarted").length > restarts,
-          30_000,
-          () => output,
-        );
       }
+      expect(output).not.toContain("server restarted");
 
-      // Adding a route source file after the restarts is still observed.
+      // Adding a route source file after the manifest edits is still observed.
       await saveUntilObserved(
-        "src/api/after-restart.ts",
+        "src/api/after-edits.ts",
         "export function GET() {\n  return Response.json({ ok: true });\n}\n",
       );
       await waitFor(
-        () => declaration().includes('"/api/after-restart"'),
+        () => declaration().includes('"/api/after-edits"'),
         30_000,
         () => output,
       );

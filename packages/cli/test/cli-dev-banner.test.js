@@ -18,7 +18,7 @@ import {
 afterEach(cleanupTempDirs);
 
 describe("@pracht/cli dev banner", () => {
-  it("pracht dev prints the banner again after a manifest edit restarts the server", async () => {
+  it("pracht dev prints the banner again after a manifest edit", async () => {
     const appDir = createRepoTempDir("pracht-cli-dev-banner-restart-");
     writeTypedManifestApp(appDir, { capabilities: true });
     // The banner reads capabilities from source, on startup and on restart.
@@ -75,6 +75,8 @@ describe("@pracht/cli dev banner", () => {
       expect(plain().split("Routes (").at(-1)).toContain("/added");
       expect(plain().split("Routes (").at(-1)).toContain("notes.search");
       expect(output).not.toContain("CAPABILITY_MODULE_EXECUTED");
+      // The edit is applied in place, so this banner is not a restart's.
+      expect(plain()).not.toContain("server restarted");
     } finally {
       await stopChild(child);
     }

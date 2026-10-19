@@ -489,10 +489,18 @@ difference here only shows up after deploy.
 
 ### Route hint tables
 
-The generated client entry bakes in four per-route tables — does this module
-export `loader`, `head`, `headers`, `getStaticPaths` — which the browser's
-router reads to decide whether a navigation must fetch route state.
-`createRouteHints()` (`route-loader-hints.ts`) builds all four from one
+`createRouteHints()` (`route-loader-hints.ts`) answers, per route and shell
+module, whether it exports `loader`, `head`, `headers`, `getStaticPaths`; the
+router reads those answers to decide whether a navigation must fetch route
+state. The server and dev modules bake them in as boolean tables with two keys
+per file (`./routes/x.tsx` and `/src/routes/x.tsx`). The browser entry gets
+one compact table instead (`createClientRouteHintTable()` in
+`plugin-codegen.ts`): one canonical root-absolute key per module, as the
+entry's `canonicalModuleKey` produces it, and a bitfield value (1 loader, 2
+head, 4 `getStaticPaths`, the last only for `staticTarget` adapters). A module
+the scan saw that exports none of them is `0`, distinct from a missing key (a
+module never scanned), so the hint rules stay "add `true`, narrow to `false`
+only when known". It builds all four from one
 directory walk and one parse per route file; the per-table
 `createRoute*Hints()` exports are thin wrappers over it, as is
 `createRouteHintsForVirtualModules()` in `plugin-codegen.ts`, which resolves

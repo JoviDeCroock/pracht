@@ -18,6 +18,10 @@ const RICH_ROUTE_DATA =
 declare const __PRACHT_SHELL_LOADERS__: boolean | undefined;
 const SHELL_LOADERS_ENABLED =
   typeof __PRACHT_SHELL_LOADERS__ === "undefined" || __PRACHT_SHELL_LOADERS__ !== false;
+// `false` when no route in the build streams, the only way hydration state
+// carries `deferred` references.
+declare const __PRACHT_STREAMING__: boolean | undefined;
+const STREAMING_ENABLED = typeof __PRACHT_STREAMING__ === "undefined" || __PRACHT_STREAMING__;
 
 export interface PrachtHydrationState<TData = unknown> {
   url: string;
@@ -242,7 +246,7 @@ export function readHydrationState<TData = unknown>(): PrachtHydrationState<TDat
       state.shellData = decodeRouteData(state.shellData);
     }
   }
-  state.data = rehydrateDeferredData(state.data, state.deferred);
+  if (STREAMING_ENABLED) state.data = rehydrateDeferredData(state.data, state.deferred);
   window.__PRACHT_STATE__ = state as PrachtHydrationState;
   return state;
 }

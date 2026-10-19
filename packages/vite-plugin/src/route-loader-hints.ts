@@ -400,6 +400,8 @@ function detectLoaderExportWithoutParser(source: string): boolean {
 
 interface RouteFileScan {
   files: string[];
+  /** The stat each file was listed with, the key of its cached analysis. */
+  stats: Map<string, FileStamp>;
   /**
    * An entry was skipped, so the table this scan feeds describes fewer files
    * than the directory holds. Callers use it to keep forcing a client-entry
@@ -446,6 +448,7 @@ function scanRouteFiles(dir: string, extensions: Set<string>, scan: RouteFileSca
 
     if (extensions.has(extname(entry)) && !isNonModuleFile(entry)) {
       scan.files.push(abs);
+      scan.stats.set(abs, fileStamp(stat));
     }
   }
 }
@@ -506,6 +509,66 @@ function analyzeRouteExports(source: string): Record<string, boolean> {
   };
 }
 
+/** What identifies one version of a file without reading it. */
+export interface FileStamp {
+  mtimeMs: number;
+  ctimeMs: number;
+  size: number;
+}
+
+export function fileStamp(stat: { mtimeMs: number; ctimeMs: number; size: number }): FileStamp {
+  return { mtimeMs: stat.mtimeMs, ctimeMs: stat.ctimeMs, size: stat.size };
+}
+
+export function sameFileStamp(a: FileStamp, b: FileStamp): boolean {
+  return a.mtimeMs === b.mtimeMs && a.ctimeMs === b.ctimeMs && a.size === b.size;
+}
+
+interface RouteFileAnalysis {
+  exports: Record<string, boolean>;
+  capabilities: string[];
+}
+
+/**
+ * Parsed export facts per route or shell file, keyed by path and checked
+ * against the file's stamp. Every save regenerates up to four virtual modules,
+ * each of which reads these facts for every route; without the cache each of
+ * them re-read and re-parsed every file, so one edit cost O(routes) parses
+ * several times over.
+ */
+const routeFileAnalysisCache = new Map<string, { stamp: FileStamp; analysis: RouteFileAnalysis }>();
+
+/** Forget cached facts for `file`, or for every file. */
+export function invalidateRouteFileAnalysis(file?: string): void {
+  if (file === undefined) routeFileAnalysisCache.clear();
+  else routeFileAnalysisCache.delete(file);
+}
+
+function analyzeRouteFile(file: string, stamp: FileStamp | undefined): RouteFileAnalysis | null {
+  const cached = routeFileAnalysisCache.get(file);
+  if (cached && stamp && sameFileStamp(cached.stamp, stamp)) return cached.analysis;
+
+  let source: string;
+  try {
+    source = readFileSync(file, "utf-8");
+  } catch {
+    routeFileAnalysisCache.delete(file);
+    return null;
+  }
+  const capabilityInitializer = readNamedExportInitializer(source, "CAPABILITIES");
+  const capabilityValue = capabilityInitializer
+    ? evaluateLiteral(capabilityInitializer)
+    : undefined;
+  const analysis: RouteFileAnalysis = {
+    exports: analyzeRouteExports(source),
+    capabilities: Array.isArray(capabilityValue)
+      ? capabilityValue.filter((name): name is string => typeof name === "string")
+      : [],
+  };
+  if (stamp) routeFileAnalysisCache.set(file, { stamp, analysis });
+  return analysis;
+}
+
 function routeHintKeys(routesDir: string, file: string, options: RouteHintOptions): Set<string> {
   const keys = new Set<string>();
   if (options.appFileDir) {
@@ -522,9 +585,19 @@ function routeHintKeys(routesDir: string, file: string, options: RouteHintOption
 export function createRouteHints(routesDir: string, options: RouteHintOptions = {}): RouteHints {
   const additionalExtensions = normalizeAdditionalExtensions(options.additionalExtensions);
   const extensions = withAdditionalExtensions(DEFAULT_ROUTE_EXTENSIONS, additionalExtensions);
-  const scan: RouteFileScan = { files: [], incomplete: false };
-  if (options.files) scan.files.push(...options.files);
-  else scanRouteFiles(routesDir, extensions, scan);
+  const scan: RouteFileScan = { files: [], incomplete: false, stats: new Map() };
+  if (options.files) {
+    for (const file of options.files) {
+      try {
+        scan.stats.set(file, fileStamp(statSync(file)));
+        scan.files.push(file);
+      } catch {
+        scan.incomplete = true;
+      }
+    }
+  } else {
+    scanRouteFiles(routesDir, extensions, scan);
+  }
 
   const hints: RouteHints = {
     capabilities: {},
@@ -537,15 +610,14 @@ export function createRouteHints(routesDir: string, options: RouteHintOptions = 
   };
 
   for (const file of scan.files) {
-    let source: string;
-    try {
-      source = readFileSync(file, "utf-8");
-    } catch {
+    const analysis = analyzeRouteFile(file, scan.stats.get(file));
+    if (!analysis) {
       // Same race as the stat above, one step later. Report it rather than
       // letting one half-written file discard the whole table.
       hints.incomplete = true;
       continue;
     }
+    const { exports, capabilities } = analysis;
 
     const extension = extname(file);
     // A companion Vite plugin may synthesize `head` or `headers` while
@@ -555,14 +627,6 @@ export function createRouteHints(routesDir: string, options: RouteHintOptions = 
     // configured extensions get that treatment.
     const compiledFormat = extension === ".md" || extension === ".mdx";
     const synthesizable = additionalExtensions.includes(extension);
-    const exports = analyzeRouteExports(source);
-    const capabilityInitializer = readNamedExportInitializer(source, "CAPABILITIES");
-    const capabilityValue = capabilityInitializer
-      ? evaluateLiteral(capabilityInitializer)
-      : undefined;
-    const capabilities = Array.isArray(capabilityValue)
-      ? capabilityValue.filter((name): name is string => typeof name === "string")
-      : [];
 
     const values = {
       head: compiledFormat || synthesizable || exports.head,

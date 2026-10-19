@@ -184,7 +184,7 @@ const FEATURES: { Icon: Icon; title: string; desc: string }[] = [
   {
     Icon: IconAtom,
     title: "Preact-First",
-    desc: "Full hooks, JSX, and the Preact ecosystem on a runtime you can size: 0 KB on a static route, 18.0 KB gzip fully hydrated. Both measured by pnpm bench, both gated in CI.",
+    desc: "Full hooks, JSX, and the Preact ecosystem on a runtime you can size: 0 KB on a static route, 17.3 KB gzip fully hydrated. Both measured by pnpm bench, both gated in CI.",
   },
   {
     Icon: IconBolt,
@@ -220,14 +220,14 @@ const LADDER: { mode: string; kb: string; bytes: number; desc: string }[] = [
   },
   {
     mode: 'hydration: "full"',
-    kb: "18.0 KB",
-    bytes: 18465,
+    kb: "17.3 KB",
+    bytes: 17713,
     desc: "The page hydrates and the client router takes over navigation, prefetching, and loader fetches.",
   },
   {
     mode: "full + preact/compat",
-    kb: "18.7 KB",
-    bytes: 19193,
+    kb: "18.0 KB",
+    bytes: 18476,
     desc: "The same page with the React compatibility layer, so React-authored dependencies resolve.",
   },
 ];
@@ -380,7 +380,7 @@ export const app = defineApp({
           <p class="ladder-note">
             Gzipped client JavaScript a cold load fetches, including the chunks the router imports
             after hydration. Your application code sits on top of this. Switching prefetching off
-            with <code>client: {"{ prefetch: false }"}</code> takes full hydration to 16.4 KB.
+            with <code>client: {"{ prefetch: false }"}</code> takes full hydration to 15.6 KB.
             Re-measure any of it with <code>pnpm bench</code> —{" "}
             <a href="/docs/performance">how these numbers are produced</a>.
           </p>
