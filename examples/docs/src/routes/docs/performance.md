@@ -25,7 +25,7 @@ These are the client JavaScript totals for the *same page*, rendering the
 | `hydration: "full"`, prefetching off | **15.7 KB** | 40.5 KB | Full hydration with `client: { prefetch: false }`. |
 | `hydration: "full"`, navigation guards off | **17.2 KB** | 40.7 KB | Full hydration with `client: { navigationGuards: false }`. |
 | `hydration: "full"`, rich data on | **17.7 KB** | 42.2 KB | Full hydration with `client: { richData: true }`. |
-| `hydration: "full"` + `preact/compat` | **18.1 KB** | 43.9 KB | Full hydration with the React compatibility layer in the graph. |
+| `hydration: "full"` + `preact/compat` | **18.1 KB** | 44.0 KB | Full hydration with the React compatibility layer in the graph. |
 
 Gzip is a cold load: the route's chunks plus the chunk the router imports
 after hydration. Raw is the route's chunks only. Both come from

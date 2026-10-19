@@ -221,13 +221,13 @@ const LADDER: { mode: string; kb: string; bytes: number; desc: string }[] = [
   {
     mode: 'hydration: "full"',
     kb: "17.4 KB",
-    bytes: 17804,
+    bytes: 17808,
     desc: "The page hydrates and the client router takes over navigation, prefetching, and loader fetches.",
   },
   {
     mode: "full + preact/compat",
     kb: "18.1 KB",
-    bytes: 18565,
+    bytes: 18571,
     desc: "The same page with the React compatibility layer, so React-authored dependencies resolve.",
   },
 ];
