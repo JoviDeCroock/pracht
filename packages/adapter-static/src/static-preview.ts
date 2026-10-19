@@ -3,7 +3,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { resolve } from "node:path";
 
 import { getCacheControl, resolveStaticFile } from "@pracht/adapter-node";
-import { decodeStaticPath, staticPathCandidates } from "@pracht/core/server";
+import { decodeStaticPath, staticByteRange, staticPathCandidates } from "@pracht/core/server";
 
 export interface StaticPreviewHandlerOptions {
   /** Directory to serve, usually `dist/client`. */
@@ -121,7 +121,7 @@ export function createStaticPreviewHandler(
       }
     }
     if (file) {
-      await sendFile(res, method, file.filePath, file.contentType, file.cacheControl, 200);
+      await sendFile(res, method, file.filePath, file.contentType, file.cacheControl, 200, req);
       return;
     }
 
@@ -186,6 +186,10 @@ function decodePathSegments(pathname: string): string[] | null {
   return segments;
 }
 
+/**
+ * Answer with a file. `rangeRequest` is the request a `200` may answer with a
+ * single byte range (`206`), as static hosts do for media.
+ */
 async function sendFile(
   res: ServerResponse,
   method: string,
@@ -193,6 +197,7 @@ async function sendFile(
   contentType: string,
   cacheControl: string,
   status: number,
+  rangeRequest?: IncomingMessage,
 ): Promise<void> {
   let body: Buffer;
   try {
@@ -203,12 +208,48 @@ async function sendFile(
     return;
   }
 
-  res.writeHead(status, {
+  const headers: Record<string, string | number> = {
     "content-type": contentType,
     "cache-control": cacheControl,
     "content-length": body.byteLength,
-  });
+  };
+  if (rangeRequest) {
+    headers["accept-ranges"] = "bytes";
+    const range =
+      method === "GET"
+        ? staticByteRange(
+            { get: (name) => headerValue(rangeRequest, name) },
+            { get: () => null },
+            body.byteLength,
+          )
+        : null;
+    if (range === "unsatisfiable") {
+      res.writeHead(416, {
+        ...headers,
+        "content-length": 0,
+        "content-range": `bytes */${body.byteLength}`,
+      });
+      res.end();
+      return;
+    }
+    if (range) {
+      res.writeHead(206, {
+        ...headers,
+        "content-length": range.end - range.start + 1,
+        "content-range": `bytes ${range.start}-${range.end}/${body.byteLength}`,
+      });
+      res.end(body.subarray(range.start, range.end + 1));
+      return;
+    }
+  }
+
+  res.writeHead(status, headers);
   res.end(method === "HEAD" ? undefined : body);
+}
+
+function headerValue(req: IncomingMessage, name: string): string | null {
+  const value = req.headers[name.toLowerCase()];
+  return typeof value === "string" ? value : null;
 }
 
 export { getCacheControl };

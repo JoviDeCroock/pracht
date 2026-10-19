@@ -1084,6 +1084,7 @@ SqlApprovalStoreDialect: type
 SqlApprovalStoreExecute: type
 SqlApprovalStoreOptions: interface
 SqlApprovalStoreResult: interface
+StaticByteRange: type
 StaticPathCandidateOptions: interface
 StaticPathDecodeFailure: type
 StaticPathDecodeResult: type
@@ -1198,6 +1199,7 @@ setIslandsClientEntryUrl: function
 setServerEnv: function
 setServerIslandsClientEntryUrl: function
 shareHeadersManifest: function
+staticByteRange: function
 staticContentType: function
 staticPathCandidates: function
 stripBase: function

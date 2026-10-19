@@ -132,6 +132,8 @@ export const ISG_PATHS = {
   cookie: "/isg-cookie",
   /** time only; its render is `Cache-Control: private`. */
   private: "/isg-private",
+  /** time only; a dynamic route at a path the build writes percent-encoded. */
+  escaped: "/isg-posts/caf%C3%A9",
 } as const;
 
 export interface Fixture {
@@ -166,6 +168,10 @@ export function createFixture(options: { build?: string; generatedAt?: number } 
         revalidate: timeRevalidate(60),
       }),
       route(ISG_PATHS.private, "./routes/isg-private.tsx", {
+        render: "isg",
+        revalidate: timeRevalidate(60),
+      }),
+      route("/isg-posts/:slug", "./routes/isg-post.tsx", {
         render: "isg",
         revalidate: timeRevalidate(60),
       }),
@@ -222,6 +228,13 @@ export function createFixture(options: { build?: string; generatedAt?: number } 
         },
         headers: () => ({ "cache-control": "private, max-age=0" }),
       }),
+      "./routes/isg-post.tsx": async () => ({
+        Component: () => `render-of:${build}`,
+        loader: async () => {
+          countRender(ISG_PATHS.escaped);
+          return {};
+        },
+      }),
     },
     apiModules: {
       "/src/api/echo.ts": async () => ({
@@ -245,6 +258,7 @@ export function createFixture(options: { build?: string; generatedAt?: number } 
       [ISG_PATHS.page]: { revalidate: [timeRevalidate(60), webhookRevalidate()], generatedAt },
       [ISG_PATHS.cookie]: { revalidate: timeRevalidate(60), generatedAt },
       [ISG_PATHS.private]: { revalidate: timeRevalidate(60), generatedAt },
+      [ISG_PATHS.escaped]: { revalidate: timeRevalidate(60), generatedAt },
     },
     probe,
     renders,
@@ -325,22 +339,6 @@ export function createStaticOutput(
     writePrerenderedISG,
     cleanup: () => rmSync(root, { force: true, recursive: true }),
   };
-}
-
-/** Whether the filesystem under the temp directory folds letter case (macOS, Windows). */
-export function filesystemFoldsCase(): boolean {
-  const dir = mkdtempSync(join(tmpdir(), "pracht-conformance-case-"));
-  try {
-    writeFileSync(join(dir, "probe"), "");
-    try {
-      writeFileSync(join(dir, "PROBE"), "", { flag: "wx" });
-      return false;
-    } catch {
-      return true;
-    }
-  } finally {
-    rmSync(dir, { force: true, recursive: true });
-  }
 }
 
 // ---------------------------------------------------------------------------

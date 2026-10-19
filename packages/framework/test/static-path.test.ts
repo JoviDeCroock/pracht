@@ -1,10 +1,16 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
+import { isgPathKey } from "../src/revalidation.ts";
 import { getManifestHeaders } from "../src/runtime-headers.ts";
-import { decodeStaticPath, staticContentType, staticPathCandidates } from "../src/static-path.ts";
+import {
+  decodeStaticPath,
+  staticByteRange,
+  staticContentType,
+  staticPathCandidates,
+} from "../src/static-path.ts";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 
@@ -97,6 +103,45 @@ describe("getManifestHeaders", () => {
   });
 });
 
+describe("isgPathKey", () => {
+  it.each([
+    ["/", "/"],
+    ["/about/", "/about"],
+    ["/about//", "/about"],
+    // The build's escape case, so a lower-case request finds the ISG page.
+    ["/posts/caf%c3%a9", "/posts/caf%C3%A9"],
+    ["/posts/caf%c3%a9/", "/posts/caf%C3%A9"],
+  ])("keys %s as %s", (pathname, expected) => {
+    expect(isgPathKey(pathname)).toBe(expected);
+  });
+});
+
+describe("staticByteRange", () => {
+  const request = (range: string, ifRange?: string) =>
+    new Headers(ifRange ? { range, "if-range": ifRange } : { range });
+  const file = new Headers({ etag: '"v1"', "last-modified": "Mon, 01 Jan 2024 00:00:00 GMT" });
+
+  it.each([
+    ["bytes=0-99", { start: 0, end: 99 }],
+    ["bytes=900-", { start: 900, end: 999 }],
+    ["bytes=-100", { start: 900, end: 999 }],
+    ["bytes=990-2000", { start: 990, end: 999 }],
+    ["bytes=1000-", "unsatisfiable"],
+    ["bytes=-0", "unsatisfiable"],
+    ["bytes=5-1", null],
+    ["bytes=0-1,4-5", null],
+    ["items=0-1", null],
+  ])("reads %s of a 1000-byte file as %j", (range, expected) => {
+    expect(staticByteRange(request(range), file, 1000)).toEqual(expected);
+  });
+
+  it("serves the whole file when If-Range no longer matches", () => {
+    expect(staticByteRange(request("bytes=0-9", '"v1"'), file, 1000)).toEqual({ start: 0, end: 9 });
+    expect(staticByteRange(request("bytes=0-9", '"v0"'), file, 1000)).toBeNull();
+    expect(staticByteRange(request("bytes=0-9", '"v1"'), new Headers(), 1000)).toBeNull();
+  });
+});
+
 // Seam guard: the URL-path-to-file rule has one home. A `decodeURIComponent`
 // in an adapter or a build writer is a second copy of it, and a content-type
 // table outside static-path.ts is a second MIME table.
@@ -109,7 +154,7 @@ describe("static path seam guard", () => {
 
   const packagesDir = join(repoRoot, "packages");
   const adapterSources = readdirSync(packagesDir)
-    .filter((name) => name.startsWith("adapter-"))
+    .filter((name) => name.startsWith("adapter-") && existsSync(join(packagesDir, name, "src")))
     .flatMap((name) => sourceFiles(join(packagesDir, name, "src"), (file) => file.endsWith(".ts")));
   const buildWriters = sourceFiles(join(packagesDir, "cli", "src"), (file) =>
     /^build-.*\.ts$/.test(file),
@@ -123,6 +168,13 @@ describe("static path seam guard", () => {
   it("keeps decodeURIComponent out of adapters and build writers", () => {
     const offenders = [...adapterSources, ...buildWriters]
       .filter((file) => /decodeURI(Component)?\(/.test(readFileSync(file, "utf-8")))
+      .map((file) => relative(repoRoot, file));
+    expect(offenders).toEqual([]);
+  });
+
+  it("keeps one byte-range parser", () => {
+    const offenders = adapterSources
+      .filter((file) => /bytes=/.test(readFileSync(file, "utf-8")))
       .map((file) => relative(repoRoot, file));
     expect(offenders).toEqual([]);
   });

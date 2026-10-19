@@ -1878,7 +1878,21 @@ reports why a path has no decoded spelling (`malformed`, `separator`,
 single MIME table (Node, Netlify, the preview server, and the dev server's
 asset-extension check). `packages/framework/test/static-path.test.ts` is the
 seam guard: it fails on a `decodeURIComponent` in `packages/adapter-*/src` or
-`packages/cli/src/build-*.ts`, and on a second content-type table.
+`packages/cli/src/build-*.ts`, on a second content-type table, and on a
+`bytes=` parser in an adapter.
+
+**`staticByteRange(requestHeaders, responseHeaders, size)`** is the one
+single-range rule (`206`, `416`, `If-Range` against the response's strong
+`ETag` or `Last-Modified`; several ranges get the whole file). The Node
+handler, the Netlify function's static files and the static preview server use
+it.
+
+**`isgPathKey(pathname)`** (`framework/src/revalidation.ts`) follows the same
+escape-case rule for ISG pages: it drops trailing slashes and upper-cases
+percent-escapes, so `/posts/caf%c3%a9/` keys, regenerates and revalidates the
+page the build recorded as `/posts/caf%C3%A9`. Node's ISG file lookup, the
+Netlify handler's path normalizer (and its cache tags) and Cloudflare's cache
+key all go through it.
 
 **`@pracht/adapter-node/bridge`** is the one `node:http` ↔ Web bridge, used by
 the Node handler and by Vite's dev middleware. `createWebRequest(req, res,
@@ -1897,8 +1911,8 @@ Vercel's ISG Node function cannot import it: `createVercelNodeListener` lives in
 the bundle the edge function is built from, which must not pull in
 `node:stream`. It keeps a web-globals-only writer with the same contract
 (`drain` backpressure, body cancelled on `close`), covered by
-`packages/adapter-vercel/test/node-bridge.test.ts`. Range requests stay a
-static-file feature of the Node handler; dev assets are Vite's.
+`packages/adapter-vercel/test/node-bridge.test.ts`. Dev assets, Range
+included, are Vite's.
 
 ---
 
@@ -2183,16 +2197,19 @@ not type-check until every row places it):
 - `run` — the target must behave as the row says.
 - `fails(step, why)` — diverges today. The row still runs and must keep
   failing, so the change that converges it has to flip the cell to `run`.
-- `todo(step, why)` — diverges but cannot run here (the escape-case row needs a
-  case-sensitive filesystem; it runs as `fails` on Linux).
+- `todo(step, why)` — diverges but cannot run here.
 - `na(why)` — the platform owns the behaviour (a CDN serves static files) or
   the target has no such path.
 
 Divergent cells carry a `// seams step <C|D>` comment naming the rewrite step
 expected to converge them. The `baseline` test pins their count (20 when the
 suite landed: 10 ISG-snapshot cells for step C, 10 static/MIME/Range/413 cells
-for step D; step C converged 7 of its 10); lower it in the change that
-converges a cell. A new divergence is fixed, not recorded.
+for step D). Step D converged all 10 and step C 7, so it is 3: Vercel's
+prerender cache stores cookie and private ISG renders, and Netlify serves an
+ISG page's `index.html` spelling from the build file. Lower it in the change
+that converges a cell. A new divergence is fixed, not recorded. The escape-case
+rows prove the rule only on a case-sensitive filesystem (CI on Linux); locally,
+point `TMPDIR` at a case-sensitive volume to run them for real.
 
 ## Writing a Custom Adapter
 

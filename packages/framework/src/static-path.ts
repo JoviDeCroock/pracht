@@ -114,6 +114,49 @@ function segmentProblem(segment: string): StaticPathDecodeFailure | null {
   return null;
 }
 
+/** The single byte range a static file response serves, or why it serves none. */
+export type StaticByteRange = { start: number; end: number } | "unsatisfiable" | null;
+
+/**
+ * The single byte range a `GET` for a static file of `size` bytes asks for.
+ * Returns `null` to serve the whole file: no or malformed `Range`, several
+ * ranges, a unit other than `bytes`, or an `If-Range` that no longer matches
+ * the response's `ETag` (a weak one never does) or `Last-Modified`.
+ * `"unsatisfiable"` is a `416`.
+ */
+export function staticByteRange(
+  requestHeaders: Pick<Headers, "get">,
+  responseHeaders: Pick<Headers, "get">,
+  size: number,
+): StaticByteRange {
+  const header = requestHeaders.get("range");
+  if (!header) return null;
+
+  const ifRange = requestHeaders.get("if-range")?.trim();
+  if (ifRange) {
+    const etag = responseHeaders.get("etag");
+    const matches = ifRange.startsWith('"')
+      ? etag !== null && !etag.startsWith("W/") && etag === ifRange
+      : !ifRange.startsWith("W/") && ifRange === responseHeaders.get("last-modified");
+    if (!matches) return null;
+  }
+
+  const match = /^bytes=(\d*)-(\d*)$/.exec(header.trim());
+  if (!match || (match[1] === "" && match[2] === "")) return null;
+
+  if (match[1] === "") {
+    const suffix = Number(match[2]);
+    if (suffix === 0 || size === 0) return "unsatisfiable";
+    return { start: Math.max(0, size - suffix), end: size - 1 };
+  }
+
+  const start = Number(match[1]);
+  if (match[2] !== "" && Number(match[2]) < start) return null;
+  if (start >= size) return "unsatisfiable";
+  const end = match[2] === "" ? size - 1 : Number(match[2]);
+  return { start, end: Math.min(end, size - 1) };
+}
+
 const STATIC_CONTENT_TYPES: Record<string, string> = {
   ".atom": "application/atom+xml",
   ".avif": "image/avif",

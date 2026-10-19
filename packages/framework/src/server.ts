@@ -339,8 +339,10 @@ export type {
 
 export {
   decodeStaticPath,
+  staticByteRange,
   staticContentType,
   staticPathCandidates,
+  type StaticByteRange,
   type StaticPathCandidateOptions,
   type StaticPathDecodeFailure,
   type StaticPathDecodeResult,

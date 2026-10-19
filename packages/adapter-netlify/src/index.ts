@@ -18,6 +18,7 @@ import {
   getTimeRevalidateSeconds,
   handlePrachtRequest,
   isCacheableISGResponse,
+  isgPathKey,
   isMcpResourceMetadataPath,
   jsonResponse,
   matchAppRoute,
@@ -31,6 +32,7 @@ import {
   restoreBasePathInRequest,
   resolveRevalidationToken,
   routeSupportsMarkdown,
+  staticByteRange,
   staticContentType,
   staticPathCandidates,
   stripBase,
@@ -190,8 +192,10 @@ export function createNetlifyHandler<
       staticMethod &&
       !routeStateRequest &&
       !wantsMarkdown &&
+      routePathname !== null &&
       pathname !== null &&
-      pathname !== routePathname &&
+      routePathname.length > 1 &&
+      routePathname.endsWith("/") &&
       pathname in isgManifest
     ) {
       url.pathname = url.pathname.replace(/\/$/, "");
@@ -988,6 +992,7 @@ async function serveStaticFile(
   const headers = applyDefaultSecurityHeaders(
     new Headers({
       "content-type": file.contentType,
+      "accept-ranges": "bytes",
     }),
   );
   applyHeadersManifest(headers, headersManifest, pathname);
@@ -1001,8 +1006,21 @@ async function serveStaticFile(
     headers.set("netlify-cdn-cache-control", `public, durable, max-age=${staticMaxAge}`);
   }
   if (file.document) ensureNetlifyPageVary(headers);
-  const body = request.method === "HEAD" ? null : await readFile(file.filePath);
-  return new Response(body, { headers });
+  if (request.method === "HEAD") return new Response(null, { headers });
+  const body = await readFile(file.filePath);
+  const range = headers.has("content-digest")
+    ? null
+    : staticByteRange(request.headers, headers, body.byteLength);
+  if (range === null) return new Response(body, { headers });
+  // A partial answer is never a durable CDN entry for the whole file.
+  headers.delete("netlify-cdn-cache-control");
+  headers.set("cache-control", "no-store");
+  if (range === "unsatisfiable") {
+    headers.set("content-range", `bytes */${body.byteLength}`);
+    return new Response(null, { headers, status: 416 });
+  }
+  headers.set("content-range", `bytes ${range.start}-${range.end}/${body.byteLength}`);
+  return new Response(body.subarray(range.start, range.end + 1), { headers, status: 206 });
 }
 
 function hasExplicitCachePolicy(headers: Headers): boolean {
@@ -1099,9 +1117,9 @@ function nonNegativeInteger(value: number | undefined, fallback: number): number
   return integer >= 0 ? integer : fallback;
 }
 
+/** The ISG manifest key for a route path; a missing leading slash is added. */
 function normalizePathname(pathname: string): string {
-  if (!pathname.startsWith("/")) pathname = `/${pathname}`;
-  return pathname.length > 1 ? pathname.replace(/\/$/, "") : pathname;
+  return isgPathKey(pathname.startsWith("/") ? pathname : `/${pathname}`);
 }
 
 function cloneResponse(response: Response, headers: Headers): Response {

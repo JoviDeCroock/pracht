@@ -2,7 +2,12 @@ import { lstat, realpath } from "node:fs/promises";
 import { basename, resolve, sep } from "node:path";
 import type { ISGManifestEntry } from "@pracht/core/server";
 
-import { getManifestHeaders, staticContentType, staticPathCandidates } from "@pracht/core/server";
+import {
+  getManifestHeaders,
+  isgPathKey,
+  staticContentType,
+  staticPathCandidates,
+} from "@pracht/core/server";
 export { applyHeadersManifest, getManifestHeaders } from "@pracht/core/server";
 import type { HeadersManifest } from "@pracht/core/server";
 export type { HeadersManifest } from "@pracht/core/server";
@@ -62,7 +67,10 @@ export async function resolveStaticFile(
 
   for (const candidate of exactCandidates) {
     const exactPath = resolveCandidate(staticRoot, candidate);
-    if (!exactPath || ISG_PRIVATE_FILE_SUFFIXES.some((suffix) => basename(exactPath).endsWith(suffix))) {
+    if (
+      !exactPath ||
+      ISG_PRIVATE_FILE_SUFFIXES.some((suffix) => basename(exactPath).endsWith(suffix))
+    ) {
       continue;
     }
     const exactStat = await lstat(exactPath).catch(() => null);
@@ -76,8 +84,8 @@ export async function resolveStaticFile(
   }
 
   // ISG routes need staleness checks — let the ISG handler below deal with them.
-  // The manifest is keyed by route path, which carries no trailing slash.
-  if (toRouteKey(pathname) in isgManifest) {
+  // The manifest is keyed by route path: no trailing slash, upper-case escapes.
+  if (isgPathKey(pathname) in isgManifest) {
     return null;
   }
 
@@ -96,16 +104,6 @@ export async function resolveStaticFile(
   }
 
   return null;
-}
-
-/**
- * The route-path key the build manifests use for a URL path: `/about/` and
- * `/about` are one page, recorded without the slash.
- */
-export function toRouteKey(pathname: string): string {
-  return pathname.length > 1 && pathname.endsWith("/")
-    ? pathname.replace(/\/+$/, "") || "/"
-    : pathname;
 }
 
 function resolveCandidate(staticRoot: string, candidate: string): string | null {

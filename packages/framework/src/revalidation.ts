@@ -1,5 +1,6 @@
 import { applyTrailingSlash } from "./base.ts";
 import { serverEnv } from "./env-server.ts";
+import { canonicalizePercentEscapes } from "./static-path.ts";
 import type { RouteRevalidate, RouteRevalidatePolicy } from "./types.ts";
 
 export const PRACHT_REVALIDATE_ENDPOINT = "/__pracht/revalidate";
@@ -427,12 +428,13 @@ export function decodeISGSnapshot(text: string): ISGSnapshot | null {
 
 /**
  * The key an ISG page has in the ISG manifest, for a URL path or a webhook
- * path: `/about/` and `/about` are one page, recorded without the slash.
+ * path: `/about/` and `/about` are one page, recorded without the slash, and
+ * `/posts/caf%c3%a9` is `/posts/caf%C3%A9`, the escape case the build writes
+ * (the `staticPathCandidates()` rule).
  */
 export function isgPathKey(pathname: string): string {
-  return pathname.length > 1 && pathname.endsWith("/")
-    ? pathname.replace(/\/+$/, "") || "/"
-    : pathname;
+  const key = canonicalizePercentEscapes(pathname);
+  return key.length > 1 && key.endsWith("/") ? key.replace(/\/+$/, "") || "/" : key;
 }
 
 /**

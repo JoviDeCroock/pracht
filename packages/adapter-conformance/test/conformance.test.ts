@@ -10,7 +10,6 @@ import {
   createFixture,
   createMockCache,
   createStaticOutput,
-  filesystemFoldsCase,
   headerRecord,
   ISG_PATHS,
   ISG_RENDER_HEADERS,
@@ -30,7 +29,7 @@ import {
   type StaticOutput,
   type TargetId,
 } from "./harness.ts";
-import { divergences, fails, na, row, run, todo, type Cell } from "./matrix.ts";
+import { divergences, fails, na, row, run, type Cell } from "./matrix.ts";
 
 let output: StaticOutput;
 let fixture: Fixture;
@@ -86,28 +85,16 @@ const STATIC_CELLS = {
 // Static files
 // ---------------------------------------------------------------------------
 
-row(
-  "serves a public file whose name needs percent-encoding",
-  {
-    ...STATIC_CELLS,
-    // seams step D
-    node: fails("D", "looks the file up by its encoded spelling only"),
-  },
-  async (target) => {
-    const session = await start(target);
-    const response = await session.fetch("/legal%20terms.txt");
-    expect(response.status).toBe(200);
-    expect(await response.text()).toBe("legal");
-  },
-);
+row("serves a public file whose name needs percent-encoding", STATIC_CELLS, async (target) => {
+  const session = await start(target);
+  const response = await session.fetch("/legal%20terms.txt");
+  expect(response.status).toBe(200);
+  expect(await response.text()).toBe("legal");
+});
 
 row(
   "serves a prerendered page at its percent-encoded route path (#471)",
-  {
-    ...STATIC_CELLS,
-    // seams step D
-    "static-preview": fails("D", "looks the file up by its decoded spelling only"),
-  },
+  STATIC_CELLS,
   async (target) => {
     const session = await start(target);
     const response = await session.fetch("/posts/caf%C3%A9");
@@ -117,21 +104,11 @@ row(
 );
 
 // A case-folding filesystem (macOS, Windows) finds the file whatever the
-// escape case, so the row runs only where names are case-sensitive (CI).
-const foldsCase = filesystemFoldsCase();
-const escapeCase = (why: string): Cell =>
-  foldsCase ? todo("D", `${why}; runs on a case-sensitive filesystem`) : fails("D", why);
+// escape case; the row proves the rule only where names are case-sensitive
+// (CI on Linux).
 row(
   "serves the same page for a lowercase percent-escape (#471 escape case)",
-  {
-    ...STATIC_CELLS,
-    // seams step D
-    node: escapeCase("matches the escape case byte for byte"),
-    // seams step D
-    netlify: escapeCase("matches the escape case byte for byte"),
-    // seams step D
-    "static-preview": escapeCase("looks the file up by its decoded spelling only"),
-  },
+  STATIC_CELLS,
   async (target) => {
     const session = await start(target);
     const response = await session.fetch("/posts/caf%c3%a9");
@@ -169,32 +146,20 @@ const MEDIA_TYPES: Record<string, string> = {
   "/rows.csv": "text/csv",
 };
 
-row(
-  "answers each static file with its media type",
-  {
-    ...STATIC_CELLS,
-    // seams step D
-    netlify: fails("D", "its own MIME table lacks mp4, mp3, pdf, wasm, avif and csv"),
-  },
-  async (target) => {
-    const session = await start(target);
-    const seen: Record<string, string | null> = {};
-    for (const path of Object.keys(MEDIA_TYPES)) {
-      const response = await session.fetch(path);
-      await response.arrayBuffer();
-      seen[path] = response.headers.get("content-type")?.split(";")[0]?.trim() ?? null;
-    }
-    expect(seen).toEqual(MEDIA_TYPES);
-  },
-);
+row("answers each static file with its media type", STATIC_CELLS, async (target) => {
+  const session = await start(target);
+  const seen: Record<string, string | null> = {};
+  for (const path of Object.keys(MEDIA_TYPES)) {
+    const response = await session.fetch(path);
+    await response.arrayBuffer();
+    seen[path] = response.headers.get("content-type")?.split(";")[0]?.trim() ?? null;
+  }
+  expect(seen).toEqual(MEDIA_TYPES);
+});
 
 row(
   "answers each static file with the same Content-Type as every other adapter",
-  {
-    ...STATIC_CELLS,
-    // seams step D
-    netlify: fails("D", "adds a charset to css, js, json and xml that Node does not"),
-  },
+  STATIC_CELLS,
   async (target) => {
     const reference = await start("node");
     const session = target === "node" ? reference : await start(target);
@@ -218,10 +183,6 @@ row(
     ...STATIC_CELLS,
     // The assets binding answers the range; the row checks the adapter keeps it.
     cloudflare: run,
-    // seams step D
-    netlify: fails("D", "ignores Range and sends the whole file"),
-    // seams step D
-    "static-preview": fails("D", "ignores Range and sends the whole file"),
   },
   async (target) => {
     const session = await start(target);
@@ -253,8 +214,7 @@ row(
     "vercel-edge": PLATFORM_BODY_LIMIT,
     "vercel-node": ISG_ONLY,
     "static-preview": NO_APP,
-    // seams step D
-    dev: fails("D", "answers 413 without the default security headers"),
+    dev: run,
   },
   async (target) => {
     const session = await start(target);
@@ -424,6 +384,37 @@ row(
 );
 
 row(
+  "answers a lowercase percent-escape of an ISG page from its snapshot (#471 escape case)",
+  {
+    ...ISG_CELLS,
+    "vercel-node": na("Vercel routes the prerender function by the page path"),
+  },
+  async (target) => {
+    const session = await start(target);
+    const lowercase = ISG_PATHS.escaped.toLowerCase();
+    if (target === "netlify") {
+      // The CDN keys by URL; the function must answer the spelling as the page,
+      // tagged so one purge of the page clears both entries.
+      const [upper, lower] = await Promise.all([
+        session.fetch(ISG_PATHS.escaped, { headers: { accept: "text/html" } }),
+        session.fetch(lowercase, { headers: { accept: "text/html" } }),
+      ]);
+      await Promise.all([upper.text(), lower.text()]);
+      expect(netlifyCdnStores(lower.headers)).toBe(true);
+      expect(lower.headers.get("netlify-cache-tag")).toBe(upper.headers.get("netlify-cache-tag"));
+      return;
+    }
+    const replayed = await replayedRender(target, ISG_PATHS.escaped, session);
+    expect(replayed).not.toBeNull();
+    const rendersBefore = fixture.renders.get(ISG_PATHS.escaped);
+    const response = await session.fetch(lowercase, { headers: { accept: "text/html" } });
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe(await replayed!.text());
+    expect(fixture.renders.get(ISG_PATHS.escaped)).toBe(rendersBefore);
+  },
+);
+
+row(
   "refuses to store an ISG render that sets a cookie",
   {
     ...ISG_CELLS,
@@ -580,9 +571,11 @@ row("rejects a revalidation request with a wrong token", REVALIDATION_CELLS, asy
  * means flipping it to `run` and lowering this number in the same change; a
  * new divergence is fixed, not recorded. 20 when the suite landed: 10 for
  * step C (ISG snapshots), 10 for step D (static paths, MIME, Range, 413).
- * Step C converged 7, leaving 3 of its own.
+ * Step C converged 7 and step D all 10, leaving step C's 3: Vercel's
+ * prerender cache storing cookie and private renders, and Netlify's
+ * `index.html` alias of an ISG page.
  */
-const BASELINE = 13;
+const BASELINE = 3;
 
 describe("baseline", () => {
   it(`records exactly ${BASELINE} divergent cells`, () => {

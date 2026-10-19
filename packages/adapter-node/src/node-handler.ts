@@ -16,6 +16,7 @@ import {
   captureISGSnapshot,
   isCacheableISGResponse,
   isgPathKey,
+  staticByteRange,
   isISGSnapshotRejection,
   isMcpResourceMetadataPath,
   jsonResponse,
@@ -253,10 +254,8 @@ export function createNodeRequestHandler<TContext = unknown>(
       createTrailingSlashRedirectResponse(
         options.basePathStripped ? restoreBasePathInRequest(request) : request,
       );
-    // ISG entries are keyed by route path; `/about/` is the same page.
-    // TODO(integrator): look the key and snapshot up through
-    // `staticPathCandidates()` from seams/step-d, so a lower-case-escaped ISG
-    // URL finds its page the way a static file does.
+    // ISG entries are keyed by route path; `/about/` is the same page, and so
+    // is a lower-case-escaped spelling of an encoded one.
     const isgKey = routePathname === null ? null : isgPathKey(routePathname);
     const isTransportRouteStateRequest = isRouteStateRequest(url, request.headers);
     // Only routes that can actually answer with markdown skip the static and
@@ -614,7 +613,7 @@ async function serveStaticFile(
       encoding === null &&
       !headers.has("content-digest") &&
       !headers.has("content-md5")
-        ? resolveByteRange(request, headers, fileStat.size)
+        ? staticByteRange(request.headers, headers, fileStat.size)
         : null;
     if (range === "unsatisfiable") {
       res.statusCode = 416;
@@ -1087,14 +1086,16 @@ async function regenerateISGPageAndInvalidateCache<TContext>(
 }
 
 /**
- * Resolve a URL pathname to `<staticDir>/<pathname>/index.html` while
- * ensuring the result stays inside `staticDir`. Returns `null` when the
- * pathname would escape the root (`..`, encoded separators, NUL bytes,
- * etc.), which the caller treats as a miss. Also rejects NUL — Node
- * filesystem APIs throw on these but it's clearer to bail early.
+ * Resolve an ISG page's URL pathname to `<staticDir>/<key>/index.html`, where
+ * `key` is its `isgPathKey()` (the spelling the build wrote), while ensuring
+ * the result stays inside `staticDir`. Returns `null` when the pathname would
+ * escape the root (`..`, encoded separators, NUL bytes, etc.), which the
+ * caller treats as a miss. Also rejects NUL — Node filesystem APIs throw on
+ * these but it's clearer to bail early.
  */
-function resolveContainedPath(staticDir: string, pathname: string): string | null {
-  if (pathname.includes("\0")) return null;
+function resolveContainedPath(staticDir: string, url: string): string | null {
+  if (url.includes("\0")) return null;
+  const pathname = isgPathKey(url);
 
   const rootResolved = resolve(staticDir);
   const candidate =
@@ -1107,44 +1108,6 @@ function resolveContainedPath(staticDir: string, pathname: string): string | nul
     return null;
   }
   return resolved;
-}
-
-/**
- * The single byte range a `GET` asks for. Returns `null` to serve the whole
- * file: no or malformed `Range`, several ranges, a unit other than `bytes`,
- * or an `If-Range` that no longer matches (a weak `ETag` never does).
- */
-function resolveByteRange(
-  request: Request,
-  headers: Headers,
-  size: number,
-): { start: number; end: number } | "unsatisfiable" | null {
-  const header = request.headers.get("range");
-  if (!header) return null;
-
-  const ifRange = request.headers.get("if-range")?.trim();
-  if (ifRange) {
-    const etag = headers.get("etag");
-    const matches = ifRange.startsWith('"')
-      ? etag !== null && !etag.startsWith("W/") && etag === ifRange
-      : !ifRange.startsWith("W/") && ifRange === headers.get("last-modified");
-    if (!matches) return null;
-  }
-
-  const match = /^bytes=(\d*)-(\d*)$/.exec(header.trim());
-  if (!match || (match[1] === "" && match[2] === "")) return null;
-
-  if (match[1] === "") {
-    const suffix = Number(match[2]);
-    if (suffix === 0 || size === 0) return "unsatisfiable";
-    return { start: Math.max(0, size - suffix), end: size - 1 };
-  }
-
-  const start = Number(match[1]);
-  if (match[2] !== "" && Number(match[2]) < start) return null;
-  if (start >= size) return "unsatisfiable";
-  const end = match[2] === "" ? size - 1 : Number(match[2]);
-  return { start, end: Math.min(end, size - 1) };
 }
 
 function isRouteStateRequest(url: URL, headers: Headers): boolean {
