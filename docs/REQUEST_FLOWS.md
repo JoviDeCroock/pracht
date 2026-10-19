@@ -751,3 +751,26 @@ Unmatched URL — no route and no API route matches:
 Unexpected 5xx errors are sanitized in both HTML and JSON responses by default.
 Pass debugErrors: true to handlePrachtRequest() to expose raw error details.
 ```
+
+## Document exits during client navigation
+
+`navigate()` hands a URL back to the browser (`location.href`, `location.replace()`,
+`location.reload()`) when it cannot finish on the client: no route matches, the route is an
+islands or `hydration: "none"` page, the URL is external (an unsafe one is refused and logged),
+a redirect chain passes 20 hops, a redirect is opaque, the route-state fetch fails, a route or
+shell chunk fails to load, a committed render throws past every app `ErrorBoundary`, or a 404
+has no boundary to render. The rules every exit must follow:
+
+- a `replace` navigation replaces the current entry;
+- a traversal (`popstate`) adds no entry: the browser already moved it;
+- a navigation superseded by a newer one never leaves (checked after every await);
+- the static-export SPA fallback (`200.html`) never hands back its own URL, because the host
+  would serve the same fallback document again.
+
+`packages/framework/test/router-harness.ts` mounts the client router in jsdom with a fake
+`fetch`, fake chunks and a recording `window.location`. `router-exit-table.ts` crosses every
+exit with push, replace, popstate and the static fallback boot
+(`router-document-exits*.test.ts`); `router-exit-regressions.test.ts` covers supersession, the
+SPA boot's own exits, and the prefetch-invalidation generation. Exits that break a rule today
+run as `it.fails` rows tagged `// seams step G`; each reports itself once today's hand-off
+changes, so it can become a plain `it`.
