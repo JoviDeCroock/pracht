@@ -118,6 +118,9 @@ function waitForAbort(signal: AbortSignal): Promise<boolean> {
   });
 }
 
+/** The other origin `/api/cors` grants in its own `OPTIONS` answer. */
+export const CORS_ORIGIN = "https://other.example";
+
 /** The document headers every ISG render of `/isg` produces. */
 export const ISG_RENDER_HEADERS = {
   "cache-control": "public, max-age=30",
@@ -242,6 +245,18 @@ export function createFixture(options: { build?: string; generatedAt?: number } 
         POST: async ({ request }: { request: Request }) =>
           new Response(await request.text(), { headers: { "content-type": "text/plain" } }),
       }),
+      // Answers its own CORS preflight.
+      "/src/api/cors.ts": async () => ({
+        OPTIONS: async () =>
+          new Response(null, {
+            status: 204,
+            headers: {
+              "access-control-allow-origin": CORS_ORIGIN,
+              "access-control-allow-methods": "POST",
+            },
+          }),
+        POST: async () => new Response("posted"),
+      }),
     },
     capabilityModules: {
       "./capabilities/slow.ts": (async () => ({ default: slowCapability })) as NonNullable<
@@ -254,7 +269,7 @@ export function createFixture(options: { build?: string; generatedAt?: number } 
     build,
     app,
     registry,
-    apiRoutes: resolveApiRoutes(["/src/api/echo.ts"]),
+    apiRoutes: resolveApiRoutes(["/src/api/echo.ts", "/src/api/cors.ts"]),
     isgManifest: {
       [ISG_PATHS.page]: { revalidate: [timeRevalidate(60), webhookRevalidate()], generatedAt },
       [ISG_PATHS.cookie]: { revalidate: timeRevalidate(60), generatedAt },

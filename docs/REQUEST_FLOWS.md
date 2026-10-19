@@ -473,7 +473,9 @@ handlePrachtRequest (runtime.ts)
 │       (see SERVER_ISLANDS.md)
 │
 ├─ 2. dispatchApi                 (runtime-request.ts)
-│       match src/api · CSRF gate on unsafe methods · api.middleware chain
+│       match src/api · CSRF gate on unsafe methods (not on OPTIONS when the
+│       module exports it; dev hands those to pracht ahead of Vite's CORS
+│       middleware) · api.middleware chain
 │       └─ returns undefined when no API route claims the path
 │
 ├─ 3. dispatchAgentSurface        (runtime-request.ts)

@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   CLIENT_VITE_MANIFEST,
+  CORS_ORIGIN,
   createFixture,
   createMockCache,
   createStaticOutput,
@@ -247,6 +248,39 @@ row(
     expect(response.headers.get("x-frame-options")).toBe("SAMEORIGIN");
     expect(response.headers.get("referrer-policy")).toBe("strict-origin-when-cross-origin");
     expect(response.headers.get("permissions-policy")).toBeTruthy();
+  },
+);
+
+row(
+  "lets an API route's own OPTIONS export answer a cross-origin preflight",
+  {
+    node: run,
+    cloudflare: run,
+    netlify: run,
+    "vercel-edge": run,
+    "vercel-node": ISG_ONLY,
+    "static-preview": NO_APP,
+    dev: run,
+  },
+  async (target) => {
+    const session = await start(target);
+    const crossOrigin = { origin: CORS_ORIGIN, "sec-fetch-site": "cross-site" };
+    const preflight = await session.fetch("/api/cors", {
+      method: "OPTIONS",
+      headers: { ...crossOrigin, "access-control-request-method": "POST" },
+    });
+    expect(preflight.status).toBe(204);
+    expect(preflight.headers.get("access-control-allow-origin")).toBe(CORS_ORIGIN);
+    // The state-changing request itself, and OPTIONS to a route without its
+    // own handler, still meet the same-origin gate.
+    for (const [path, method] of [
+      ["/api/cors", "POST"],
+      ["/api/echo", "OPTIONS"],
+    ]) {
+      const response = await session.fetch(path, { method, headers: crossOrigin });
+      await response.text();
+      expect(response.status, `${method} ${path}`).toBe(403);
+    }
   },
 );
 
