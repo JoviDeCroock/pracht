@@ -3,7 +3,7 @@ import preact from "@preact/preset-vite";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { isBuiltin } from "node:module";
 import { resolve } from "node:path";
-import { loadEnv, type Plugin, type UserConfig } from "vite";
+import { loadEnv, rolldownVersion, type Plugin, type UserConfig } from "vite";
 import {
   isPrachtClientModuleId,
   stripServerOnlyExportsForClient,
@@ -15,7 +15,11 @@ import {
   PRACHT_GRAPH_ONLY_ENV,
   type WaitUntilTracker,
 } from "@pracht/core/server";
-import { frameworkChunkConfig, islandChunkConfig } from "./chunk-groups.ts";
+import {
+  frameworkChunkConfig,
+  islandChunkConfig,
+  supportsChunkGroupDebugName,
+} from "./chunk-groups.ts";
 import { createEnvSafetyPlugin, PUBLIC_ENV_PREFIX, SERVER_ENV_MODULE_ID } from "./env-safety.ts";
 import { createServerCssAssetsPlugin } from "./plugin-server-css.ts";
 import { findAppRootModule } from "./plugin-app-root.ts";
@@ -385,6 +389,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
             {
               edge: isEdge,
               serverIslandsDirectory: resolveConfigPath(configRoot, resolved.serverIslandsDir),
+              groupDebugName: supportsChunkGroupDebugName(rolldownVersion),
             },
           )
         : {};

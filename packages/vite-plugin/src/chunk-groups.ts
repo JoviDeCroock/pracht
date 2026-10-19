@@ -161,6 +161,32 @@ export function islandChunkName(
 /** Name of the chunk a server island module is grouped into, per server island. */
 export const SERVER_ISLAND_CHUNK_PREFIX = "server-islands/";
 
+/** Label of the server island group in the bundler's timing report. */
+export const ISLAND_CHUNK_GROUP_DEBUG_NAME = "pracht-islands";
+
+/** First Rolldown release that accepts `debugName` on a chunk group. */
+const DEBUG_NAME_MIN_ROLLDOWN: readonly [number, number, number] = [1, 2, 10];
+
+/**
+ * Whether this Rolldown accepts `debugName` on a chunk group.
+ *
+ * Releases that know it warn on every build when a group's `name` is a
+ * function and has no `debugName`; earlier releases validate groups strictly
+ * and warn about the unknown key instead. A prerelease of the first release
+ * that has it counts as older.
+ */
+export function supportsChunkGroupDebugName(rolldownVersion: string | undefined): boolean {
+  const match = /^(\d+)\.(\d+)\.(\d+)(-)?/.exec(rolldownVersion ?? "");
+  if (!match) return false;
+  const version = [Number(match[1]), Number(match[2]), Number(match[3])];
+  for (let index = 0; index < 3; index++) {
+    if (version[index]! !== DEBUG_NAME_MIN_ROLLDOWN[index]!) {
+      return version[index]! > DEBUG_NAME_MIN_ROLLDOWN[index]!;
+    }
+  }
+  return match[4] === undefined;
+}
+
 /**
  * The chunking pracht contributes to the *server* build.
  *
@@ -189,7 +215,8 @@ export function islandChunkConfig(
   {
     edge = false,
     serverIslandsDirectory,
-  }: { edge?: boolean; serverIslandsDirectory?: string } = {},
+    groupDebugName = false,
+  }: { edge?: boolean; serverIslandsDirectory?: string; groupDebugName?: boolean } = {},
 ): FrameworkChunkConfig {
   // Server islands are imported eagerly by the server entry for the same reason
   // islands are, so they get the same one-chunk-each treatment.
@@ -222,6 +249,7 @@ export function islandChunkConfig(
     {
       name: chunkName,
       test: (id: string) => chunkName(id) !== null,
+      ...(groupDebugName ? { debugName: ISLAND_CHUNK_GROUP_DEBUG_NAME } : {}),
     },
   ];
 
