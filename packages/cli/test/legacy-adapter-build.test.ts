@@ -10,7 +10,9 @@ import {
   finalizeLegacyAdapterBuild,
   type AdapterBuildContext,
 } from "../src/legacy-adapter-build.ts";
-import { assertPrachtServerEntry, assertServerEntryBuildTarget } from "../src/server-entry.ts";
+import { readServerEntry } from "@pracht/core/adapter";
+
+import { assertServerEntryAdapter } from "../src/commands/build.ts";
 
 const roots: string[] = [];
 
@@ -135,32 +137,48 @@ describe("finalizeLegacyAdapterBuild", () => {
   });
 });
 
-describe("assertPrachtServerEntry", () => {
+describe("the server entry check", () => {
+  const generated = {
+    contract: 1,
+    buildId: "b1",
+    adapterId: "vercel",
+    features: { headersManifest: 1 },
+    resolvedApp: { routes: [] },
+    prerenderApp: () => [],
+  };
+
   it("names what a server bundle not built by pracht() is missing", () => {
-    expect(() => assertPrachtServerEntry({ default: {} })).toThrow(
+    expect(() => readServerEntry({ default: {} })).toThrow(
       "dist/server/server.js is missing resolvedApp and prerenderApp(), so it was not generated " +
         "by the pracht() Vite plugin. Build with `pracht build` (not `vite build`)",
     );
   });
 
-  it("refuses a bundle whose build target is not the configured adapter's", () => {
-    const entry = { resolvedApp: { routes: [] }, prerenderApp: () => [] } as never;
-    expect(() => assertServerEntryBuildTarget(entry, "vercel")).toThrow(
-      'dist/server/server.js reports build target null, but vite.config\'s pracht() adapter is "vercel"',
+  it("refuses a bundle generated for another adapter than the configured one", () => {
+    const entry = readServerEntry({ ...generated, adapterId: "node" });
+    expect(() => assertServerEntryAdapter(entry, "vercel")).toThrow(
+      'dist/server/server.js was generated for adapter "node", but vite.config\'s pracht() adapter is "vercel"',
     );
-    expect(() =>
-      assertServerEntryBuildTarget(
-        { ...(entry as object), buildTarget: "vercel" } as never,
-        "vercel",
-      ),
-    ).not.toThrow();
+    expect(() => assertServerEntryAdapter(readServerEntry(generated), "vercel")).not.toThrow();
     // A plugin release without adapter metadata leaves nothing to compare.
-    expect(() => assertServerEntryBuildTarget(entry, undefined)).not.toThrow();
+    expect(() => assertServerEntryAdapter(entry, undefined)).not.toThrow();
+  });
+
+  // R496-2: a bundle whose adapter export was renamed used to build without
+  // its platform's deploy output.
+  it("fails a bundle whose adapter export was renamed instead of skipping its deploy step", () => {
+    const { adapterId: _adapterId, ...renamed } = generated;
+    expect(() => readServerEntry({ ...renamed, target: "vercel" })).toThrow(
+      "dist/server/server.js has no valid adapterId export, so pracht build cannot tell which " +
+        "adapter produced it and would skip its deploy output.",
+    );
+    // An entry from before the contract: its `buildTarget` was the adapter id.
+    expect(() =>
+      readServerEntry({ resolvedApp: { routes: [] }, prerenderApp: () => [], target: "vercel" }),
+    ).toThrow("dist/server/server.js has no valid buildTarget export");
   });
 
   it("accepts a generated entry", () => {
-    expect(() =>
-      assertPrachtServerEntry({ resolvedApp: { routes: [] }, prerenderApp: () => [] }),
-    ).not.toThrow();
+    expect(readServerEntry(generated)).toMatchObject({ adapterId: "vercel", buildId: "b1" });
   });
 });

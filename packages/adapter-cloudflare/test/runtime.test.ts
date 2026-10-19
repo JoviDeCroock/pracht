@@ -1358,7 +1358,12 @@ describe("createCloudflareFetchHandler and pracht({ trailingSlash })", () => {
 describe("createCloudflareFetchHandler ISG across deploys", () => {
   // `caches.default` is not cleared by `wrangler deploy`: the next version's
   // isolates read the same data-center cache the previous version wrote.
-  function deployVersion(version: string, generatedAt: number, revalidate: RouteRevalidate) {
+  function deployVersion(
+    version: string,
+    generatedAt: number | undefined,
+    revalidate: RouteRevalidate,
+    buildId?: string,
+  ) {
     const app = defineApp({
       routes: [route("/pricing", "./routes/pricing.tsx", { render: "isg", revalidate })],
     });
@@ -1374,6 +1379,7 @@ describe("createCloudflareFetchHandler ISG across deploys", () => {
       registry,
       clientEntryUrl: `/assets/app-${version}.js`,
       isgManifest: { "/pricing": { generatedAt, revalidate } },
+      buildId,
     });
     const env = {
       ASSETS: {
@@ -1437,6 +1443,39 @@ describe("createCloudflareFetchHandler ISG across deploys", () => {
     const v2 = deployVersion("v2", Date.now(), webhookRevalidate());
     const afterDeploy = await v2(new Request(`https://${host}/pricing`));
     await expect(afterDeploy.text()).resolves.not.toContain("v1");
+  });
+
+  // R443-1/R443-2: the generation is the build id, in the key's path, so it
+  // holds when two builds share (or lack) a prerender timestamp and when the
+  // zone's cache key drops query strings.
+  it("keeps deploys apart by build id, whatever their prerender timestamps", async () => {
+    const { cache, store } = createMockCaches();
+    const withoutQuery = (key: Request) => {
+      const url = new URL(key.url);
+      url.search = "";
+      return new Request(url, key);
+    };
+    vi.stubGlobal("caches", {
+      default: {
+        match: (key: Request) => cache.match(withoutQuery(key)),
+        put: (key: Request, response: Response) => cache.put(withoutQuery(key), response),
+      },
+    });
+    const host = "deploy-build-id.example";
+
+    for (const generatedAt of [undefined, 1_000]) {
+      store.clear();
+      const v1 = deployVersion("v1", generatedAt, webhookRevalidate(), "build-v1");
+      await v1(webhook(host));
+      await expect((await v1(new Request(`https://${host}/pricing`))).text()).resolves.toContain(
+        "render:v1",
+      );
+      expect([...store.keys()]).toEqual([`https://${host}/__pracht/isg-build/build-v1/pricing`]);
+
+      const v2 = deployVersion("v2", generatedAt, webhookRevalidate(), "build-v2");
+      const afterDeploy = await v2(new Request(`https://${host}/pricing`));
+      await expect(afterDeploy.text()).resolves.not.toContain("v1");
+    }
   });
 
   it("does not serve a time-based render from the previous deploy as fresh", async () => {

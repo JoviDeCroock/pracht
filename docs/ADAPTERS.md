@@ -191,9 +191,9 @@ legitimate route whose base-free path is `/my-project`.
 max-age=31536000, immutable`; HTML and other files get `public, max-age=0,
 must-revalidate`. Clean URLs (e.g. `/about`) resolve to `about/index.html`.
 Prerendered HTML receives route and shell document headers from
-`dist/server/headers-manifest.json`. When the generated entry exports
-`headersManifestFormat = 2` (Node, Netlify, and Cloudflare entries do), the
-build writes it in the shared form `{ version: 2, sets, paths }`: each distinct
+`dist/server/headers-manifest.json`. When the server entry's
+`features.headersManifest` is `2` (the Node, Netlify, and Cloudflare adapters
+declare `features: { headersManifest: 2 }`), the build writes it in the shared form `{ version: 2, sets, paths }`: each distinct
 header set once, and every path naming its set by index, so the file grows with
 the page count rather than with every page's headers. Static exports, Vercel,
 and custom entries keep the flat `{ "<path>": { ...headers } }` map. Core's
@@ -523,14 +523,14 @@ build).
   `x-pracht-isg-cache-control` while the entry carries its storage TTL) or
   `public, max-age=0, must-revalidate`. Entries without that header predate
   it and still take the build's headers. `caches.default` survives
-  `wrangler deploy`, so each Cache API key carries the build's prerender timestamp in its path
-  (`/__pracht/isg-build/<generatedAt>/<route path>`, from the ISG manifest; a
+  `wrangler deploy`, so each Cache API key carries the server entry's
+  `buildId` in its path (`/__pracht/isg-build/<buildId>/<route path>`; a
   path rather than a query parameter because a zone cache key may ignore query
   strings): a new version never reads an entry the previous build rendered
   against its own asset hashes and starts from its own `ASSETS` snapshots,
-  while a rollback reads the entries its version wrote. Manifest entries
-  without `generatedAt` (hand-written manifests) keep the bare path key and
-  are not deploy-scoped. Successful manifest reads are
+  while a rollback reads the entries its version wrote. An entry generated
+  before build ids existed falls back to the ISG manifest's `generatedAt`, and
+  without that to the bare path key, which is not deploy-scoped. Successful manifest reads are
   cached for the isolate lifetime; transient asset or JSON failures are evicted
   so the next request retries. A missing manifest (`404`) is cached as empty.
 - **Cache locality**: Cloudflare's Cache API is local to the colo handling the
@@ -2100,7 +2100,7 @@ the edge function.
 A custom adapter exports a factory function that returns a `PrachtAdapter` object:
 
 ```typescript
-import type { PrachtAdapter } from "@pracht/vite-plugin";
+import type { PrachtAdapter } from "@pracht/core/adapter";
 import {
   myPlatformGraphStubs,
   myPlatformVitePlugin,
@@ -2111,9 +2111,13 @@ export function myAdapter(options?: MyOptions): PrachtAdapter {
     id: "my-platform",
     serverImports:
       'import { handlePrachtRequest, resolveApp, resolveApiRoutes } from "@pracht/core";',
-    createServerEntryModule() {
+    // Optional: formats the runtime reads beyond the baseline. With
+    // headersManifest: 2, `pracht build` writes the shared headers manifest.
+    features: { headersManifest: 2 },
+    createServerEntryModule(entry) {
       // Return JavaScript source code that will be appended to the
-      // generated virtual:pracht/server module.
+      // generated virtual:pracht/server module. `entry` is { buildId }, absent
+      // under a @pracht/vite-plugin release older than the contract.
       return `
 export default async function handle(request) {
   return handlePrachtRequest({
@@ -2189,15 +2193,16 @@ export default async function handle(request) {
 
 `pracht build` takes the adapter from the `pracht` plugin's
 `api.pracht.adapter` in the server build's resolved config (the instance that
-generated the server entry), fails when the server bundle's `buildTarget` is
+generated the server entry), fails when the server entry's `adapterId` is
 not that adapter's `id`, and awaits `finalizeBuild(context)` after the headers, Markdown,
 routing, CSS and ISG manifests are written and before Netlify's
 `finalizePrachtBuild` export and the bundle report. `PrachtAdapterBuildContext`
-(exported by `@pracht/vite-plugin`) carries:
+(from `@pracht/core/adapter`, re-exported by `@pracht/vite-plugin`) carries:
 
 - `root`, `clientDir`, `publicDir`, `publicDirLabel`, `base`, `trailingSlash`
 - `frameworkVersion`: the `@pracht/cli` version (Vercel stamps it into
   `config.json`)
+- `buildId`: the server entry's `buildId` (absent under an older CLI)
 - `serverEntry`: the `dist/server/server.js` exports
 - `pages` (every prerendered path, SSG and ISG) and `onDemandPages` (those the
   CLI rendered but did not write, e.g. Cloudflare workers-cache ISG)
@@ -2221,10 +2226,39 @@ of those steps (`packages/cli/src/legacy-adapter-build.ts`). A unit test keeps
 the two copies byte-identical; the CLI copy can go once the CLI requires
 adapter releases with the hook.
 
-`pracht build` also checks the server bundle it imports
-(`packages/cli/src/server-entry.ts`, `PrachtServerEntry`): a bundle without
-`resolvedApp` or `prerenderApp()` fails with a pointer to `pracht build` and
-matching plugin/core releases. A plain `vite build` fails in the plugin's
+### The server entry contract
+
+`dist/server/server.js` has one typed shape, `PrachtServerEntry` in
+`@pracht/core/adapter`, and one reader, `readServerEntry(mod)`. `pracht build`
+and `pracht preview` read the bundle through it, and nothing else in the CLI
+types those exports. The plugin's codegen (`createPrachtServerModuleSource`)
+is the only producer of the contract exports:
+
+- `contract`: `SERVER_ENTRY_CONTRACT` (`1`). A higher value fails the read
+  with an upgrade hint.
+- `buildId`: one per `pracht build`. The CLI creates it (`createBuildId()`,
+  time-sortable and URL-path safe) and hands it to the plugin through the
+  `PRACHT_INTERNAL_BUILD_ID` environment variable for the duration of the
+  build; a build the CLI did not start gets one per process, and the dev
+  server `"dev"`. The plugin passes it to `createServerEntryModule({ buildId })`
+  so adapters hand it to their runtime: Cloudflare keys its ISG Cache API
+  entries by it, and Node stamps it on ISG snapshots. The budget report records it.
+- `adapterId`: the adapter's `id`. The read fails when it is missing, so a
+  renamed export can no longer skip the adapter's deploy step (R496-2).
+- `features`: `{ headersManifest: 1 | 2 }`, from the adapter's `features`.
+
+`readServerEntry` maps a contract-less bundle from an older plugin: `adapterId`
+from `buildTarget`, `features.headersManifest` from the adapter's own
+`headersManifestFormat = 2` export, and `buildId` from the caller's
+`legacyBuildId`. Until the next minor the plugin keeps emitting `buildTarget`,
+and `headersManifestFormat = 2` for adapters declaring the shared form (unless
+the adapter's source, from a release before `features`, already exports it).
+A bundle without `resolvedApp` or `prerenderApp()` fails with a pointer to
+`pracht build` and matching plugin/core releases.
+`packages/vite-plugin/test/server-entry-contract.test.ts` reads every built-in
+adapter's generated entry through `readServerEntry`, and
+`packages/framework/test/adapter-contract-seam.test.ts` fails on a second
+producer or reader. A plain `vite build` fails in the plugin's
 Rollup `options` hook when Vite falls back to a root `index.html` that does not
 exist, with the same pointer.
 

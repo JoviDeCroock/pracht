@@ -6,7 +6,7 @@ import {
 import { lstat, readFile, readdir, realpath } from "node:fs/promises";
 import { extname, resolve, sep } from "node:path";
 import type { McpAuthConfig } from "@pracht/core";
-import type { PrachtAdapter } from "@pracht/vite-plugin";
+import type { PrachtAdapter } from "@pracht/core/adapter";
 import { URLPattern } from "urlpattern-polyfill";
 import type { Plugin } from "vite";
 import {
@@ -335,8 +335,6 @@ export function createNetlifyServerEntryModule(options: NetlifyAdapterOptions = 
     "]);",
     'const isgManifest = readManifest("isg-manifest.json", {});',
     'const headersManifest = readManifest("headers-manifest.json", {});',
-    "// `pracht build` writes headers-manifest.json in its shared form only for entries that read it.",
-    "export const headersManifestFormat = 2;",
     'const markdownManifest = readManifest("markdown-manifest.json", undefined);',
     "",
     "const handler = createNetlifyHandler({",
@@ -381,6 +379,8 @@ export function netlifyAdapter(options: NetlifyAdapterOptions = {}): PrachtAdapt
   return {
     id: "netlify",
     serverImports: 'import { resolveApp, resolveApiRoutes } from "@pracht/core/server";',
+    // The handler reads headers-manifest.json in its shared form.
+    features: { headersManifest: 2 },
     createServerEntryModule() {
       return createNetlifyServerEntryModule(options);
     },
@@ -1182,6 +1182,6 @@ const MIME_TYPES: Record<string, string> = {
   ".xml": "application/xml; charset=utf-8",
 };
 
-// The contract the factory returns, carried in this package's own declarations
-// so a value of it can be named without importing `@pracht/vite-plugin`.
-export type { PrachtAdapter } from "@pracht/vite-plugin";
+// The contract the factory returns, re-exported so a value of it can be named
+// from this package alone.
+export type { PrachtAdapter } from "@pracht/core/adapter";

@@ -713,10 +713,10 @@ A Cloudflare app with its own [Worker module](#composing-the-worker) passes `cre
 
 ## Writing a Custom Adapter
 
-A custom adapter exports a factory function that returns a `PrachtAdapter` object:
+A custom adapter exports a factory function that returns a `PrachtAdapter` object. Import the type from `@pracht/core/adapter`, which adds no runtime dependency, so the adapter package needs no edge to the Vite plugin:
 
 ```ts
-import type { PrachtAdapter } from "@pracht/vite-plugin";
+import type { PrachtAdapter } from "@pracht/core/adapter";
 import { myPlatformGraphStubs, myPlatformVitePlugin } from "my-platform-vite-plugin";
 
 export function myAdapter(): PrachtAdapter {
@@ -758,7 +758,9 @@ Graph commands (`pracht inspect`, `plan`, `verify`, `report`, `doctor`, `typegen
 call `graphVitePlugins()` instead of `vitePlugins()`, or load no adapter plugins
 without it.
 
-`finalizeBuild(context)` writes your deploy layout, as the Vercel adapter does for `.vercel/output`. The context holds the build paths, prerendered `pages`, manifests, and `log`/`warn`.
+`finalizeBuild(context)` writes your deploy layout, as the Vercel adapter does for `.vercel/output`. The context holds the build paths, prerendered `pages`, manifests, `buildId`, and `log`/`warn`.
+
+`createServerEntryModule(entry)` receives `entry.buildId`, which is new for every `pracht build`. Key anything your runtime caches across deploys by it, so a new deploy never serves output the previous one rendered.
 
 At the runtime level, an adapter also typically needs to:
 

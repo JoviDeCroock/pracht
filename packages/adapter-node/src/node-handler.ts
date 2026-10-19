@@ -97,6 +97,11 @@ export interface NodeAdapterOptions<TContext = unknown> {
   staticDir?: string;
   viteManifest?: unknown;
   isgManifest?: Record<string, ISGManifestEntry>;
+  /**
+   * The server entry's `buildId`. A regenerated ISG page is served only by
+   * the build that rendered it.
+   */
+  buildId?: string;
   apiRoutes?: ResolvedApiRoute[];
   clientEntryUrl?: string;
   islandsEntryUrl?: string;

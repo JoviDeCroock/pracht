@@ -469,15 +469,16 @@ Two consequences for package authors. A runtime package must not take a
 dependency edge — not even an optional peer — on build tooling: npm keeps an
 optional peer that the app has as a devDependency in `--omit=dev` installs, and
 pnpm `--prod` installs its dependencies, which puts Vite in every production
-image. That is why the adapters' published types inline the `PrachtAdapter`
-contract from `packages/vite-plugin/src/plugin-adapter.ts` (their tsdown
-configs do not mark `@pracht/vite-plugin` external, and `scripts/build.mjs`
-lists that file as an adapter build input) instead of importing
-`@pracht/vite-plugin`. Each adapter also re-exports the type as
-`PrachtAdapter`, so declaration emit can name an unannotated
-`export const adapter = nodeAdapter()`. The inlined contract still names `vite`'s `Plugin`
-type, which is present in any app that runs pracht's Vite plugin and degrades
-only `vitePlugins()`' element type where it cannot resolve. Dev-only packages
+image. That is why the adapters take the `PrachtAdapter` contract from
+`@pracht/core/adapter` (`packages/framework/src/adapter.ts`), a package they
+already peer on, instead of importing `@pracht/vite-plugin`, which re-exports
+the same types. Each adapter also re-exports the type as `PrachtAdapter`, so
+declaration emit can name an unannotated `export const adapter = nodeAdapter()`
+(`packages/vite-plugin/test/adapter-declarations.test.ts` compiles that probe
+against the built declarations). For the same reason core declares no `vite`
+edge either: the contract's declarations name `vite`'s `Plugin` type, which is
+present in any app that runs pracht's Vite plugin and degrades only
+`vitePlugins()`' element type where it cannot resolve. Dev-only packages
 such as `@pracht/cli` declare what they import (`vite`, as an optional peer).
 
 ## Later (Phase 2 remaining)

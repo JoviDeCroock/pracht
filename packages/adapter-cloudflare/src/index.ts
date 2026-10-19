@@ -2,7 +2,7 @@ import { rmSync } from "node:fs";
 import { isBuiltin } from "node:module";
 import { resolve } from "node:path";
 
-import type { PrachtAdapter } from "@pracht/vite-plugin";
+import type { PrachtAdapter, PrachtServerEntryModuleContext } from "@pracht/core/adapter";
 import type { Plugin } from "vite";
 import { cloudflare, type PluginConfig } from "@cloudflare/vite-plugin";
 import { finalizeCloudflareBuild } from "./build.ts";
@@ -243,6 +243,7 @@ function createWorkerEntryExports(workerEntry: string): string[] {
 
 export function createCloudflareServerEntryModule(
   options: CloudflareServerEntryModuleOptions = {},
+  entry?: PrachtServerEntryModuleContext,
 ): string {
   assertValidWorkerEntryOptions(options);
   const assetsBinding = options.assetsBinding ?? "ASSETS";
@@ -282,9 +283,6 @@ export function createCloudflareServerEntryModule(
     ...workerEntryImports,
     `export const cloudflareAssetsBinding = ${JSON.stringify(assetsBinding)};`,
     `export const cloudflareWorkersCacheEnabled = ${JSON.stringify(Boolean(cacheOptions))};`,
-    "// `pracht build` publishes /_pracht/headers.json in its shared form only for entries that read it.",
-    "export const headersManifestFormat = 2;",
-    "",
     "let headersManifestPromise;",
     "async function readPrachtHeadersManifest(request, assets) {",
     "  if (!headersManifestPromise) {",
@@ -361,6 +359,7 @@ export function createCloudflareServerEntryModule(
     "    headersManifest,",
     "    markdownManifest,",
     "    isgManifest,",
+    `    buildId: ${JSON.stringify(entry?.buildId)},`,
     "    createContext,",
     `    cache: ${JSON.stringify(options.cache ?? false)},`,
     "  });",
@@ -535,8 +534,10 @@ export function cloudflareAdapter(options: CloudflareViteAdapterOptions = {}): P
     edge: true,
     serverImports:
       'import { resolveApp, resolveApiRoutes } from "@pracht/core/server";\nimport { createCloudflareFetchHandler } from "@pracht/adapter-cloudflare/runtime";',
-    createServerEntryModule() {
-      return createCloudflareServerEntryModule(options);
+    // The worker reads /_pracht/headers.json in its shared form.
+    features: { headersManifest: 2 },
+    createServerEntryModule(entry) {
+      return createCloudflareServerEntryModule(options, entry);
     },
     edgeNodeBuiltins(root) {
       return cloudflareEdgeNodeBuiltins(root, options.configPath);
@@ -561,6 +562,6 @@ export function cloudflareAdapter(options: CloudflareViteAdapterOptions = {}): P
   };
 }
 
-// The contract the factory returns, carried in this package's own declarations
-// so a value of it can be named without importing `@pracht/vite-plugin`.
-export type { PrachtAdapter } from "@pracht/vite-plugin";
+// The contract the factory returns, re-exported so a value of it can be named
+// from this package alone.
+export type { PrachtAdapter } from "@pracht/core/adapter";

@@ -134,6 +134,11 @@ export interface CloudflareAdapterOptions<
   /** Exact Markdown-capable routes. Omit to preserve negotiation for legacy/custom entries. */
   markdownManifest?: MarkdownManifest;
   isgManifest?: ISGManifest;
+  /**
+   * The server entry's `buildId`. Regenerated ISG pages are cached under it,
+   * so a new deploy never serves a page the previous one rendered.
+   */
+  buildId?: string;
   createContext?: (args: CloudflareContextArgs<TEnv>) => TContext | Promise<TContext>;
   /**
    * Serve time-revalidated ISG routes through Cloudflare Workers Caching:
@@ -209,6 +214,7 @@ export function createCloudflareFetchHandler<
         env,
         options.app,
         options.isgManifest ?? {},
+        options.buildId,
         renderISGPage,
         Boolean(cacheOptions),
       );
@@ -252,6 +258,7 @@ export function createCloudflareFetchHandler<
         options.headersManifest ?? {},
         options.markdownManifest,
         options.assetsBindingUsesPublicBase,
+        options.buildId,
         renderISGPage,
       );
       if (isgResponse) return preventHeuristicCaching(request, isgResponse);
@@ -400,6 +407,7 @@ async function maybeServeISG<TEnv extends Record<string, unknown>>(
   headersManifest: HeadersManifest,
   markdownManifest: MarkdownManifest | undefined,
   assetsBindingUsesPublicBase: boolean | undefined,
+  buildId: string | undefined,
   renderISGPage: (pathname: string, originalRequest: Request) => Promise<Response>,
 ): Promise<Response | null> {
   if (!isDocumentAssetRequest(request, markdownManifest)) return null;
@@ -411,7 +419,7 @@ async function maybeServeISG<TEnv extends Record<string, unknown>>(
   if (!entry) return null;
 
   const cache = getDefaultCache();
-  const cacheKey = createISGCacheKey(request, pathname, entry);
+  const cacheKey = createISGCacheKey(request, pathname, entry, buildId);
   const cached = cache ? await cache.match(cacheKey) : undefined;
   if (cached) {
     // The assets binding's `html_handling` canonicalizes the spelling of every
@@ -467,6 +475,7 @@ async function handleCloudflareRevalidationEndpoint(
   env: Record<string, unknown>,
   app: PrachtApp,
   isgManifest: ISGManifest,
+  buildId: string | undefined,
   renderISGPage: (pathname: string, originalRequest: Request) => Promise<Response>,
   edgeCacheEnabled: boolean,
 ): Promise<Response> {
@@ -506,7 +515,7 @@ async function handleCloudflareRevalidationEndpoint(
         continue;
       }
 
-      const cacheKey = createISGCacheKey(request, pathname, entry);
+      const cacheKey = createISGCacheKey(request, pathname, entry, buildId);
       // A failed regeneration keeps the existing cached copy and is reported
       // in `failed` instead of aborting the whole batch with a 500.
       if (await regenerateCloudflareISGPage(cache, cacheKey, pathname, request, renderISGPage)) {
@@ -631,17 +640,26 @@ function isDocumentAssetRequest(
 
 /**
  * The Cache API entry for an ISG page of this build. `caches.default` outlives
- * a deploy, so the key carries the build's prerender timestamp: a new version
- * never reads a page the previous one rendered against its own asset hashes.
- * A rollback reads the entries its version wrote. The timestamp sits in the
- * path, not the query, because a zone cache key can ignore query strings.
+ * a deploy, so the key carries the build id: a new version never reads a page
+ * the previous one rendered against its own asset hashes. A rollback reads the
+ * entries its version wrote. The id sits in the path, not the query, because
+ * a zone cache key can ignore query strings. An entry generated before build
+ * ids existed keeps its prerender timestamp as the generation.
  */
-function createISGCacheKey(request: Request, pathname: string, entry: ISGManifestEntry): Request {
-  const generation =
+function createISGCacheKey(
+  request: Request,
+  pathname: string,
+  entry: ISGManifestEntry,
+  buildId: string | undefined,
+): Request {
+  const legacyGeneration =
     typeof entry.generatedAt === "number" && Number.isFinite(entry.generatedAt)
-      ? `${ISG_CACHE_KEY_BUILD_PREFIX}/${entry.generatedAt}`
-      : "";
-  const url = new URL(`${generation}${pathname}`, request.url);
+      ? String(entry.generatedAt)
+      : null;
+  const generation = buildId ?? legacyGeneration;
+  const generationPrefix =
+    generation === null ? "" : `${ISG_CACHE_KEY_BUILD_PREFIX}/${encodeURIComponent(generation)}`;
+  const url = new URL(`${generationPrefix}${pathname}`, request.url);
   url.search = "";
   url.hash = "";
   return new Request(url, {

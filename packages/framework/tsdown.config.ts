@@ -11,6 +11,7 @@ export default defineConfig({
     "src/env-server.ts",
     "src/env-server.browser.ts",
     "src/server.ts",
+    "src/adapter.ts",
     "src/agent-auth-sign.ts",
     "src/islands-client.ts",
     "src/server-islands-client.ts",
@@ -23,5 +24,5 @@ export default defineConfig({
   format: "esm",
   dts: true,
   unbundle: true,
-  external: ["preact", "preact/hooks", "preact-render-to-string"],
+  external: ["preact", "preact/hooks", "preact-render-to-string", "vite", /^node:/],
 });

@@ -718,6 +718,25 @@ webhookRevalidate: function
 withBase: function
 ```
 
+## `@pracht/core/adapter`
+
+Source: `packages/framework/src/adapter.ts`
+
+```text
+PRACHT_BUILD_ID_ENV: const @internal
+PrachtAdapter: interface
+PrachtAdapterBuildContext: interface
+PrachtAdapterDevOptions: interface
+PrachtAdapterDevRequest: interface
+PrachtServerEntry: interface
+PrachtServerEntryFeatures: interface
+PrachtServerEntryModuleContext: interface
+ReadServerEntryOptions: interface
+SERVER_ENTRY_CONTRACT: const
+createBuildId: function @internal
+readServerEntry: function
+```
+
 ## `@pracht/core/agent-auth`
 
 Source: `packages/framework/src/agent-auth-sign.ts`

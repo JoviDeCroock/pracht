@@ -11,6 +11,7 @@ import {
 } from "node:fs";
 import { register } from "node:module";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { pathToFileURL } from "node:url";
 
 import { defineCommand } from "citty";
 import { build as viteBuild, type Plugin } from "vite";
@@ -22,6 +23,12 @@ import type {
   PrerenderedMarkdown,
   PrerenderResult,
 } from "@pracht/core";
+import {
+  createBuildId,
+  PRACHT_BUILD_ID_ENV,
+  readServerEntry,
+  type PrachtServerEntry,
+} from "@pracht/core/adapter";
 import { shareHeadersManifest } from "@pracht/core/server";
 
 import { readBuildTrailingSlash, readClientBuildAssets } from "../build-metadata.js";
@@ -35,7 +42,6 @@ import {
   findUnresolvedManifestModules,
   formatUnresolvedManifestModules,
 } from "../manifest-modules.js";
-import { assertServerEntryBuildTarget, loadPrachtServerEntry } from "../server-entry.js";
 import {
   decodeStaticOutputPath,
   describeInlineCssOpportunity,
@@ -565,7 +571,39 @@ interface BuildOptions {
   budgetFail?: boolean;
 }
 
+/**
+ * The adapter in the server entry decides which deploy step runs, so a bundle
+ * that names another adapter than the one vite.config configured would build
+ * "successfully" without that platform's output. `adapterId` is absent when
+ * the plugin release predates its adapter metadata.
+ */
+export function assertServerEntryAdapter(entry: PrachtServerEntry, adapterId: unknown): void {
+  if (typeof adapterId !== "string" || entry.adapterId === adapterId) return;
+  throw new Error(
+    `dist/server/server.js was generated for adapter ${JSON.stringify(entry.adapterId)}, ` +
+      `but vite.config's pracht() adapter is ${JSON.stringify(adapterId)}, so its deploy output ` +
+      "would not be written. Keep @pracht/vite-plugin, @pracht/core and the adapter on matching releases.",
+  );
+}
+
 export async function runBuild(root: string, options: BuildOptions = {}): Promise<BuildResult> {
+  // One id per build, handed to the Vite plugin so the server entry carries it.
+  const previousBuildId = process.env[PRACHT_BUILD_ID_ENV];
+  const buildId = createBuildId();
+  process.env[PRACHT_BUILD_ID_ENV] = buildId;
+  try {
+    return await runBuildSteps(root, buildId, options);
+  } finally {
+    if (previousBuildId === undefined) delete process.env[PRACHT_BUILD_ID_ENV];
+    else process.env[PRACHT_BUILD_ID_ENV] = previousBuildId;
+  }
+}
+
+async function runBuildSteps(
+  root: string,
+  requestedBuildId: string,
+  options: BuildOptions,
+): Promise<BuildResult> {
   const analyzeJson = Boolean(options.analyzeJson);
   const analyze = Boolean(options.analyze) || analyzeJson;
   const budgetFail = options.budgetFail ?? true;
@@ -663,9 +701,11 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
     // Edge server bundles keep `cloudflare:*` imports external; stub them so
     // the bundle can be imported in Node for the prerender pass below.
     registerPrerenderModuleHooks();
-    const serverMod = await loadPrachtServerEntry(serverEntry);
-    assertServerEntryBuildTarget(serverMod, buildAdapter?.id);
-    buildTarget = typeof serverMod.buildTarget === "string" ? serverMod.buildTarget : null;
+    const serverMod = readServerEntry(await import(pathToFileURL(serverEntry).href), {
+      legacyBuildId: requestedBuildId,
+    });
+    assertServerEntryAdapter(serverMod, buildAdapter?.id);
+    buildTarget = serverMod.adapterId;
     const buildBase = typeof serverMod.buildBase === "string" ? serverMod.buildBase : "/";
     const buildTrailingSlash = readBuildTrailingSlash(serverMod);
     const isStaticExport = isStaticExportBuild(serverMod);
@@ -734,7 +774,7 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
     // emitted. Webhook-only ISG routes are not edge-cached — they keep their
     // snapshot and revalidate through the worker-managed Cache API path.
     const cloudflareWorkersCacheEnabled =
-      serverMod.buildTarget === "cloudflare" && serverMod.cloudflareWorkersCacheEnabled === true;
+      buildTarget === "cloudflare" && serverMod.cloudflareWorkersCacheEnabled === true;
     // Netlify serves every ISG path through the function and the durable CDN
     // cache — the handler checks the ISG manifest before the bundled static
     // output, so a snapshot would only ever be reachable at its literal
@@ -742,7 +782,7 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
     const skipsSnapshot = (isg: ISGManifestEntry | undefined): boolean =>
       isg !== undefined &&
       ((cloudflareWorkersCacheEnabled && hasTimeRevalidate(isg.revalidate)) ||
-        serverMod.buildTarget === "netlify");
+        buildTarget === "netlify");
 
     // Pages are written as they render, so the build holds what the manifests
     // need (path, headers, flags) rather than every page's HTML. Header sets
@@ -1085,7 +1125,7 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       // distinct header set once instead of a copy per page; anything else
       // (an older adapter, a custom entry) keeps the flat form it parses.
       const headersManifestJson =
-        serverMod.headersManifestFormat === 2
+        serverMod.features.headersManifest === 2
           ? `${JSON.stringify(shareHeadersManifest(headersManifest))}\n`
           : `${JSON.stringify(headersManifest, null, 2)}\n`;
       writeFileSync(
@@ -1179,6 +1219,7 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       base: buildBase,
       trailingSlash: buildTrailingSlash,
       frameworkVersion: VERSION,
+      buildId: serverMod.buildId,
       serverEntry: serverMod,
       pages: pages.map((page) => page.path),
       onDemandPages: pages.filter((page) => !page.written).map((page) => page.path),
@@ -1244,6 +1285,7 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
           `${JSON.stringify(
             {
               generatedAt: new Date().toISOString(),
+              buildId: serverMod.buildId,
               budgets,
               results: evaluation.results,
               unmatched: evaluation.unmatched,

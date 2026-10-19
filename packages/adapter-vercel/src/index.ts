@@ -1,4 +1,4 @@
-import type { PrachtAdapter } from "@pracht/vite-plugin";
+import type { PrachtAdapter } from "@pracht/core/adapter";
 import {
   createISGRegenerationRequest,
   createBaseRedirectResponse,
@@ -494,6 +494,6 @@ export function vercelAdapter(options: VercelServerEntryModuleOptions = {}): Pra
   };
 }
 
-// The contract the factory returns, carried in this package's own declarations
-// so a value of it can be named without importing `@pracht/vite-plugin`.
-export type { PrachtAdapter } from "@pracht/vite-plugin";
+// The contract the factory returns, re-exported so a value of it can be named
+// from this package alone.
+export type { PrachtAdapter } from "@pracht/core/adapter";

@@ -8,7 +8,7 @@ import {
   hasWebhookRevalidate,
   type ISGManifestEntry,
 } from "@pracht/core";
-import type { PrachtAdapterBuildContext } from "@pracht/vite-plugin";
+import type { PrachtAdapterBuildContext } from "@pracht/core/adapter";
 
 /**
  * Vite's content-hashed output directory. Node and Netlify already serve it
