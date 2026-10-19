@@ -516,7 +516,7 @@ function resolveRequestBase(
 }
 
 /** Characters no `host[:port]` holds: whitespace, controls, `/ ? # @ \`. */
-const INVALID_HOST_RE = /[\s\x00-\x1f\x7f/?#@\\]/;
+const INVALID_HOST_RE = /[\s\p{Cc}/?#@\\]/u;
 
 function resolveOrigin(
   req: IncomingMessage,
