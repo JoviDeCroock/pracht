@@ -48,6 +48,7 @@ import {
   findStaticRouteStateConflicts,
   isStaticExportBuild,
   resolveMarkdownFileOutputPath,
+  resolveCloudflarePrerenderOutputPath,
   resolvePrerenderOutputPath,
   resolveStaticExportOutputPath,
   validateStaticExport,
@@ -797,12 +798,14 @@ async function runBuildSteps(
       return headers;
     };
     const pageOutputPath = (path: string): string =>
-      // Static exports write to the decoded path (the host resolves the URL
-      // itself); serverful adapters keep the encoded form their own static
-      // lookup matches against.
+      // Static exports and Cloudflare's assets binding write to the decoded
+      // path (the host decodes the URL itself); other serverful adapters keep
+      // the encoded form their own static lookup matches against.
       isStaticExport
         ? resolveStaticExportOutputPath(clientDir, path)
-        : resolvePrerenderOutputPath(clientDir, path);
+        : buildTarget === "cloudflare"
+          ? resolveCloudflarePrerenderOutputPath(clientDir, path)
+          : resolvePrerenderOutputPath(clientDir, path);
     const prerenderLogLines: { index: number; line: string }[] = [];
     let writtenPageCount = 0;
     let streamedStateFileCount = 0;

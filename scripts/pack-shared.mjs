@@ -28,7 +28,8 @@ export const BUILD_OUTPUT = {
 };
 
 // Deploy CLIs the scaffold adds as devDependencies. `pracht build` never calls
-// them, and netlify-cli alone is most of the install time.
+// them, and netlify-cli alone is most of the install time. pack-smoke keeps
+// them, so the scaffold's pnpm build-script policy is installed for real.
 export const DEPLOY_ONLY_DEV_DEPENDENCIES = ["netlify-cli", "vercel"];
 
 /** `--adapter=a,b` (repeatable) from argv, validated; every adapter when none is given. */
@@ -143,9 +144,12 @@ export function packWorkspace(tarballDir) {
  * pnpm's global virtual store), so a published file resolves only what its
  * own package.json declares. With `tarballs`, every `@pracht/*` dependency
  * (direct and transitive, through `overrides`) points at the packed workspace
- * instead of the registry.
+ * instead of the registry. With `keepDeployClis`, the deploy CLIs stay.
  */
-export function configureAppInstall(appDir, { storeDir = null, tarballs = null } = {}) {
+export function configureAppInstall(
+  appDir,
+  { storeDir = null, tarballs = null, keepDeployClis = false } = {},
+) {
   const manifestPath = join(appDir, "package.json");
   const manifest = readJson(manifestPath);
   if (tarballs) {
@@ -155,7 +159,9 @@ export function configureAppInstall(appDir, { storeDir = null, tarballs = null }
       }
     }
   }
-  for (const name of DEPLOY_ONLY_DEV_DEPENDENCIES) delete manifest.devDependencies?.[name];
+  if (!keepDeployClis) {
+    for (const name of DEPLOY_ONLY_DEV_DEPENDENCIES) delete manifest.devDependencies?.[name];
+  }
   writeJson(manifestPath, manifest);
 
   const workspaceYaml = join(appDir, "pnpm-workspace.yaml");

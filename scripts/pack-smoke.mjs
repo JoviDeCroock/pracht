@@ -100,7 +100,10 @@ try {
     if (/"paths"\s*:/.test(tsconfig)) fail(`[${adapterId}] scaffold tsconfig declares "paths"`);
 
     // -- 3. point @pracht/* at the tarballs ---------------------------------
+    // The deploy CLIs stay: their dependencies' build scripts must be decided
+    // by the scaffold's pnpm-workspace.yaml, or pnpm 11 fails the install.
     const manifest = configureAppInstall(appDir, {
+      keepDeployClis: true,
       storeDir: join(tempRoot, `store-${adapterId}`),
       tarballs,
     });

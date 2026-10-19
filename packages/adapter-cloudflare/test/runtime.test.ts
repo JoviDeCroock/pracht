@@ -445,6 +445,54 @@ describe("createCloudflareFetchHandler ISG", () => {
     await expect(second.text()).resolves.toContain("regenerated:fresh-content");
   });
 
+  it("logs a refused uncacheable render once per page", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { cache, store } = createMockCaches();
+    vi.stubGlobal("caches", { default: cache });
+    const { executionContext, waitUntils } = createExecutionContext();
+    const host = "private.example";
+    const keyUrl = cacheKeyUrl("/account-teaser", host);
+    putCachedISGPage(store, keyUrl, "<html>build-copy</html>", Date.now() - 10_000);
+
+    const handler = createCloudflareFetchHandler({
+      app: defineApp({
+        routes: [
+          route("/account-teaser", "./routes/teaser.tsx", {
+            render: "isg",
+            revalidate: timeRevalidate(1),
+          }),
+        ],
+      }),
+      registry: {
+        routeModules: {
+          "./routes/teaser.tsx": async () => ({
+            Component: () => "per-visitor",
+            headers: () => ({ "cache-control": "private" }),
+          }),
+        },
+      },
+      isgManifest: { "/account-teaser": { revalidate: timeRevalidate(1) } },
+    });
+
+    for (let request = 0; request < 3; request += 1) {
+      const response = await handler(
+        new Request(`https://${host}/account-teaser`),
+        { ASSETS: create404Assets() },
+        executionContext,
+      );
+      await expect(response.text()).resolves.toContain("build-copy");
+      await Promise.all(waitUntils);
+    }
+
+    expect(waitUntils.length).toBeGreaterThanOrEqual(3);
+    const refusals = warn.mock.calls.filter(([message]) =>
+      String(message).includes('"/account-teaser" was not stored'),
+    );
+    expect(refusals).toHaveLength(1);
+    expect(String(refusals[0]![0])).toContain("Cache-Control: private");
+    await expect(cachedText(cache, keyUrl)).resolves.toContain("build-copy");
+  });
+
   it("keeps the stale copy when background regeneration fails", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     const { cache, store } = createMockCaches();

@@ -592,6 +592,23 @@ async function purgeEdgeCopy(pathname: string): Promise<boolean> {
   }
 }
 
+/** ISG pages whose refused render this isolate has already logged. */
+const loggedUncacheablePages = new Set<string>();
+
+/**
+ * Say once per page and isolate that a render was not stored: every stale
+ * request renders it again, and one line per request would flood the log.
+ */
+function warnUncacheableOnce(pathname: string, detail: string): void {
+  if (loggedUncacheablePages.has(pathname)) return;
+  loggedUncacheablePages.add(pathname);
+  console.warn(
+    `The ISG render for "${pathname}" was not stored: ${detail}. Visitors keep the previous ` +
+      "page, and each stale request renders it again. Render this route as SSR if its output " +
+      "is request-specific.",
+  );
+}
+
 /**
  * Render an ISG page and overwrite its Cache API entry. Returns `true` when
  * a fresh copy was stored. Render errors and `cache.put()` failures are
@@ -611,6 +628,7 @@ async function regenerateCloudflareISGPage(
       const snapshot = await captureISGSnapshot(response, { buildId, pathname });
       if (isISGSnapshotRejection(snapshot)) {
         await response.body?.cancel().catch(() => undefined);
+        if (snapshot.reason === "uncacheable") warnUncacheableOnce(pathname, snapshot.detail);
         return false;
       }
       // The entry carries its storage TTL; the render's own Cache-Control

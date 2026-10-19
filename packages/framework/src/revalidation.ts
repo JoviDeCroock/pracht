@@ -218,19 +218,26 @@ export function createRevalidationSingleFlight(): RevalidationSingleFlight {
  * authorization) all signal "don't cache this across users".
  */
 export function isCacheableISGResponse(response: Response): boolean {
-  const cacheControl = response.headers.get("cache-control")?.toLowerCase() ?? "";
-  if (/\b(no-store|private)\b/.test(cacheControl)) return false;
+  return uncacheableISGCause(response) === null;
+}
 
-  if (response.headers.get("set-cookie")) return false;
+/** What makes a render request-specific, in words for a log line; `null` when nothing does. */
+function uncacheableISGCause(response: Response): string | null {
+  const cacheControl = response.headers.get("cache-control") ?? "";
+  if (/\b(no-store|private)\b/i.test(cacheControl)) {
+    return `the render sets Cache-Control: ${cacheControl}`;
+  }
+
+  if (response.headers.get("set-cookie")) return "the render sets a cookie (Set-Cookie)";
 
   const vary = response.headers.get("vary")?.toLowerCase() ?? "";
-  if (!vary) return true;
-  if (vary.includes("*")) return false;
+  if (!vary) return null;
+  if (vary.includes("*")) return "the render sets Vary: *";
   const varied = vary.split(",").map((s) => s.trim());
   for (const name of varied) {
-    if (name === "cookie" || name === "authorization") return false;
+    if (name === "cookie" || name === "authorization") return `the render varies on ${name}`;
   }
-  return true;
+  return null;
 }
 
 const DANGEROUS_PRERENDER_HEADER_NAMES = new Set([
@@ -335,14 +342,8 @@ export async function captureISGSnapshot(
   if (response.status !== 200) {
     return { reason: "status", detail: `the render answered ${response.status}` };
   }
-  if (!isCacheableISGResponse(response)) {
-    return {
-      reason: "uncacheable",
-      detail:
-        "the render marks itself uncacheable (Cache-Control private/no-store, Set-Cookie, " +
-        "or Vary on Cookie/Authorization)",
-    };
-  }
+  const uncacheable = uncacheableISGCause(response);
+  if (uncacheable !== null) return { reason: "uncacheable", detail: uncacheable };
   const headers: Record<string, string> = {};
   for (const [name, value] of stripISGSecretHeaders(response.headers, meta.pathname)) {
     if (!ISG_TRANSFER_HEADERS.has(name)) headers[name] = value;
@@ -429,12 +430,28 @@ export function decodeISGSnapshot(text: string): ISGSnapshot | null {
 /**
  * The key an ISG page has in the ISG manifest, for a URL path or a webhook
  * path: `/about/` and `/about` are one page, recorded without the slash, and
- * `/posts/caf%c3%a9` is `/posts/caf%C3%A9`, the escape case the build writes
- * (the `staticPathCandidates()` rule).
+ * `/posts/caf%c3%a9` and `/posts/café` are `/posts/caf%C3%A9`, the spelling a
+ * URL carries with the escape case the build writes (the
+ * `staticPathCandidates()` rule).
  */
 export function isgPathKey(pathname: string): string {
-  const key = canonicalizePercentEscapes(pathname);
+  const key = canonicalizePercentEscapes(encodeRawPathCharacters(pathname));
   return key.length > 1 && key.endsWith("/") ? key.replace(/\/+$/, "") || "/" : key;
+}
+
+/** Characters a URL path carries percent-encoded: controls, space, `"<>\`{}`, non-ASCII. */
+const RAW_PATH_CHARACTER_RE = /[^\x21-\x7e]|["<>`{}]/gu;
+
+/** `pathname` as `new URL()` would spell it, without resolving dot segments. */
+function encodeRawPathCharacters(pathname: string): string {
+  return pathname.replace(RAW_PATH_CHARACTER_RE, (character) => {
+    try {
+      return encodeURIComponent(character);
+    } catch {
+      // A lone surrogate has no UTF-8 spelling; no page is keyed by it.
+      return character;
+    }
+  });
 }
 
 /**
@@ -555,10 +572,23 @@ export async function readRevalidationRequest(
       response: jsonResponse({ error: 'Expected body shape `{ "paths": ["/path"] }`.' }, 400),
     };
   }
+  if ("invalid" in paths) {
+    return {
+      ok: false,
+      response: jsonResponse(
+        {
+          error:
+            `Invalid revalidation path ${JSON.stringify(paths.invalid)}: a path starts with "/" ` +
+            'and has no query, fragment, backslash, NUL, or ".." segment.',
+        },
+        400,
+      ),
+    };
+  }
 
   return {
     ok: true,
-    paths,
+    paths: paths.valid,
   };
 }
 
@@ -618,7 +648,7 @@ function getRevalidationToken(request: Request): string | null {
   return match?.[1] ?? null;
 }
 
-function parseRevalidationPaths(body: unknown): string[] | null {
+function parseRevalidationPaths(body: unknown): { valid: string[] } | { invalid: string } | null {
   if (!body || typeof body !== "object") return null;
   const value = getRevalidationPathsValue(body);
   const paths = Array.isArray(value) ? value : typeof value === "string" ? [value] : null;
@@ -626,10 +656,12 @@ function parseRevalidationPaths(body: unknown): string[] | null {
 
   const unique = new Set<string>();
   for (const path of paths) {
-    if (!isValidRevalidationPath(path)) return null;
+    // A non-string entry is a shape error; a string that is no path names itself.
+    if (typeof path !== "string") return null;
+    if (!isValidRevalidationPath(path)) return { invalid: path };
     unique.add(path);
   }
-  return [...unique];
+  return { valid: [...unique] };
 }
 
 function hasTooManyRevalidationPaths(body: unknown): boolean {

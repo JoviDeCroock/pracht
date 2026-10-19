@@ -51,6 +51,10 @@ describe("staticPathCandidates", () => {
     "/..",
     "/%2e%2e/etc/passwd",
     "/a/%2E/b",
+    "/a/.%2e/b",
+    // A malformed escape earlier in the path does not hide a dot segment.
+    "/%ZZ/%2e%2e/x",
+    "/100%.txt/%2E%2E/etc",
     "/a\\b",
     "/a\0b",
   ])("refuses %j", (pathname) => {
@@ -179,15 +183,45 @@ describe("static path seam guard", () => {
     expect(offenders).toEqual([]);
   });
 
+  // Any extension-to-type mapping counts, whatever its entries: an object
+  // literal (`".css": "text/css"`), a Map or tuple list (`[".css", "text/css"]`),
+  // or a switch (`case ".css": return "text/css"`). Two pairs in one file make
+  // a table.
+  const EXTENSION_TYPE_PAIR_RES = [
+    /["']\.[a-z0-9]+["']\s*[:,]\s*["'][a-z]+\/[\w.+-]+/gi,
+    /case\s+["']\.[a-z0-9]+["']\s*:[^;]{0,120}?["'][a-z]+\/[\w.+-]+/gi,
+  ];
+  const extensionTypePairs = (source: string): number =>
+    EXTENSION_TYPE_PAIR_RES.reduce((count, re) => count + (source.match(re)?.length ?? 0), 0);
+
+  it("recognizes an extension-to-type table in any shape", () => {
+    expect(extensionTypePairs(`const T = { ".css": "text/css", ".js": "text/javascript" };`)).toBe(
+      2,
+    );
+    expect(extensionTypePairs(`new Map([[".png", "image/png"], [".gif", "image/gif"]])`)).toBe(2);
+    expect(
+      extensionTypePairs(
+        `switch (ext) { case ".svg": return "image/svg+xml"; case ".avif":\n` +
+          `      return "image/avif"; }`,
+      ),
+    ).toBe(2);
+    expect(
+      extensionTypePairs(
+        readFileSync(join(packagesDir, "framework", "src", "static-path.ts"), "utf-8"),
+      ),
+    ).toBeGreaterThan(10);
+  });
+
   it("keeps one static content-type table", () => {
     const candidates = [
       ...adapterSources,
+      ...sourceFiles(join(packagesDir, "cli", "src"), (file) => file.endsWith(".ts")),
       ...sourceFiles(join(packagesDir, "vite-plugin", "src"), (file) => file.endsWith(".ts")),
       ...sourceFiles(join(packagesDir, "framework", "src"), (file) => file.endsWith(".ts")),
     ];
     const offenders = candidates
       .filter((file) => !file.endsWith(join("framework", "src", "static-path.ts")))
-      .filter((file) => /["']\.woff2["']\s*:/.test(readFileSync(file, "utf-8")))
+      .filter((file) => extensionTypePairs(readFileSync(file, "utf-8")) >= 2)
       .map((file) => relative(repoRoot, file));
     expect(offenders).toEqual([]);
   });

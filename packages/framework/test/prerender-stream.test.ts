@@ -134,6 +134,31 @@ describe("prerenderApp streaming", () => {
   });
 });
 
+describe("ISG manifest keys", () => {
+  it("keys an ISG page by the spelling every adapter looks it up with", async () => {
+    const app = defineApp({
+      routes: [
+        route("/caf%c3%a9", "./routes/cafe.tsx", {
+          render: "isg",
+          revalidate: timeRevalidate(60),
+        }),
+      ],
+    });
+    const registry = {
+      routeModules: {
+        "/src/routes/cafe.tsx": async () => ({ Component: () => h("p", null, "café") }),
+      },
+    };
+
+    const result = await prerenderApp({ app, registry, withISGManifest: true });
+
+    // Rendered under the route's own spelling, written and keyed under the canonical one.
+    expect(result.pages.map((page) => page.path)).toEqual(["/caf%C3%A9"]);
+    expect(result.pages[0]!.html).toContain("<p>café</p>");
+    expect(Object.keys(result.isgManifest)).toEqual(["/caf%C3%A9"]);
+  });
+});
+
 describe("shared headers manifest", () => {
   const html = { "content-type": "text/html; charset=utf-8", "x-pracht-shell": "public" };
   const flat = {

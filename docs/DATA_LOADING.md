@@ -287,8 +287,11 @@ The signal is composed by hand — one `AbortController`, a cancellable
 `setTimeout`, and a listener on `request.signal` that stays wired for the
 request's lifetime — because a static timeout signal cannot be cancelled and a
 composite signal with a listener stays alive until a source aborts.
-`request-budget-seam.test.ts` bans both helpers, and any second budget, from
-`framework/src` and `capabilities/src/server`.
+`request-budget-seam.test.ts` bans both helpers, any second budget, and a
+hand-rolled `new AbortController()` aborted from a `setTimeout`, from
+`framework/src`, `capabilities/src/server` and every adapter. Its one exception,
+the signature-agent directory fetch, is cached across requests and so is not
+request work.
 
 Prerendering runs loaders through the same pipeline, so `loaderTimeoutMs`
 bounds SSG/ISG builds too. A budget tuned down for an edge runtime fails the

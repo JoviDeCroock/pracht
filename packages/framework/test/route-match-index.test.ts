@@ -36,3 +36,14 @@ describe("server route matching", () => {
     expect(matchIndexedResolvedRoute(appOf(["/a/:id", "/a/b"]), "/a/b/c")).toBeUndefined();
   });
 });
+
+describe("percent-escape case on the server", () => {
+  it("matches a static segment written with lower-case escapes in either case", () => {
+    const app = appOf(["/caf%c3%a9", "/posts/:slug"]);
+    for (const pathname of ["/caf%c3%a9", "/caf%C3%A9", "/caf%C3%a9"]) {
+      expect(matchIndexedResolvedRoute(app, pathname)?.route.id).toBe("r0");
+    }
+    expect(matchIndexedResolvedRoute(app, "/cafe")).toBeUndefined();
+    expect(matchIndexedResolvedRoute(appOf(["/caf%C3%A9"]), "/caf%c3%a9")?.route.id).toBe("r0");
+  });
+});
