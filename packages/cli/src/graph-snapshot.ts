@@ -275,9 +275,7 @@ function withKeyOrder<T extends object>(entry: T, order: readonly string[] = [])
   const keys = Object.keys(entry).sort(
     (left, right) => rank(left) - rank(right) || (left < right ? -1 : left > right ? 1 : 0),
   );
-  return Object.fromEntries(
-    keys.map((key) => [key, (entry as Record<string, unknown>)[key]]),
-  ) as T;
+  return Object.fromEntries(keys.map((key) => [key, (entry as Record<string, unknown>)[key]])) as T;
 }
 
 /** Stable ordering + JSON round-trip so snapshots diff cleanly in git. */

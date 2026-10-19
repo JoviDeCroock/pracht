@@ -722,16 +722,24 @@ describe("collectCapabilityChecks", () => {
       const HUMAN = '  agents: { confirmation: { mode: "human" }, mcp: { destructive: true } },';
       const RESOLVER_WARNING = "no `setCapabilityApprovalPrincipalResolver(` call was found";
 
-      it("warns when nothing identifies the end user", () => {
+      it("fails when nothing identifies the end user, as the server does at startup", () => {
         const checks = checksFor({
           appBlock: HUMAN,
           extraFiles: { "server/approvals.ts": STORE_MODULE },
         });
 
-        expect(errorsOf(checks)).toEqual([]);
-        const warning = warningsOf(checks).find((message) => message.includes(RESOLVER_WARNING));
-        expect(warning).toContain("confirmation_unavailable");
-        expect(warning).toContain("Web Bot Auth");
+        const error = errorsOf(checks).find((message) => message.includes(RESOLVER_WARNING));
+        expect(error).toContain("refuses to start");
+        expect(error).toContain("agents.mcp.auth");
+      });
+
+      it("fails human mode without an end user even when no tool is served over MCP", () => {
+        const checks = checksFor({
+          appBlock: '  agents: { confirmation: { mode: "human" } },',
+          extraFiles: { "server/approvals.ts": STORE_MODULE },
+        });
+
+        expect(errorsOf(checks)).toContainEqual(expect.stringContaining(RESOLVER_WARNING));
       });
 
       it("accepts a registered principal resolver", () => {
@@ -742,7 +750,9 @@ describe("collectCapabilityChecks", () => {
           },
         });
 
-        expect(warningsOf(checks)).not.toContainEqual(expect.stringContaining(RESOLVER_WARNING));
+        expect([...errorsOf(checks), ...warningsOf(checks)]).not.toContainEqual(
+          expect.stringContaining(RESOLVER_WARNING),
+        );
       });
 
       it("accepts agents.mcp.auth as the end-user identity", () => {
@@ -752,7 +762,9 @@ describe("collectCapabilityChecks", () => {
           extraFiles: { "server/approvals.ts": STORE_MODULE },
         });
 
-        expect(warningsOf(checks)).not.toContainEqual(expect.stringContaining(RESOLVER_WARNING));
+        expect([...errorsOf(checks), ...warningsOf(checks)]).not.toContainEqual(
+          expect.stringContaining(RESOLVER_WARNING),
+        );
       });
 
       it("accepts a resolver called with a type argument", () => {
@@ -765,7 +777,9 @@ describe("collectCapabilityChecks", () => {
           },
         });
 
-        expect(warningsOf(checks)).not.toContainEqual(expect.stringContaining(RESOLVER_WARNING));
+        expect([...errorsOf(checks), ...warningsOf(checks)]).not.toContainEqual(
+          expect.stringContaining(RESOLVER_WARNING),
+        );
       });
 
       it("does not count an explicitly undefined agents.mcp.auth", () => {
@@ -775,7 +789,7 @@ describe("collectCapabilityChecks", () => {
           extraFiles: { "server/approvals.ts": STORE_MODULE },
         });
 
-        expect(warningsOf(checks)).toContainEqual(expect.stringContaining(RESOLVER_WARNING));
+        expect(errorsOf(checks)).toContainEqual(expect.stringContaining(RESOLVER_WARNING));
       });
 
       it("still warns for HTTP exposure when only agents.mcp.auth is set", () => {
@@ -795,6 +809,7 @@ describe("collectCapabilityChecks", () => {
             }),
             checks,
           );
+          expect(errorsOf(checks)).toEqual([]);
           expect(warningsOf(checks)).toContainEqual(expect.stringContaining(RESOLVER_WARNING));
         } finally {
           if (previous === undefined) delete process.env.PRACHT_CONFIRMATION_SECRET;
@@ -808,7 +823,9 @@ describe("collectCapabilityChecks", () => {
           extraFiles: { "server/approvals.ts": STORE_MODULE },
         });
 
-        expect(warningsOf(checks)).not.toContainEqual(expect.stringContaining(RESOLVER_WARNING));
+        expect([...errorsOf(checks), ...warningsOf(checks)]).not.toContainEqual(
+          expect.stringContaining(RESOLVER_WARNING),
+        );
       });
     });
 

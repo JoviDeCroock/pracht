@@ -373,9 +373,11 @@ function readMcpProjectionConfig(manifestSource: string): McpProjectionConfigSca
 
 /**
  * Human approval must name the end user: a principal resolver or the OAuth
- * subject behind `agents.mcp.auth`. The runtime refuses every destructive call
- * without one; this reports it before deploy. A warning, like the store scan
- * below, because a resolver registered in a workspace package is invisible here.
+ * subject behind `agents.mcp.auth`. With neither, the server refuses to start
+ * (`assertHumanApprovalIdentity()`), so that is an error here. With only
+ * `agents.mcp.auth`, HTTP callers still have no end user and their destructive
+ * calls are refused, which stays a warning: a resolver registered in a
+ * workspace package is invisible to this scan.
  */
 function collectHumanApprovalChecks(
   destructiveServed: string[],
@@ -383,12 +385,25 @@ function collectHumanApprovalChecks(
   project: ProjectConfig,
   checks: Check[],
 ): void {
-  if (destructiveServed.length === 0 || !projection.humanApproval) return;
+  if (!projection.humanApproval) return;
   const scan = scanForSourceCall(
     project,
     /\bsetCapabilityApprovalPrincipalResolver\s*(?:<[^()]*>\s*)?\(/,
   );
   if (scan.found) return;
+  if (!projection.mcpAuth) {
+    checks.push(
+      createCheck(
+        "error",
+        'agents.confirmation.mode is "human", but nothing identifies the end user: no ' +
+          `\`setCapabilityApprovalPrincipalResolver(\` call was found in ${scan.searched.join(", ")} ` +
+          "and remote MCP has no agents.mcp.auth. The server refuses to start this way. Register " +
+          "a resolver from a server-only module, or protect remote MCP with agents.mcp.auth.",
+      ),
+    );
+    return;
+  }
+  if (destructiveServed.length === 0) return;
   checks.push(
     createCheck(
       "warning",

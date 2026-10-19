@@ -701,7 +701,7 @@ export function createPrachtServerModuleSource(
 
   const source = [
     prachtImports,
-    'import { registerServerIslands, setIslandsClientEntryUrl } from "@pracht/core/server";',
+    'import { assertHumanApprovalIdentity, registerServerIslands, setIslandsClientEntryUrl } from "@pracht/core/server";',
     ...(registersServerIslands
       ? [
           'import { registerServerIslandModules, setServerIslandsClientEntryUrl } from "@pracht/core/server";',
@@ -734,6 +734,9 @@ export function createPrachtServerModuleSource(
     "export const resolvedApp = resolveApp(app);",
     "applyRouteHints(resolvedApp, routeLoaderHints, routeHeadHints, routeStaticPathsHints);",
     `export const apiRoutes = resolveApiRoutes(Object.keys(apiModules), ${JSON.stringify(resolved.apiDir)});`,
+    "// Human approval without an end-user identity would refuse every destructive",
+    "// call, so it stops the server here: in dev, in the build, and at startup.",
+    "await assertHumanApprovalIdentity(resolvedApp, registry);",
     // The server entry contract `pracht build` reads through `readServerEntry()`
     // from `@pracht/core/adapter`.
     `export const contract = ${SERVER_ENTRY_CONTRACT};`,

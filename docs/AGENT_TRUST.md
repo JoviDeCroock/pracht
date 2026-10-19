@@ -368,9 +368,14 @@ the verified OAuth subject on remote MCP. A request that resolves neither is
 refused with `403 confirmation_unavailable` before any proposal is recorded or
 token minted. The configuration-level form of the same rule
 (`humanApprovalPreconditionError()`: human mode with no resolver registered and
-no `agents.mcp.auth`) blocks the whole remote MCP endpoint, shows up in the dev
-banner and `/_pracht`, and `pracht verify` warns when it finds no
-`setCapabilityApprovalPrincipalResolver(` call.
+no `agents.mcp.auth`) stops the server at startup: the generated server module
+awaits `assertHumanApprovalIdentity()`, which first imports every capability
+module and the middleware applied to capabilities and the capability API chain
+(where a resolver may be registered), then throws. Because `pracht build`
+imports the built server module, the build fails too, and `pracht verify`
+reports an error when it finds no `setCapabilityApprovalPrincipalResolver(`
+call. An app without capabilities is exempt. The remote MCP endpoint still
+answers `-32603` (and logs the reason once) for its other unmet preconditions.
 
 A proposal's id is a secret-keyed digest derived server-side from the
 principal, capability name, canonicalized input, and approval mode — never

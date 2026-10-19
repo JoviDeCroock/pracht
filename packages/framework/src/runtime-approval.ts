@@ -9,6 +9,7 @@ import { setCapabilityApprovalPrincipalResolver as setCapabilityApprovalPrincipa
 import type { CapabilityApprovalPrincipalResolver, PrachtRequestContext } from "./types.ts";
 
 export {
+  assertHumanApprovalIdentity,
   capabilityApprovalId,
   createMemoryApprovalStore,
   createSqlApprovalStore,
