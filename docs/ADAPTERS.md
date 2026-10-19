@@ -193,9 +193,9 @@ legitimate route whose base-free path is `/my-project`.
 max-age=31536000, immutable`; HTML and other files get `public, max-age=0,
 must-revalidate`. Clean URLs (e.g. `/about`) resolve to `about/index.html`.
 Prerendered HTML receives route and shell document headers from
-`dist/server/headers-manifest.json`. When the generated entry exports
-`headersManifestFormat = 2` (Node, Netlify, and Cloudflare entries do), the
-build writes it in the shared form `{ version: 2, sets, paths }`: each distinct
+`dist/server/headers-manifest.json`. When the server entry's
+`features.headersManifest` is `2` (the Node, Netlify, and Cloudflare adapters
+declare `features: { headersManifest: 2 }`), the build writes it in the shared form `{ version: 2, sets, paths }`: each distinct
 header set once, and every path naming its set by index, so the file grows with
 the page count rather than with every page's headers. Static exports, Vercel,
 and custom entries keep the flat `{ "<path>": { ...headers } }` map. Core's
@@ -221,11 +221,18 @@ that manifest.
   snapshot) uses a clean HTML request, and `createContext` receives a detached
   `req`/`res` pair mirroring it instead of the triggering request's, so no
   cookies, authorization, locale, or experiment headers reach the shared HTML.
-  Each render's document headers (minus transfer and credential-shaped ones)
-  are recorded in `.index.html.pracht-headers.json` beside the HTML, bound to
-  that file's identity, and replace the build's `headers-manifest.json` entry
-  when the snapshot is served; the record is never served as a static file,
-  and a redeploy that replaces the HTML falls back to the manifest.
+  A regenerated page is one ISG snapshot (core `captureISGSnapshot()`: the
+  HTML, the render's document headers minus transfer and credential-shaped
+  ones, its own Cache-Control, the `buildId`, and the render time) published
+  to `.index.html.pracht-isg.json` beside the build's HTML by one atomic
+  rename, so a reader in any process sees one render's HTML with that
+  render's headers. The build's `index.html` is never rewritten. A snapshot
+  is served (through `serveISGSnapshot()`, also for the `/page/index.html`
+  alias) with its own headers in place of the `headers-manifest.json` entry;
+  one stamped with another `buildId` is ignored, so a redeploy into the same
+  directory starts from its own HTML and headers. Neither the snapshot nor
+  the `.pracht-headers.json` file older releases wrote is ever served as a
+  static file.
   ISG state is the local `staticDir` of one process: the webhook regenerates
   only on the replica that receives it, and single-flighting and snapshot
   identities are per process and host, so ISG is supported on one instance.
@@ -517,22 +524,24 @@ build).
   `PRACHT_REVALIDATE_TOKEN` and overwrites the named Cache API entries for
   routes that opt into `webhookRevalidate()`. Regenerated entries are stored
   with `Cache-Control: public, max-age=31536000` because the Cache API takes
-  an entry's lifetime from that header; staleness comes only from the stored
-  `x-pracht-isg-generated-at` timestamp. A cached page is served with the
-  headers its own render produced, so `headers()` output computed from loader
-  `data` (an `x-robots-tag`, say) changes with the HTML instead of reverting
-  to `_pracht/headers.json`; its Cache-Control is the render's own (kept in
-  `x-pracht-isg-cache-control` while the entry carries its storage TTL) or
-  `public, max-age=0, must-revalidate`. Entries without that header predate
-  it and still take the build's headers. `caches.default` survives
-  `wrangler deploy`, so each Cache API key carries the build's prerender timestamp in its path
-  (`/__pracht/isg-build/<generatedAt>/<route path>`, from the ISG manifest; a
+  an entry's lifetime from that header. The entry's body is the encoded ISG
+  snapshot (`encodeISGSnapshot()`), so staleness comes from the snapshot's
+  render time and the page is served (`serveISGSnapshot()`) with the headers
+  its own render produced, credential-shaped ones stripped: `headers()`
+  output computed from loader `data` (an `x-robots-tag`, say) changes with
+  the HTML instead of reverting to `_pracht/headers.json`, and its
+  Cache-Control is the render's own or `public, max-age=0, must-revalidate`.
+  An entry an older release stored as plain HTML is still served, with the
+  build's headers, until its regeneration replaces it. `caches.default` survives
+  `wrangler deploy`, so each Cache API key carries the server entry's
+  `buildId` in its path (`isgCacheKeyPath()`:
+  `/__pracht/isg-build/<buildId>/<route path>`; a
   path rather than a query parameter because a zone cache key may ignore query
   strings): a new version never reads an entry the previous build rendered
   against its own asset hashes and starts from its own `ASSETS` snapshots,
-  while a rollback reads the entries its version wrote. Manifest entries
-  without `generatedAt` (hand-written manifests) keep the bare path key and
-  are not deploy-scoped. Successful manifest reads are
+  while a rollback reads the entries its version wrote. An entry generated
+  before build ids existed falls back to the ISG manifest's `generatedAt`, and
+  without that to the bare path key, which is not deploy-scoped. Successful manifest reads are
   cached for the isolate lifetime; transient asset or JSON failures are evicted
   so the next request retries. A missing manifest (`404`) is cached as empty.
 - **Cache locality**: Cloudflare's Cache API is local to the colo handling the
@@ -1288,6 +1297,9 @@ case.
   metadata and `waitUntil()` remain available. Their Pracht time policy becomes
   the durable CDN `max-age`; stale-while-revalidate is configurable with
   `staleWhileRevalidate`. A cacheable custom policy remains authoritative.
+  A render that sets a cookie or marks itself private is answered as is with
+  `Netlify-CDN-Cache-Control: private`, so the CDN never stores it; a stored
+  render has its credential-shaped headers stripped (`stripISGSecretHeaders()`).
   ISG routes get no build-time snapshot on Netlify — the handler always renders
   them through the durable cache, so a snapshot would only be reachable at its
   literal `/index.html` URL where it would never revalidate. The first request
@@ -1455,9 +1467,12 @@ cache.
   regeneration paths use — `GET`, `Accept: text/html`, path only. The triggering
   visitor's `Cookie`/`Authorization` headers, query string, and body never reach
   loaders, middleware, or `createContext`, so a cache miss cannot materialize a
-  personalized page into shared cache. On the way out, credential headers
-  (`Set-Cookie`, `Authorization`, `WWW-Authenticate`, `Proxy-Authenticate`,
-  secret-shaped `x-*`) are stripped with a logged error — the same set
+  personalized page into shared cache. On the way out, a cacheable `200` is
+  answered as its ISG snapshot (`captureISGSnapshot()` then
+  `serveISGSnapshot()`), so it carries the same document headers Node and
+  Cloudflare replay. Credential headers (`Set-Cookie`, `Authorization`,
+  `WWW-Authenticate`, `Proxy-Authenticate`, secret-shaped `x-*`) are stripped
+  with a logged error — the same set
   build-time prerendering refuses outright — and a response that marks itself
   uncacheable (`Cache-Control: private`/`no-store`, `Vary: Cookie`/
   `Authorization`) is logged as a warning, because Vercel's prerender cache
@@ -2145,12 +2160,46 @@ the edge function.
 
 ---
 
+## Conformance suite
+
+`packages/adapter-conformance` (private, test-only) mounts one fixture app and
+one static output directory on every request handler — Node, Cloudflare (a mock
+`caches.default` and `ASSETS` binding), Netlify, Vercel Edge, the Vercel ISG
+Node function, the static preview server — and on the dev middleware, behind
+one `fetch(path, init)` interface. Node-shaped targets run behind a real
+`node:http` server, so body limits and client disconnects are real. It runs in
+`pnpm test`.
+
+Rows cover encoded static paths (including the #471 escape case), media types,
+byte ranges, 413 with the default headers, the client disconnect signal in
+loaders and capabilities, replayed ISG snapshot headers (identical across
+adapters, secret-shaped `x-*-token` stripped, `Cache-Control` kept, cookie and
+private renders refused, the `index.html` alias), a rolling deploy where an
+older build regenerates into a shared store, and the revalidation report.
+
+Each row declares a cell for every target (`test/matrix.ts`; a new target does
+not type-check until every row places it):
+
+- `run` — the target must behave as the row says.
+- `fails(step, why)` — diverges today. The row still runs and must keep
+  failing, so the change that converges it has to flip the cell to `run`.
+- `todo(step, why)` — diverges but cannot run here (the escape-case row needs a
+  case-sensitive filesystem; it runs as `fails` on Linux).
+- `na(why)` — the platform owns the behaviour (a CDN serves static files) or
+  the target has no such path.
+
+Divergent cells carry a `// seams step <C|D>` comment naming the rewrite step
+expected to converge them. The `baseline` test pins their count (20 when the
+suite landed: 10 ISG-snapshot cells for step C, 10 static/MIME/Range/413 cells
+for step D; step C converged 7 of its 10); lower it in the change that
+converges a cell. A new divergence is fixed, not recorded.
+
 ## Writing a Custom Adapter
 
 A custom adapter exports a factory function that returns a `PrachtAdapter` object:
 
 ```typescript
-import type { PrachtAdapter } from "@pracht/vite-plugin";
+import type { PrachtAdapter } from "@pracht/core/adapter";
 import {
   myPlatformGraphStubs,
   myPlatformVitePlugin,
@@ -2161,9 +2210,13 @@ export function myAdapter(options?: MyOptions): PrachtAdapter {
     id: "my-platform",
     serverImports:
       'import { handlePrachtRequest, resolveApp, resolveApiRoutes } from "@pracht/core";',
-    createServerEntryModule() {
+    // Optional: formats the runtime reads beyond the baseline. With
+    // headersManifest: 2, `pracht build` writes the shared headers manifest.
+    features: { headersManifest: 2 },
+    createServerEntryModule(entry) {
       // Return JavaScript source code that will be appended to the
-      // generated virtual:pracht/server module.
+      // generated virtual:pracht/server module. `entry` is { buildId }, absent
+      // under a @pracht/vite-plugin release older than the contract.
       return `
 export default async function handle(request) {
   return handlePrachtRequest({
@@ -2239,15 +2292,16 @@ export default async function handle(request) {
 
 `pracht build` takes the adapter from the `pracht` plugin's
 `api.pracht.adapter` in the server build's resolved config (the instance that
-generated the server entry), fails when the server bundle's `buildTarget` is
+generated the server entry), fails when the server entry's `adapterId` is
 not that adapter's `id`, and awaits `finalizeBuild(context)` after the headers, Markdown,
 routing, CSS and ISG manifests are written and before Netlify's
 `finalizePrachtBuild` export and the bundle report. `PrachtAdapterBuildContext`
-(exported by `@pracht/vite-plugin`) carries:
+(from `@pracht/core/adapter`, re-exported by `@pracht/vite-plugin`) carries:
 
 - `root`, `clientDir`, `publicDir`, `publicDirLabel`, `base`, `trailingSlash`
 - `frameworkVersion`: the `@pracht/cli` version (Vercel stamps it into
   `config.json`)
+- `buildId`: the server entry's `buildId` (absent under an older CLI)
 - `serverEntry`: the `dist/server/server.js` exports
 - `pages` (every prerendered path, SSG and ISG) and `onDemandPages` (those the
   CLI rendered but did not write, e.g. Cloudflare workers-cache ISG)
@@ -2271,10 +2325,39 @@ of those steps (`packages/cli/src/legacy-adapter-build.ts`). A unit test keeps
 the two copies byte-identical; the CLI copy can go once the CLI requires
 adapter releases with the hook.
 
-`pracht build` also checks the server bundle it imports
-(`packages/cli/src/server-entry.ts`, `PrachtServerEntry`): a bundle without
-`resolvedApp` or `prerenderApp()` fails with a pointer to `pracht build` and
-matching plugin/core releases. A plain `vite build` fails in the plugin's
+### The server entry contract
+
+`dist/server/server.js` has one typed shape, `PrachtServerEntry` in
+`@pracht/core/adapter`, and one reader, `readServerEntry(mod)`. `pracht build`
+and `pracht preview` read the bundle through it, and nothing else in the CLI
+types those exports. The plugin's codegen (`createPrachtServerModuleSource`)
+is the only producer of the contract exports:
+
+- `contract`: `SERVER_ENTRY_CONTRACT` (`1`). A higher value fails the read
+  with an upgrade hint.
+- `buildId`: one per `pracht build`. The CLI creates it (`createBuildId()`,
+  time-sortable and URL-path safe) and hands it to the plugin through the
+  `PRACHT_INTERNAL_BUILD_ID` environment variable for the duration of the
+  build; a build the CLI did not start gets one per process, and the dev
+  server `"dev"`. The plugin passes it to `createServerEntryModule({ buildId })`
+  so adapters hand it to their runtime: Cloudflare keys its ISG Cache API
+  entries by it, and Node stamps it on ISG snapshots. The budget report records it.
+- `adapterId`: the adapter's `id`. The read fails when it is missing, so a
+  renamed export can no longer skip the adapter's deploy step (R496-2).
+- `features`: `{ headersManifest: 1 | 2 }`, from the adapter's `features`.
+
+`readServerEntry` maps a contract-less bundle from an older plugin: `adapterId`
+from `buildTarget`, `features.headersManifest` from the adapter's own
+`headersManifestFormat = 2` export, and `buildId` from the caller's
+`legacyBuildId`. Until the next minor the plugin keeps emitting `buildTarget`,
+and `headersManifestFormat = 2` for adapters declaring the shared form (unless
+the adapter's source, from a release before `features`, already exports it).
+A bundle without `resolvedApp` or `prerenderApp()` fails with a pointer to
+`pracht build` and matching plugin/core releases.
+`packages/vite-plugin/test/server-entry-contract.test.ts` reads every built-in
+adapter's generated entry through `readServerEntry`, and
+`packages/framework/test/adapter-contract-seam.test.ts` fails on a second
+producer or reader. A plain `vite build` fails in the plugin's
 Rollup `options` hook when Vite falls back to a root `index.html` that does not
 exist, with the same pointer.
 

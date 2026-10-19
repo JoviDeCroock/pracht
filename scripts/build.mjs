@@ -70,14 +70,6 @@ const PACKAGE_OVERRIDES = {
     externalInputs: ["skills"],
     outputs: ["skills", "fallback-versions.json"],
   },
-  // The adapters' published types inline the `PrachtAdapter` contract from
-  // vite-plugin rather than importing a package they do not depend on.
-  ...Object.fromEntries(
-    ["node", "cloudflare", "netlify", "vercel", "static"].map((id) => [
-      `@pracht/adapter-${id}`,
-      { externalInputs: ["packages/vite-plugin/src/plugin-adapter.ts"] },
-    ]),
-  ),
 };
 
 function hashFileInto(hash, absolutePath, label) {

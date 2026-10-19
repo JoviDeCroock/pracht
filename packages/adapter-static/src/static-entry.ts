@@ -1,5 +1,5 @@
 import type { HeadMetadata } from "@pracht/core";
-import type { PrachtAdapter } from "@pracht/vite-plugin";
+import type { PrachtAdapter } from "@pracht/core/adapter";
 
 export interface StaticAdapterOptions {
   /**

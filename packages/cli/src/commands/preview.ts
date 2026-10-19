@@ -4,6 +4,7 @@ import { delimiter, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { defineCommand } from "citty";
+import { readServerEntry } from "@pracht/core/adapter";
 
 import { requirePositiveInteger } from "../utils.js";
 import { readProjectConfig, type ProjectConfig } from "../project.js";
@@ -171,8 +172,8 @@ async function readBuildTarget(root: string): Promise<AdapterTarget | null> {
   if (!existsSync(serverEntry)) return null;
 
   try {
-    const serverMod = await import(pathToFileURL(serverEntry).href);
-    return normalizeAdapterTarget(serverMod.buildTarget);
+    const serverMod = readServerEntry(await import(pathToFileURL(serverEntry).href));
+    return normalizeAdapterTarget(serverMod.adapterId);
   } catch {
     return null;
   }

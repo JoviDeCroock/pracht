@@ -13,7 +13,7 @@ import {
   getTimeRevalidateSeconds,
   type ISGManifestEntry,
 } from "@pracht/core/server";
-import type { PrachtAdapterBuildContext } from "@pracht/vite-plugin";
+import type { PrachtAdapterBuildContext } from "@pracht/core/adapter";
 
 const ROUTE_STATE_REQUEST_HEADER = "x-pracht-route-state-request";
 

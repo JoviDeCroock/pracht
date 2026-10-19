@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import type { ISGManifestEntry } from "@pracht/core";
+import type { PrachtAdapterBuildContext } from "@pracht/core/adapter";
 
 import {
   describeVercelRouteBudget,
@@ -11,31 +11,8 @@ import {
 } from "./build-shared.js";
 import { writeCloudflareAssetHeaders } from "./cloudflare-asset-headers.js";
 
-/**
- * What `pracht build` passes to an adapter's `finalizeBuild`. Mirrors
- * `PrachtAdapterBuildContext` in `@pracht/vite-plugin`, which the CLI does not
- * depend on.
- */
-export interface AdapterBuildContext {
-  root: string;
-  clientDir: string;
-  publicDir: string;
-  publicDirLabel: string;
-  base: string;
-  trailingSlash: "ignore" | "never" | "always";
-  frameworkVersion: string;
-  serverEntry: Readonly<Record<string, unknown>>;
-  pages: readonly string[];
-  onDemandPages: readonly string[];
-  isgManifest: Readonly<Record<string, ISGManifestEntry>>;
-  headersManifest: Readonly<Record<string, Record<string, string>>>;
-  markdownRoutes: readonly string[];
-  markdownFiles: readonly { path: string; outputPath: string }[];
-  contentArtifacts: readonly string[];
-  staticRoutes: readonly string[];
-  log(message: string): void;
-  warn(message: string): void;
-}
+/** What `pracht build` passes to an adapter's `finalizeBuild`. */
+export type AdapterBuildContext = PrachtAdapterBuildContext;
 
 /** The part of a `PrachtAdapter` the build reads. */
 export interface BuildAdapter {

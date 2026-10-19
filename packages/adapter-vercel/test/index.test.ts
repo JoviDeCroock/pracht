@@ -207,6 +207,34 @@ describe("createVercelNodeListener", () => {
     consoleError.mockRestore();
   });
 
+  it("answers a cacheable page with the document headers every adapter replays", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const { body, headers } = await invokeListener(
+      () =>
+        new Response("<html>ok</html>", {
+          headers: {
+            "cache-control": "public, max-age=60",
+            "content-type": "text/html; charset=utf-8",
+            etag: '"render-local"',
+            "x-api-key": "secret",
+            "x-robots-tag": "noindex",
+          },
+        }),
+      { headers: { host: "example.com" }, url: "/pricing" },
+    );
+
+    expect(body).toBe("<html>ok</html>");
+    expect(headers["x-api-key"]).toBeUndefined();
+    expect(headers.etag).toBeUndefined();
+    expect(headers["x-robots-tag"]).toBe("noindex");
+    expect(headers["cache-control"]).toBe("public, max-age=60");
+    expect(headers["content-type"]).toBe("text/html; charset=utf-8");
+    expect(consoleError).toHaveBeenCalledWith(expect.stringContaining('"x-api-key"'));
+
+    consoleError.mockRestore();
+  });
+
   it("warns when an ISG response marks itself uncacheable", async () => {
     const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {});
 

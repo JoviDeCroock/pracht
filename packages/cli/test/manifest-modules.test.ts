@@ -1,9 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  findUnresolvedManifestModules,
+  findUnresolvedManifestModules as findUnresolvedInEntry,
   formatUnresolvedManifestModules,
 } from "../src/manifest-modules.ts";
+
+/** The fixtures carry only the route fields the check reads. */
+function findUnresolvedManifestModules(entry: object): Promise<string[]> {
+  return findUnresolvedInEntry(entry as Parameters<typeof findUnresolvedInEntry>[0]);
+}
 
 const importer = async () => {
   throw new Error("the check must not import modules");

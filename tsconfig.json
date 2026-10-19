@@ -22,6 +22,7 @@
       "@pracht/core/env": ["./packages/framework/src/env.ts"],
       "@pracht/core/env/server": ["./packages/framework/src/env-server.ts"],
       "@pracht/core/server": ["./packages/framework/src/server.ts"],
+      "@pracht/core/adapter": ["./packages/framework/src/adapter.ts"],
       "@pracht/core/islands-client": ["./packages/framework/src/islands-client.ts"],
       "@pracht/capabilities": ["./packages/capabilities/src/index.ts"],
       "@pracht/content": ["./packages/content/src/index.ts"],

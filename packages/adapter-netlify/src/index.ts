@@ -6,7 +6,7 @@ import {
 import { lstat, readFile, readdir, realpath } from "node:fs/promises";
 import { resolve, sep } from "node:path";
 import type { McpAuthConfig } from "@pracht/core";
-import type { PrachtAdapter } from "@pracht/vite-plugin";
+import type { PrachtAdapter } from "@pracht/core/adapter";
 import { URLPattern } from "urlpattern-polyfill";
 import type { Plugin } from "vite";
 import {
@@ -18,7 +18,6 @@ import {
   getTimeRevalidateSeconds,
   handlePrachtRequest,
   isCacheableISGResponse,
-  isDangerousPrerenderHeader,
   isMcpResourceMetadataPath,
   jsonResponse,
   matchAppRoute,
@@ -35,6 +34,7 @@ import {
   staticContentType,
   staticPathCandidates,
   stripBase,
+  stripISGSecretHeaders,
   TRAILING_SLASH,
   type HandlePrachtRequestOptions,
   type ISGManifestEntry,
@@ -337,8 +337,6 @@ export function createNetlifyServerEntryModule(options: NetlifyAdapterOptions = 
     "]);",
     'const isgManifest = readManifest("isg-manifest.json", {});',
     'const headersManifest = readManifest("headers-manifest.json", {});',
-    "// `pracht build` writes headers-manifest.json in its shared form only for entries that read it.",
-    "export const headersManifestFormat = 2;",
     'const markdownManifest = readManifest("markdown-manifest.json", undefined);',
     "",
     "const handler = createNetlifyHandler({",
@@ -383,6 +381,8 @@ export function netlifyAdapter(options: NetlifyAdapterOptions = {}): PrachtAdapt
   return {
     id: "netlify",
     serverImports: 'import { resolveApp, resolveApiRoutes } from "@pracht/core/server";',
+    // The handler reads headers-manifest.json in its shared form.
+    features: { headersManifest: 2 },
     createServerEntryModule() {
       return createNetlifyServerEntryModule(options);
     },
@@ -853,9 +853,15 @@ function applyNetlifyISGCacheHeaders(
   cache: Required<NetlifyCacheOptions>,
 ): Response {
   if (response.status !== 200) return response;
+  // A render that sets a cookie or marks itself private is the visitor's own:
+  // it is answered as is and kept out of the shared cache.
+  if (!isCacheableISGResponse(response)) {
+    const headers = new Headers(response.headers);
+    headers.set("netlify-cdn-cache-control", "private");
+    return cloneResponse(response, headers);
+  }
 
   let prepared = stripDangerousSharedCacheHeaders(response, pathname);
-  if (!isCacheableISGResponse(prepared)) return prepared;
 
   const seconds = getTimeRevalidateSeconds(route.revalidate) ?? cache.staticMaxAge;
   const headers = new Headers(prepared.headers);
@@ -923,16 +929,10 @@ function applyNetlifyDynamicCacheHeaders(
 }
 
 function stripDangerousSharedCacheHeaders(response: Response, pathname: string): Response {
-  const dangerous = [...response.headers.keys()].filter(isDangerousPrerenderHeader);
-  if (dangerous.length === 0) return response;
-
-  const headers = new Headers(response.headers);
-  for (const name of dangerous) headers.delete(name);
-  console.error(
-    `Stripped ${dangerous.map((name) => `"${name}"`).join(", ")} from the ISG response for ` +
-      `"${pathname}" before Netlify's shared cache stored it.`,
-  );
-  return cloneResponse(response, headers);
+  const headers = stripISGSecretHeaders(response.headers, pathname);
+  return [...headers.keys()].length === [...response.headers.keys()].length
+    ? response
+    : cloneResponse(response, headers);
 }
 
 interface StaticFileResult {
@@ -1126,6 +1126,6 @@ function pathIsInside(root: string, candidate: string): boolean {
   return candidate === root || candidate.startsWith(root.endsWith(sep) ? root : `${root}${sep}`);
 }
 
-// The contract the factory returns, carried in this package's own declarations
-// so a value of it can be named without importing `@pracht/vite-plugin`.
-export type { PrachtAdapter } from "@pracht/vite-plugin";
+// The contract the factory returns, re-exported so a value of it can be named
+// from this package alone.
+export type { PrachtAdapter } from "@pracht/core/adapter";

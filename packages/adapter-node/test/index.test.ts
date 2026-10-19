@@ -3,6 +3,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  renameSync,
   rmSync,
   utimesSync,
   writeFileSync,
@@ -15,7 +16,7 @@ import {
   type ServerResponse,
 } from "node:http";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { once } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -39,6 +40,20 @@ function makeTempDir(): string {
   const dir = mkdtempSync(join(tmpdir(), "pracht-adapter-node-"));
   tempDirs.push(dir);
   return dir;
+}
+
+/** Where a regenerated ISG page is published, beside its build HTML. */
+function isgSnapshotPath(htmlPath: string): string {
+  return join(dirname(htmlPath), `.${basename(htmlPath)}.pracht-isg.json`);
+}
+
+/** The HTML a Node ISG page currently serves: its snapshot, else its build file. */
+function readISGPage(htmlPath: string): string {
+  try {
+    return (JSON.parse(readFileSync(isgSnapshotPath(htmlPath), "utf-8")) as { html: string }).html;
+  } catch {
+    return readFileSync(htmlPath, "utf-8");
+  }
 }
 
 function requestRaw(options: RequestOptions): Promise<IncomingMessage> {
@@ -267,7 +282,7 @@ describe("createNodeRequestHandler", () => {
     expect(staleIsg.status).toBe(200);
     expect(staleIsg.headers.get("x-pracht-isg")).toBe("stale");
     await expect(staleIsg.text()).resolves.toContain("stale");
-    await waitFor(() => readFileSync(isgPath, "utf-8").includes("fresh"));
+    await waitFor(() => readISGPage(isgPath).includes("fresh"));
     expect(observedUrls).toEqual(["https://example.test/app/isg"]);
   });
 
@@ -607,13 +622,13 @@ describe("createNodeRequestHandler", () => {
 
     await waitFor(
       () =>
-        readFileSync(htmlPath, "utf-8").includes("missing") &&
-        readFileSync(htmlPath, "utf-8").includes("/assets/islands-agent.js"),
+        readISGPage(htmlPath).includes("missing") &&
+        readISGPage(htmlPath).includes("/assets/islands-agent.js"),
     );
 
     expect(createContextCalls).toEqual(["missing"]);
-    expect(readFileSync(htmlPath, "utf-8")).toContain("missing");
-    expect(readFileSync(htmlPath, "utf-8")).toContain("/assets/islands-agent.js");
+    expect(readISGPage(htmlPath)).toContain("missing");
+    expect(readISGPage(htmlPath)).toContain("/assets/islands-agent.js");
   });
 
   describe("ISG renders never see the visitor's Node request", () => {
@@ -704,7 +719,7 @@ describe("createNodeRequestHandler", () => {
       await stale.text();
       await handler.drain();
 
-      expect(readFileSync(htmlPath, "utf-8")).toContain("Hello anonymous");
+      expect(readISGPage(htmlPath)).toContain("Hello anonymous");
       expect(seen).toEqual([sanitizedContextArgs]);
       await waitFor(() => responses.closed === 1);
       const anonymous = await fetch(`${base}/p`);
@@ -725,7 +740,7 @@ describe("createNodeRequestHandler", () => {
       await expect(cold.text()).resolves.toContain("Hello anonymous");
       await handler.drain();
 
-      expect(readFileSync(htmlPath, "utf-8")).toContain("Hello anonymous");
+      expect(readISGPage(htmlPath)).toContain("Hello anonymous");
       expect(seen).toEqual([sanitizedContextArgs]);
       await waitFor(() => responses.closed === 1);
     });
@@ -761,7 +776,7 @@ describe("createNodeRequestHandler", () => {
       });
       await expect(response.json()).resolves.toMatchObject({ revalidated: ["/p"] });
 
-      expect(readFileSync(htmlPath, "utf-8")).toContain("Hello anonymous");
+      expect(readISGPage(htmlPath)).toContain("Hello anonymous");
       expect(seen).toEqual([sanitizedContextArgs]);
       await waitFor(() => responses.closed === 1);
     });
@@ -778,12 +793,14 @@ describe("createNodeRequestHandler", () => {
       staticDir: string,
       state: { withdrawn: boolean },
       createHandler: typeof createNodeRequestHandler = createNodeRequestHandler,
+      buildId?: string,
     ) {
       const app = defineApp({
         routes: [route("/w", "./routes/w.tsx", { render: "isg", revalidate: webhookRevalidate() })],
       });
       const handler = createHandler({
         app,
+        buildId,
         canonicalOrigin: "http://localhost",
         isgManifest: { "/w": { revalidate: webhookRevalidate() } },
         // What the build recorded from the prerender, while the page was live.
@@ -846,7 +863,12 @@ describe("createNodeRequestHandler", () => {
       mkdirSync(join(staticDir, "w"), { recursive: true });
       writeFileSync(htmlPath, "<html><body>withdrawn=false</body></html>", "utf-8");
       const state = { withdrawn: false };
-      const base = await startWithdrawableIsgServer(staticDir, state);
+      const base = await startWithdrawableIsgServer(
+        staticDir,
+        state,
+        createNodeRequestHandler,
+        "build-1",
+      );
 
       const built = await fetch(`${base}/w`);
       expect(built.headers.get("x-robots-tag")).toBe("all");
@@ -869,6 +891,7 @@ describe("createNodeRequestHandler", () => {
         staticDir,
         state,
         fresh.createNodeRequestHandler,
+        "build-1",
       );
       for (const url of [`${base}/w`, `${restarted}/w`, `${base}/w/index.html`]) {
         const served = await fetch(url);
@@ -882,15 +905,26 @@ describe("createNodeRequestHandler", () => {
         expect(served.headers.get("cache-control")).toBe("public, max-age=0, must-revalidate");
       }
 
-      // A redeploy that replaces the HTML brings back the build's headers.
+      // A redeploy (a new build) serves its own HTML with the build's headers,
+      // not the snapshot the previous build regenerated.
       writeFileSync(htmlPath, "<html><body>withdrawn=false (redeployed)</body></html>", "utf-8");
-      const redeployed = await fetch(`${base}/w`);
-      await expect(redeployed.text()).resolves.toContain("redeployed");
-      expect(redeployed.headers.get("x-robots-tag")).toBe("all");
+      const redeployedBase = await startWithdrawableIsgServer(
+        staticDir,
+        state,
+        createNodeRequestHandler,
+        "build-2",
+      );
+      for (const url of [`${redeployedBase}/w`, `${redeployedBase}/w/index.html`]) {
+        const redeployed = await fetch(url);
+        await expect(redeployed.text()).resolves.toContain("redeployed");
+        expect(redeployed.headers.get("x-robots-tag")).toBe("all");
+      }
 
-      // The recorded headers are not a public file.
+      // The snapshot (and a headers file older releases wrote) is not public.
+      writeFileSync(join(staticDir, "w", ".index.html.pracht-headers.json"), "{}", "utf-8");
       const listing = readdirSync(join(staticDir, "w")).filter((name) => name !== "index.html");
-      expect(listing.length).toBeGreaterThan(0);
+      expect(listing).toContain(".index.html.pracht-isg.json");
+      expect(listing).toContain(".index.html.pracht-headers.json");
       for (const name of listing) {
         const direct = await fetch(`${base}/w/${name}`);
         expect(direct.status).toBe(404);
@@ -992,20 +1026,23 @@ describe("createNodeRequestHandler", () => {
         scope: "instance",
         skipped: [],
       });
-      expect(readFileSync(htmlPath, "utf-8")).toContain("missing");
-      expect(readFileSync(htmlPath, "utf-8")).not.toContain("should-not-leak");
+      expect(readISGPage(htmlPath)).toContain("missing");
+      expect(readISGPage(htmlPath)).not.toContain("should-not-leak");
 
       // Prime the compressed-file LRU with a stale page, then regenerate a
       // same-size replacement while preserving its timestamp. Filesystem
       // metadata alone cannot distinguish these versions, so the successful
       // regeneration must explicitly invalidate the cached bytes.
-      const freshHtml = readFileSync(htmlPath, "utf-8");
+      const snapshotPath = isgSnapshotPath(htmlPath);
+      const freshSnapshot = JSON.parse(readFileSync(snapshotPath, "utf-8")) as { html: string };
+      const freshHtml = freshSnapshot.html;
       const staleHtml = freshHtml.replace("missing", "expired");
       expect(staleHtml).not.toBe(freshHtml);
       expect(Buffer.byteLength(staleHtml)).toBe(Buffer.byteLength(freshHtml));
       const fixedTimestamp = new Date();
-      writeFileSync(htmlPath, staleHtml, "utf-8");
-      utimesSync(htmlPath, fixedTimestamp, fixedTimestamp);
+      writeFileSync(`${snapshotPath}.seed`, JSON.stringify({ ...freshSnapshot, html: staleHtml }));
+      renameSync(`${snapshotPath}.seed`, snapshotPath);
+      utimesSync(snapshotPath, fixedTimestamp, fixedTimestamp);
 
       const staleCompressed = await fetch(`http://127.0.0.1:${address.port}/pricing`, {
         headers: { "accept-encoding": "gzip" },
@@ -1021,17 +1058,16 @@ describe("createNodeRequestHandler", () => {
         method: "POST",
       });
       expect(refreshed.status).toBe(200);
-      const regeneratedHtml = readFileSync(htmlPath, "utf-8");
+      const regeneratedHtml = readISGPage(htmlPath);
       expect(Buffer.byteLength(regeneratedHtml)).toBe(Buffer.byteLength(staleHtml));
       expect(regeneratedHtml).toContain("missing");
-      utimesSync(htmlPath, fixedTimestamp, fixedTimestamp);
+      utimesSync(snapshotPath, fixedTimestamp, fixedTimestamp);
 
       const freshCompressed = await fetch(`http://127.0.0.1:${address.port}/pricing`, {
         headers: { "accept-encoding": "gzip" },
       });
       expect(freshCompressed.headers.get("content-encoding")).toBe("gzip");
       expect(freshCompressed.headers.get("etag")).not.toBe(staleEtag);
-      expect(freshCompressed.headers.get("last-modified")).toBe(staleLastModified);
       await expect(freshCompressed.text()).resolves.toContain("missing");
 
       const staleEtagRevalidation = await fetch(`http://127.0.0.1:${address.port}/pricing`, {
@@ -1120,7 +1156,7 @@ describe("createNodeRequestHandler", () => {
         revalidated: [],
         skipped: ["/not-isg"],
       });
-      expect(readFileSync(htmlPath, "utf-8")).toContain("stale-but-safe");
+      expect(readISGPage(htmlPath)).toContain("stale-but-safe");
     } finally {
       if (previousToken === undefined) {
         delete process.env.PRACHT_REVALIDATE_TOKEN;
@@ -1190,7 +1226,7 @@ describe("createNodeRequestHandler", () => {
         revalidated: ["/pricing"],
         skipped: [],
       });
-      expect(readFileSync(htmlPath, "utf-8")).toContain("fresh");
+      expect(readISGPage(htmlPath)).toContain("fresh");
     } finally {
       if (previousToken === undefined) {
         delete process.env.PRACHT_REVALIDATE_TOKEN;

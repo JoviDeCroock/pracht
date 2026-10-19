@@ -1,184 +1,24 @@
-import type { IncomingMessage, ServerResponse } from "node:http";
-
 import { createNodeServerEntryModule } from "@pracht/adapter-node";
-import type { ISGManifestEntry } from "@pracht/core";
-import type { Plugin } from "vite";
+import type { PrachtAdapter } from "@pracht/core/adapter";
 
-/**
- * What `pracht build` hands an adapter's `finalizeBuild` once `dist/` holds
- * the client bundle, the server bundle, every prerendered page, and the
- * build manifests.
- */
-export interface PrachtAdapterBuildContext {
-  /** The Vite root. */
-  root: string;
-  /** Absolute path of `dist/client`, the static output. */
-  clientDir: string;
-  /** Absolute path of the public directory Vite resolved. */
-  publicDir: string;
-  /** The public directory relative to the root, for messages. */
-  publicDirLabel: string;
-  /** The deploy base the build was made for (`/` or `/docs/`). */
-  base: string;
-  /** `pracht({ trailingSlash })`. */
-  trailingSlash: "ignore" | "never" | "always";
-  /** The `@pracht/cli` version running the build. */
-  frameworkVersion: string;
-  /** The exports of `dist/server/server.js`. */
-  serverEntry: Readonly<Record<string, unknown>>;
-  /** Every prerendered page path (SSG and ISG), in build order. */
-  pages: readonly string[];
-  /** Prerendered page paths whose HTML was not written because the runtime renders them on demand. */
-  onDemandPages: readonly string[];
-  /** ISG routes and their revalidation policy, as in `dist/server/isg-manifest.json`. */
-  isgManifest: Readonly<Record<string, ISGManifestEntry>>;
-  /** Response headers per static path, flat (one header set per path). */
-  headersManifest: Readonly<Record<string, Record<string, string>>>;
-  /** Prerendered routes whose module exports `markdown`. */
-  markdownRoutes: readonly string[];
-  /** Markdown companions the build wrote: their URL path and their file relative to `clientDir`. */
-  markdownFiles: readonly { path: string; outputPath: string }[];
-  /** URL paths of the content-collection artifacts in `clientDir`. */
-  contentArtifacts: readonly string[];
-  /** Other HTML pages in `clientDir` served at their clean URL (OpenAPI UI, content routes). */
-  staticRoutes: readonly string[];
-  /** Prints a progress line (silent under `--analyze-json`). */
-  log(message: string): void;
-  /** Prints a warning to stderr (silent under `--analyze-json`). */
-  warn(message: string): void;
-}
-
-/** What `pracht dev` knows about a request when it builds the app context. */
-export interface PrachtAdapterDevRequest {
-  /** The Web `Request` the framework runtime receives. */
-  request: Request;
-  req: IncomingMessage;
-  res: ServerResponse;
-  /** Registers background work with the dev server's shutdown drain. */
-  waitUntil: (promise: Promise<unknown>) => void;
-}
-
-/**
- * How `pracht dev` reproduces the adapter's generated entry when the
- * vite-plugin serves requests itself (every adapter without `ownsDevServer`).
- */
-export interface PrachtAdapterDevOptions {
-  /**
-   * Vite-resolvable module exporting `createContext(args)` — the same module
-   * the generated server entry imports. Loaded through Vite's SSR module graph
-   * and called once per dev request.
-   */
-  createContextFrom?: string;
-  /**
-   * Shape the argument the context factory receives, so it matches what the
-   * adapter passes in production. Defaults to `{ request }`.
-   */
-  createContextArgs?(input: PrachtAdapterDevRequest): object;
-  /**
-   * Vite-resolvable module exporting `configureServer(server)` — the same
-   * module the generated server entry calls before `listen()`. `pracht dev`
-   * calls it with its own `node:http` server on every start and restart.
-   * Upgrade requests for Vite's HMR socket never reach the listeners it adds.
-   */
-  configureServerFrom?: string;
-}
-
-/**
- * An adapter object that bridges pracht's platform-agnostic core to a specific
- * deployment target.  Built-in adapters are provided by `@pracht/adapter-node`,
- * `@pracht/adapter-cloudflare`, and `@pracht/adapter-vercel`.  You can also
- * supply a custom adapter that conforms to this interface.
- */
-export interface PrachtAdapter {
-  /** A short identifier used at build time (e.g. "node", "cloudflare", "vercel"). */
-  id: string;
-  /**
-   * Extra import statements that must appear at the top of the generated
-   * `virtual:pracht/server` module.  Return an empty string if none are needed.
-   */
-  serverImports: string;
-  /**
-   * Returns the JavaScript source code appended to the generated
-   * `virtual:pracht/server` module.  This is where the adapter wires up its
-   * request handler or default export.
-   */
-  createServerEntryModule(): string;
-  /**
-   * Additional Vite plugins the adapter needs (e.g. `@cloudflare/vite-plugin`).
-   * Returned plugins are appended to the plugin array returned by `pracht()`.
-   */
-  vitePlugins?(): Plugin[];
-  /**
-   * Vite plugins that can safely run in the CLI's graph-only server. These
-   * plugins may provide runtime-module stubs or other metadata-only support,
-   * but must not start deployment runtimes, listeners, or persistent workers.
-   * When omitted, graph commands load no adapter-contributed plugins.
-   */
-  graphVitePlugins?(): Plugin[];
-  /**
-   * If true, the adapter owns dev-server request handling and the vite-plugin
-   * will not install its own SSR middleware. Used when the adapter contributes
-   * a Vite plugin that runs the dev server in a platform-specific runtime
-   * (e.g. Cloudflare workerd via `@cloudflare/vite-plugin`).
-   */
-  ownsDevServer?: boolean;
-  /**
-   * If true, the adapter's Vite plugins define the `ssr` environment the
-   * server build runs in (resolve conditions, externals, entries), so pracht
-   * leaves out the generic edge settings it otherwise applies to that build.
-   * Used by `@pracht/adapter-cloudflare`, whose Worker environment is the
-   * server build.
-   */
-  ownsServerEnvironment?: boolean;
-  /**
-   * The parts of the generated entry `pracht dev` must reproduce: the app
-   * context factory and the HTTP-server hook. Ignored when `ownsDevServer` is set, since the
-   * adapter's own dev runtime then runs the generated entry.
-   */
-  dev?: PrachtAdapterDevOptions;
-  /**
-   * If true, the adapter targets an edge runtime that cannot resolve
-   * dependencies from `node_modules` at runtime. The Vite plugin will set
-   * `ssr.noExternal = true` for SSR builds so all dependencies are bundled
-   * into the server output.
-   */
-  edge?: boolean;
-  /**
-   * Node.js builtins the edge runtime provides, as `node:` specifiers, or
-   * `true` when the adapter's own Vite plugins resolve every builtin the
-   * bundle imports. An edge server bundle may import these; any other builtin
-   * left in it fails the build. Listed builtins are also kept external.
-   * Called with the Vite root once per server build.
-   */
-  edgeNodeBuiltins?(root: string): Iterable<string> | true;
-  /**
-   * If true, the adapter produces a pure static export with no server at
-   * runtime (e.g. `@pracht/adapter-static`). Production builds then define
-   * `__PRACHT_STATIC_TARGET__` as `true`, which switches the client router's
-   * route-state fetching from the live `x-pracht-route-state-request`
-   * endpoint to the serialized `/_pracht/state/…` files that `pracht build`
-   * emits. Dev servers keep the live endpoint (the flag only applies to
-   * builds). Custom static targets must also expose the static artifact hooks
-   * generated by `@pracht/adapter-static`; the CLI fails when a configured
-   * not-found or fallback artifact cannot be rendered.
-   */
-  staticTarget?: boolean;
-  /**
-   * Turns the finished `dist/` into the platform's deploy layout (Vercel's
-   * `.vercel/output`, Cloudflare's `_headers` and Worker entry). `pracht
-   * build` calls it after prerendering, once, with the build's manifests.
-   * Runs in Node, so it may use `node:fs`; keep that code behind a dynamic
-   * import when the adapter's module is also bundled into the server.
-   */
-  finalizeBuild?(context: PrachtAdapterBuildContext): void | Promise<void>;
-}
+// The adapter contract lives in `@pracht/core/adapter`; this package keeps
+// re-exporting it under the same names.
+export type {
+  PrachtAdapter,
+  PrachtAdapterBuildContext,
+  PrachtAdapterDevOptions,
+  PrachtAdapterDevRequest,
+  PrachtServerEntryFeatures,
+  PrachtServerEntryModuleContext,
+} from "@pracht/core/adapter";
 
 export function createDefaultNodeAdapter(): PrachtAdapter {
   return {
     id: "node",
     serverImports: 'import { resolveApp, resolveApiRoutes } from "@pracht/core/server";',
-    createServerEntryModule() {
-      return createNodeServerEntryModule();
+    features: { headersManifest: 2 },
+    createServerEntryModule(entry) {
+      return createNodeServerEntryModule({}, entry);
     },
   };
 }

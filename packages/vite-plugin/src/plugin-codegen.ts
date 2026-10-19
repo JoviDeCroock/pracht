@@ -1,6 +1,8 @@
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { dirname, extname, join, posix, resolve } from "node:path";
 import { parseAst } from "vite";
+import { SERVER_ENTRY_CONTRACT } from "@pracht/core/adapter";
+import { resolveServerEntryBuildId } from "./build-id.ts";
 import { getRolldownLang, PRACHT_CLIENT_MODULE_QUERY } from "./client-module-query.ts";
 import {
   GENERATED_PAGES_LAYOUT_EXPORT,
@@ -1351,10 +1353,13 @@ export function createPrachtServerModuleSource(
     isBuild?: boolean;
     base?: string;
     configuredBase?: string;
+    /** Defaults to the id `pracht build` passes in, or `"dev"` outside a build. */
+    buildId?: string;
   } = {},
 ): string {
   const resolved = resolveOptions(options);
   const isPagesMode = !!resolved.pagesDir;
+  const buildId = buildOptions.buildId ?? resolveServerEntryBuildId(buildOptions.isBuild);
   const registrySource = createPrachtRegistryModuleSource(resolved, { root: buildOptions.root });
   const routeHints = createRouteHintsForVirtualModules(resolved, buildOptions.root);
   const routeLoaderHints = routeHints.loader;
@@ -1457,6 +1462,13 @@ export function createPrachtServerModuleSource(
     "export const resolvedApp = resolveApp(app);",
     "applyRouteHints(resolvedApp, routeLoaderHints, routeHeadHints, routeStaticPathsHints);",
     `export const apiRoutes = resolveApiRoutes(Object.keys(apiModules), ${JSON.stringify(resolved.apiDir)});`,
+    // The server entry contract `pracht build` reads through `readServerEntry()`
+    // from `@pracht/core/adapter`.
+    `export const contract = ${SERVER_ENTRY_CONTRACT};`,
+    `export const buildId = ${JSON.stringify(buildId)};`,
+    `export const adapterId = ${JSON.stringify(adapter?.id ?? "node")};`,
+    `export const features = ${JSON.stringify({ headersManifest: adapter?.features?.headersManifest ?? 1 })};`,
+    // TODO(next minor): drop `buildTarget`, the contract's former `adapterId`.
     `export const buildTarget = ${JSON.stringify(adapter?.id ?? "node")};`,
     `export const staticTarget = ${JSON.stringify(adapter?.staticTarget === true)};`,
     // Vite's `base`. The CLI reads it to prefix the asset URLs it writes into
@@ -1511,7 +1523,17 @@ export function createPrachtServerModuleSource(
   ];
 
   if (adapter) {
-    source.push(adapter.createServerEntryModule());
+    const adapterSource = adapter.createServerEntryModule({ buildId });
+    // CLI releases before `features` read this export instead; adapters
+    // released before `features` emit it themselves.
+    // TODO(next minor): drop the `headersManifestFormat` export.
+    if (
+      adapter.features?.headersManifest === 2 &&
+      !/\bexport const headersManifestFormat\b/.test(adapterSource)
+    ) {
+      source.push("export const headersManifestFormat = 2;");
+    }
+    source.push(adapterSource);
   }
 
   return source.join("\n");

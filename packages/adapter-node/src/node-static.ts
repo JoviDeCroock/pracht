@@ -14,11 +14,13 @@ export type { HeadersManifest } from "@pracht/core/server";
 const HASHED_ASSET_RE = /\/assets\//;
 
 /**
- * Suffix of the file that records a regenerated ISG snapshot's document
- * headers next to its HTML. It lives in the static directory but is never
- * served as a static file.
+ * Suffix of the file holding a regenerated ISG page (its HTML and document
+ * headers) next to the page's build HTML. It lives in the static directory
+ * but is never served as a static file, and neither is the headers sidecar
+ * (`.pracht-headers.json`) older releases wrote there.
  */
-export const ISG_SNAPSHOT_HEADERS_SUFFIX = ".pracht-headers.json";
+export const ISG_SNAPSHOT_SUFFIX = ".pracht-isg.json";
+const ISG_PRIVATE_FILE_SUFFIXES = [ISG_SNAPSHOT_SUFFIX, ".pracht-headers.json"];
 
 export function getCacheControl(urlPath: string): string {
   if (HASHED_ASSET_RE.test(urlPath)) {
@@ -60,7 +62,9 @@ export async function resolveStaticFile(
 
   for (const candidate of exactCandidates) {
     const exactPath = resolveCandidate(staticRoot, candidate);
-    if (!exactPath || basename(exactPath).endsWith(ISG_SNAPSHOT_HEADERS_SUFFIX)) continue;
+    if (!exactPath || ISG_PRIVATE_FILE_SUFFIXES.some((suffix) => basename(exactPath).endsWith(suffix))) {
+      continue;
+    }
     const exactStat = await lstat(exactPath).catch(() => null);
     if (!exactStat?.isFile() || exactStat.isSymbolicLink()) continue;
     if (!(await realPathIsInside(staticRoot, exactPath))) return null;

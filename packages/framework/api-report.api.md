@@ -718,6 +718,25 @@ webhookRevalidate: function
 withBase: function
 ```
 
+## `@pracht/core/adapter`
+
+Source: `packages/framework/src/adapter.ts`
+
+```text
+PRACHT_BUILD_ID_ENV: const @internal
+PrachtAdapter: interface
+PrachtAdapterBuildContext: interface
+PrachtAdapterDevOptions: interface
+PrachtAdapterDevRequest: interface
+PrachtServerEntry: interface
+PrachtServerEntryFeatures: interface
+PrachtServerEntryModuleContext: interface
+ReadServerEntryOptions: interface
+SERVER_ENTRY_CONTRACT: const
+createBuildId: function @internal
+readServerEntry: function
+```
+
 ## `@pracht/core/agent-auth`
 
 Source: `packages/framework/src/agent-auth-sign.ts`
@@ -950,6 +969,8 @@ HrefRouteDefinition: interface
 HttpMethod: type
 HydrationMode: type
 ISGManifestEntry: interface
+ISGSnapshot: interface
+ISGSnapshotRejection: interface
 InvokeCapabilityContext: interface
 IslandCapture: interface
 IslandCaptureContext: const
@@ -1088,6 +1109,7 @@ buildPathFromSegments: function
 buildStaticFallbackHtml: function
 buildStaticRouteStateUrl: function
 capabilityHttpPath: function
+captureISGSnapshot: function
 classifyRevalidationSkip: function
 clearCapabilityAuditListeners: function
 createBaseRedirectResponse: function @internal
@@ -1100,6 +1122,7 @@ createRevalidationSingleFlight: function
 createSqlApprovalStore: function
 createTrailingSlashRedirectResponse: function @internal
 createWaitUntilTracker: function
+decodeISGSnapshot: function
 decodeStaticPath: function
 defineApi: function
 defineApp: function
@@ -1108,6 +1131,7 @@ destructiveMcpPreconditionErrors: function
 detectApiExports: function
 detectApiExportsStatic: function
 detectApiMethods: function
+encodeISGSnapshot: function
 expandHeadersManifest: function
 filterPublicEnv: function
 formDataToRecord: function
@@ -1122,10 +1146,13 @@ isApiValidationErrorBody: function
 isAuthorizedRevalidationRequest: function
 isCacheableISGResponse: function
 isDangerousPrerenderHeader: function
+isISGSnapshotRejection: function
 isMcpResourceMetadataPath: function
 isProtocolSwitchResponse: function
 isStreamingHtmlResponse: function
 isUpgradeRequest: function
+isgCacheKeyPath: function
+isgPathKey: function
 json: function
 jsonResponse: function
 loadMcpTokenVerifier: function
@@ -1162,6 +1189,7 @@ serializeApiRoutesStatic: function
 serializeAppRoutes: function
 serializeCapabilities: function
 serializeEventStreamMessage: function
+serveISGSnapshot: function
 setCapabilityApprovalPrincipalResolver: const
 setCapabilityApprovalStore: function
 setCapabilityAuditHook: function
@@ -1173,6 +1201,7 @@ shareHeadersManifest: function
 staticContentType: function
 staticPathCandidates: function
 stripBase: function
+stripISGSecretHeaders: function
 timeRevalidate: function
 useServerIslandData: function
 validateIslandProps: function
