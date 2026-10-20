@@ -443,6 +443,18 @@ export function view() {
     });
   });
 
+  it("writes backslashes and control characters in static attributes as-is", async () => {
+    const source = String.raw`
+export function view() {
+  return <p title="a\b" data-line="x&#10;y" data-tab="x&#9;y">t</p>;
+}
+`;
+
+    await expectPrecompiledRenderMatches(source, [{}], {
+      expectedHtml: ['<p title="a\\b" data-line="x\ny" data-tab="x\ty">t</p>'],
+    });
+  });
+
   it("honors upstream skip element and dynamic prop options", async () => {
     const source = `
 export function view(props) {

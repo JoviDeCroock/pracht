@@ -485,7 +485,7 @@ class TransformContext {
     }
 
     strings[strings.length - 1] +=
-      ` ${encodeEntities(attrName)}=${JSON.stringify(encodeEntities(String(value)))}`;
+      ` ${encodeEntities(attrName)}="${encodeEntities(String(value))}"`;
   }
 
   private jsxAttrCall(attrName: string, expression: string): string {
