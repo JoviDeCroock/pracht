@@ -1,5 +1,13 @@
 # @pracht/markdown
 
+## 0.1.6
+
+### Patch Changes
+
+- [#513](https://github.com/JoviDeCroock/pracht/pull/513) [`2671f7c`](https://github.com/JoviDeCroock/pracht/commit/2671f7c2d58574ac2e38230721268fdaa790d6d8) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - The published JavaScript no longer carries doc comments, which shrinks an app's server bundle by about a third.
+- Updated dependencies [[`60a3e78`](https://github.com/JoviDeCroock/pracht/commit/60a3e7849d1046ad7af40e5f9b777b631a390c7d), [`2671f7c`](https://github.com/JoviDeCroock/pracht/commit/2671f7c2d58574ac2e38230721268fdaa790d6d8)]:
+  - @pracht/image@0.6.0
+
 ## 0.1.5
 
 ### Patch Changes

@@ -1,5 +1,15 @@
 # @pracht/preact-ssr-precompile
 
+## 0.1.5
+
+### Patch Changes
+
+- [#516](https://github.com/JoviDeCroock/pracht/pull/516) [`517832a`](https://github.com/JoviDeCroock/pracht/commit/517832a10fe1030214a9ad805a3e2b5aa05435c0) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Precompiled static attributes keep backslashes and control characters such as `title="a\b"` as written, instead of rendering JavaScript escape sequences like `a\\b`.
+
+- [#516](https://github.com/JoviDeCroock/pracht/pull/516) [`dd8751c`](https://github.com/JoviDeCroock/pracht/commit/dd8751c2c3d7d6dcf70040317ae92759e317663d) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Precompiled JSX decodes HTML entities such as `&amp;` and `&nbsp;` in text and attribute strings, as the standard JSX transform does, instead of rendering them escaped twice.
+
+- [#515](https://github.com/JoviDeCroock/pracht/pull/515) [`7ca5cd7`](https://github.com/JoviDeCroock/pracht/commit/7ca5cd72e2b6957876d5944b7b9514c2e7ab3405) Thanks [@Adi1231234](https://github.com/Adi1231234)! - Precompiled JSX keeps a space at the end of an element's text, such as `<span>{label} </span>`, as the standard JSX transform does.
+
 ## 0.1.4
 
 ### Patch Changes

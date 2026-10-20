@@ -1,5 +1,41 @@
 # @pracht/capabilities
 
+## 0.21.0
+
+### Minor Changes
+
+- [#513](https://github.com/JoviDeCroock/pracht/pull/513) [`d37f96f`](https://github.com/JoviDeCroock/pracht/commit/d37f96ff52b54385f842479597ee5cc729384d5a) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Malformed capability `expose` values (including a non-boolean `expose.mcp` and unknown keys such as `mpc`) and invalid OAuth scopes now fail at definition, in `pracht verify`, and at build time instead of being ignored. An `expose` that is not an inline literal now fails `pracht verify` as it fails the build, and `pracht typegen` and `pracht build` fail when a capability's exposure, scopes, `agentPolicy`, or `middleware` differ between the executed module and its source.
+
+- [#509](https://github.com/JoviDeCroock/pracht/pull/509) [`327403e`](https://github.com/JoviDeCroock/pracht/commit/327403ea7d64beb3d9d4fdaa309cc4b8eace9476) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - An app with `agents.confirmation.mode: "human"` and capabilities now refuses to start (and `pracht build` and `pracht verify` fail) unless `setCapabilityApprovalPrincipalResolver()` or `agents.mcp.auth` can identify the end user, and a destructive call that still resolves no end user is refused with `403 confirmation_unavailable`. To migrate, call `setCapabilityApprovalPrincipalResolver()` from a capability module or a server-only module it imports, returning the signed-in user's id, or protect remote MCP with `agents.mcp.auth`.
+
+- [#502](https://github.com/JoviDeCroock/pracht/pull/502) [`32a4b15`](https://github.com/JoviDeCroock/pracht/commit/32a4b1592155d83a941034a303f5c11e76d77fd5) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - `agents.mcp.allowedOrigins` lets listed browser origins call the remote MCP endpoint with CORS; a preflight from an unlisted origin now gets 403 instead of 405, and a client's JSON-RPC response to the endpoint gets 202 instead of 400.
+
+- [#502](https://github.com/JoviDeCroock/pracht/pull/502) [`0d19bfe`](https://github.com/JoviDeCroock/pracht/commit/0d19bfebe1335149418ebf56c965af03c1e1d56f) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - `pracht verify`, `pracht inspect`, the dev banner, and `/_pracht` now decide whether an `expose.mcp` tool is served with the MCP endpoint's own rule (exported as `mcpToolServing`), so `agents` passed as a shared constant with string module paths no longer reads as unconfigured and scoped tools without `agents.mcp.auth` show as unserved.
+
+- [#502](https://github.com/JoviDeCroock/pracht/pull/502) [`417cda3`](https://github.com/JoviDeCroock/pracht/commit/417cda383a53f9a8de7747640e32481ece543378) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Remote MCP `tools/list` now pages its results (100 tools per page by default, configurable with `agents.mcp.pageSize`), and `expose: { mcp: { scopes } }` limits a tool to OAuth tokens that carry those scopes.
+
+- [#465](https://github.com/JoviDeCroock/pracht/pull/465) [`ed90679`](https://github.com/JoviDeCroock/pracht/commit/ed9067934c91e9e4f1a1fd0a925b8d7e97cffda7) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - `agents.webBotAuth.requireComponents` (for example `["@method", "@path"]`) makes Web Bot Auth signatures verify only when they cover those components, so a captured signature can no longer be replayed onto another endpoint.
+
+### Patch Changes
+
+- [#513](https://github.com/JoviDeCroock/pracht/pull/513) [`4e848b4`](https://github.com/JoviDeCroock/pracht/commit/4e848b4e115e3a3ff747df527e238453d7576ef9) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - App-graph capability entries (`pracht inspect capabilities --json`, `/_pracht`) now carry `webmcpUntrustedContent` when a WebMCP tool sets `untrustedContent`, and a committed `.pracht/app-graph.json` stays current across the upgrade.
+
+- [#457](https://github.com/JoviDeCroock/pracht/pull/457) [`3a9c0f1`](https://github.com/JoviDeCroock/pracht/commit/3a9c0f101e545ffb606498335f280d587d4099c6) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Human-mode approvals now bind the end user (the principal resolver, or the verified OAuth subject on remote MCP), so one user of a shared agent can no longer spend another user's approval.
+
+- [#502](https://github.com/JoviDeCroock/pracht/pull/502) [`253cbfd`](https://github.com/JoviDeCroock/pracht/commit/253cbfd8d15fb5bd73d4d34e9a1b38170a667a41) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - A capability's `signal` now aborts when the HTTP or remote MCP caller disconnects, and it uses `defineApp({ loaderTimeoutMs })` as its budget instead of a fixed 30 seconds; on the Node adapter `request.signal` no longer aborts as soon as a POST body has been read, and `pracht dev` now aborts it when the client disconnects.
+
+- [#513](https://github.com/JoviDeCroock/pracht/pull/513) [`76e5188`](https://github.com/JoviDeCroock/pracht/commit/76e5188b2b1a5ac646660c36dc3ff114b1ef05ab) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - `createCapabilityHost()` accepts `loaderTimeoutMs` to set each request's budget, as `defineApp()` does, instead of always using 30 seconds.
+
+- [#502](https://github.com/JoviDeCroock/pracht/pull/502) [`b54a359`](https://github.com/JoviDeCroock/pracht/commit/b54a359850b9ca8c7fc5deddd0880e8d1b253c7d) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - A capability module that fails to load now makes only that capability unavailable instead of every capability, page views no longer import capability modules, and the `pracht dev` startup banner reads capabilities from source instead of running their modules, except destructive tools served over remote MCP.
+
+- [#513](https://github.com/JoviDeCroock/pracht/pull/513) [`5299c2c`](https://github.com/JoviDeCroock/pracht/commit/5299c2c808cddf15fbc0197f0a97020cda8b2bc9) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - A capability ended by the request time budget (`loaderTimeoutMs`) now logs a server-side line naming it, and the remote MCP endpoint logs once why it refuses every request when destructive tools cannot run their confirmation flow.
+
+- [#513](https://github.com/JoviDeCroock/pracht/pull/513) [`de917e3`](https://github.com/JoviDeCroock/pracht/commit/de917e3d010d433051102d730440fd45ad702ecf) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - A request answered with a 4xx, including a capability call rejected before it runs, no longer keeps its `signal` and request state in memory until the budget runs out.
+
+- [#513](https://github.com/JoviDeCroock/pracht/pull/513) [`2671f7c`](https://github.com/JoviDeCroock/pracht/commit/2671f7c2d58574ac2e38230721268fdaa790d6d8) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - The published JavaScript no longer carries doc comments, which shrinks an app's server bundle by about a third.
+
+- [#498](https://github.com/JoviDeCroock/pracht/pull/498) [`9bc84fa`](https://github.com/JoviDeCroock/pracht/commit/9bc84fa7c3dce065c89692afd263f16afaaef55e) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Pages now download only the WebMCP tool schemas their route activates instead of every page tool's, and the dev page tools carry WebMCP's `debugging: true` annotation.
+
 ## 0.6.1
 
 ### Patch Changes
