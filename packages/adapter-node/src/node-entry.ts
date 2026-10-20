@@ -1,4 +1,4 @@
-import type { PrachtAdapter } from "@pracht/vite-plugin";
+import type { PrachtAdapter, PrachtServerEntryModuleContext } from "@pracht/core/adapter";
 
 export interface NodeServerEntryModuleOptions {
   canonicalOrigin?: string;
@@ -55,7 +55,10 @@ function readOptionalMilliseconds(value: number | undefined, name: string): numb
   return value;
 }
 
-export function createNodeServerEntryModule(options: NodeServerEntryModuleOptions = {}): string {
+export function createNodeServerEntryModule(
+  options: NodeServerEntryModuleOptions = {},
+  entry?: PrachtServerEntryModuleContext,
+): string {
   const canonicalOrigin = options.canonicalOrigin ?? null;
   const port = options.port ?? 3000;
   const shutdownTimeoutMs = options.shutdownTimeoutMs ?? DEFAULT_SHUTDOWN_TIMEOUT_MS;
@@ -100,9 +103,6 @@ export function createNodeServerEntryModule(options: NodeServerEntryModuleOption
     '  ? JSON.parse(readFileSync(markdownManifestPath, "utf-8"))',
     "  : undefined;",
     "",
-    "// `pracht build` writes headers-manifest.json in its shared form only for entries that read it.",
-    "export const headersManifestFormat = 2;",
-    "",
     "export const handler = createNodeRequestHandler({",
     "  app: resolvedApp,",
     "  registry,",
@@ -117,6 +117,7 @@ export function createNodeServerEntryModule(options: NodeServerEntryModuleOption
     "  cssManifest,",
     "  cssContentManifest,",
     "  jsManifest,",
+    `  buildId: ${JSON.stringify(entry?.buildId)},`,
     `  canonicalOrigin: ${JSON.stringify(canonicalOrigin ?? undefined)},`,
     `  basePathStripped: ${JSON.stringify(options.basePathStripped ?? undefined)},`,
     "  createContext: createPrachtContext,",
@@ -153,7 +154,10 @@ export function createNodeServerEntryModule(options: NodeServerEntryModuleOption
     "        server.close(() => resolve());",
     "        server.closeIdleConnections?.();",
     "        // Event streams never end on their own; clients reconnect elsewhere.",
-    "        void handler.closeEventStreams(Math.max(0, deadline - Date.now()));",
+    "        // Ended, their keep-alive sockets go idle and must close too.",
+    "        void handler",
+    "          .closeEventStreams(Math.max(0, deadline - Date.now()))",
+    "          .then(() => server.closeIdleConnections?.());",
     "      }),",
     "      untilDeadline(),",
     "    ]);",
@@ -182,8 +186,10 @@ export function nodeAdapter(options: NodeServerEntryModuleOptions = {}): PrachtA
   return {
     id: "node",
     serverImports: 'import { resolveApp, resolveApiRoutes } from "@pracht/core/server";',
-    createServerEntryModule() {
-      return createNodeServerEntryModule(options);
+    // The handler reads headers-manifest.json in its shared form.
+    features: { headersManifest: 2 },
+    createServerEntryModule(entry) {
+      return createNodeServerEntryModule(options, entry);
     },
     dev: {
       createContextFrom: options.createContextFrom,

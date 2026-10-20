@@ -53,6 +53,54 @@ describe("createVercelEdgeHandler under a deploy base", () => {
   });
 });
 
+describe("Vercel revalidation webhook", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  it("fetches each page at its canonical path and reports a refused render", async () => {
+    vi.stubEnv("PRACHT_REVALIDATE_TOKEN", "hook-token");
+    const fetched: string[] = [];
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
+      const url = new URL(input instanceof Request ? input.url : input);
+      fetched.push(url.pathname);
+      return url.pathname === "/posts/private"
+        ? new Response("Service Unavailable", {
+            status: 503,
+            headers: { "x-pracht-isg-refused": "uncacheable" },
+          })
+        : new Response("<html></html>", { headers: { "x-vercel-cache": "REVALIDATED" } });
+    });
+    const handler = createVercelEdgeHandler({
+      app: defineApp({
+        routes: [
+          route("/posts/:slug", "./routes/post.tsx", {
+            render: "isg",
+            revalidate: [timeRevalidate(60), webhookRevalidate()],
+          }),
+        ],
+      }),
+    });
+
+    const response = await handler(
+      new Request("https://example.com/__pracht/revalidate", {
+        method: "POST",
+        headers: { authorization: "Bearer hook-token" },
+        body: JSON.stringify({ paths: ["/posts/caf%c3%a9", "/posts/a b", "/posts/private"] }),
+      }),
+      {},
+    );
+    const report = await response.json();
+
+    expect(fetched).toEqual(["/posts/caf%C3%A9", "/posts/a%20b", "/posts/private"]);
+    expect(report.revalidated).toEqual(["/posts/caf%c3%a9", "/posts/a b"]);
+    expect(report.details).toContainEqual(
+      expect.objectContaining({ path: "/posts/private", reason: "uncacheable_render" }),
+    );
+  });
+});
+
 describe("createVercelEdgeHandler null-body response headers", () => {
   it.each([
     ["HEAD", 200],
@@ -133,23 +181,25 @@ describe("createVercelNodeListener", () => {
       method?: string;
       url?: string;
     },
-  ): Promise<{ body: string; headers: Record<string, string | string[]> }> {
+  ): Promise<{ body: string; headers: Record<string, string | string[]>; status: number }> {
     const listener = createVercelNodeListener(async (request) => handler(request));
     const chunks: Uint8Array[] = [];
     const headers: Record<string, string | string[]> = {};
-
-    return listener(req, {
+    const res = {
       statusCode: 0,
-      setHeader(name, value) {
+      setHeader(name: string, value: string | string[]) {
         headers[name] = value;
       },
-      write(chunk) {
+      write(chunk: Uint8Array) {
         chunks.push(chunk);
       },
       end() {},
-    }).then(() => ({
+    };
+
+    return listener(req, res).then(() => ({
       body: chunks.map((chunk) => new TextDecoder().decode(chunk)).join(""),
       headers,
+      status: res.statusCode,
     }));
   }
 
@@ -183,6 +233,56 @@ describe("createVercelNodeListener", () => {
     });
   });
 
+  it("streams a cacheable ISG body, writing the first chunk before the source ends", async () => {
+    const encoder = new TextEncoder();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let firstWrite!: () => void;
+    const firstWritten = new Promise<void>((resolve) => (firstWrite = resolve));
+    let pulls = 0;
+    let sourceEnded = false;
+    const writes: string[] = [];
+    const listener = createVercelNodeListener(
+      async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            async pull(controller) {
+              pulls += 1;
+              if (pulls === 1) {
+                controller.enqueue(encoder.encode("<html>first"));
+                return;
+              }
+              await gate;
+              controller.enqueue(encoder.encode("second</html>"));
+              sourceEnded = true;
+              controller.close();
+            },
+          }),
+          { headers: { "content-type": "text/html" } },
+        ),
+    );
+
+    const done = listener(
+      { headers: { host: "example.com" }, url: "/pricing" },
+      {
+        statusCode: 0,
+        setHeader() {},
+        write(chunk) {
+          writes.push(new TextDecoder().decode(chunk));
+          firstWrite();
+        },
+        end() {},
+      },
+    );
+
+    await firstWritten;
+    expect(writes).toEqual(["<html>first"]);
+    expect(sourceEnded).toBe(false);
+    release();
+    await done;
+    expect(writes.join("")).toBe("<html>firstsecond</html>");
+  });
+
   it("strips credential headers before Vercel caches the response", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
 
@@ -191,7 +291,7 @@ describe("createVercelNodeListener", () => {
         new Response("<html>ok</html>", {
           headers: {
             "content-type": "text/html",
-            "set-cookie": "session=leaked; Path=/",
+            "x-session-token": "leaked",
             "x-api-key": "secret",
           },
         }),
@@ -199,26 +299,82 @@ describe("createVercelNodeListener", () => {
     );
 
     expect(body).toBe("<html>ok</html>");
-    expect(headers["set-cookie"]).toBeUndefined();
+    expect(headers["x-session-token"]).toBeUndefined();
     expect(headers["x-api-key"]).toBeUndefined();
     expect(headers["content-type"]).toBe("text/html");
-    expect(consoleError).toHaveBeenCalledWith(expect.stringContaining('"set-cookie"'));
+    expect(consoleError).toHaveBeenCalledWith(expect.stringContaining('"x-session-token"'));
 
     consoleError.mockRestore();
   });
 
-  it("warns when an ISG response marks itself uncacheable", async () => {
-    const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  it("answers a cacheable page with the document headers every adapter replays", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    await invokeListener(
-      () => new Response("<html>ok</html>", { headers: { "cache-control": "private" } }),
+    const { body, headers } = await invokeListener(
+      () =>
+        new Response("<html>ok</html>", {
+          headers: {
+            "cache-control": "public, max-age=60",
+            "content-type": "text/html; charset=utf-8",
+            etag: '"render-local"',
+            "x-api-key": "secret",
+            "x-robots-tag": "noindex",
+          },
+        }),
       { headers: { host: "example.com" }, url: "/pricing" },
     );
 
-    expect(consoleWarn).toHaveBeenCalledWith(expect.stringContaining("uncacheable"));
+    expect(body).toBe("<html>ok</html>");
+    expect(headers["x-api-key"]).toBeUndefined();
+    expect(headers.etag).toBeUndefined();
+    expect(headers["x-robots-tag"]).toBe("noindex");
+    expect(headers["cache-control"]).toBe("public, max-age=60");
+    expect(headers["content-type"]).toBe("text/html; charset=utf-8");
+    expect(consoleError).toHaveBeenCalledWith(expect.stringContaining('"x-api-key"'));
 
-    consoleWarn.mockRestore();
+    consoleError.mockRestore();
   });
+
+  it.each([
+    [{ "cache-control": "private" }, "Cache-Control: private"],
+    [{ "cache-control": "no-store" }, "Cache-Control: no-store"],
+    [{ "set-cookie": "session=abc; Path=/" }, "a cookie (Set-Cookie)"],
+    [{ vary: "Cookie" }, "varies on cookie"],
+  ])(
+    "answers a request-specific ISG render %j with a 503 Vercel does not store",
+    async (renderHeaders, cause) => {
+      const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      let cancelled = false;
+
+      const { body, headers, status } = await invokeListener(
+        () =>
+          new Response(
+            new ReadableStream({
+              start(controller) {
+                controller.enqueue(new TextEncoder().encode("<html>per-visitor</html>"));
+              },
+              cancel() {
+                cancelled = true;
+              },
+            }),
+            { headers: { "content-type": "text/html", ...renderHeaders } },
+          ),
+        { headers: { host: "example.com" }, url: "/pricing" },
+      );
+
+      // Vercel keeps the last good page (or the build's) and retries in 30 s.
+      expect(status).toBe(503);
+      expect(headers["cache-control"]).toBe("no-store");
+      expect(headers["set-cookie"]).toBeUndefined();
+      expect(body).not.toContain("per-visitor");
+      expect(cancelled).toBe(true);
+      expect(consoleWarn).toHaveBeenCalledTimes(1);
+      expect(consoleWarn.mock.calls[0]![0]).toContain('"/pricing" was not stored');
+      expect(consoleWarn.mock.calls[0]![0]).toContain(cause);
+
+      consoleWarn.mockRestore();
+    },
+  );
 
   it.each([
     ["HEAD", 200],

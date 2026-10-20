@@ -12,4 +12,5 @@ export default defineConfig({
     "preact",
     "preact/hooks",
   ],
+  outputOptions: { comments: { jsdoc: false } },
 });

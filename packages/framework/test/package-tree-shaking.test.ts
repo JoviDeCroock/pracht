@@ -205,7 +205,7 @@ describe("published package tree shaking", () => {
       define: { "import.meta.env.DEV": "false" },
     });
     expect(code).toContain("matchAppRoute");
-    expect(code).not.toContain("anyFirstSegment");
+    expect(code).not.toContain("overlapping");
   });
 
   it("drops Web Vitals when another browser export is used", async () => {
@@ -265,12 +265,17 @@ describe("published package tree shaking", () => {
     // over-long redirect chain to the browser about 10; the reload
     // fallback for a render error no app ErrorBoundary caught about 80;
     // handing a path that begins with `//` to the browser about 5;
-    // refetching route state a mutation staled mid-navigation about 40.
-    // These ceilings measure the router with Preact external.
-    it("keeps the router runtime below 10,980 gzip bytes", async () => {
+    // refetching route state a mutation staled mid-navigation about 40;
+    // one document exit for every navigation (`replace` and traversals replace
+    // the entry, a static fallback never reloads into itself) about 15; and
+    // rechecking a mutation before a redirect is followed and when a view
+    // transition commits, plus a traversal's redirect replacing its entry,
+    // about 55; and unmounting a tree whose hydration throws and putting the
+    // server markup back about 35. These ceilings measure the router with Preact external.
+    it("keeps the router runtime below 11,075 gzip bytes", async () => {
       const { gzipBytes } = await bundleExport("initClientRouter", production);
 
-      expect(gzipBytes).toBeLessThanOrEqual(10_980);
+      expect(gzipBytes).toBeLessThanOrEqual(11_075);
     });
 
     it("drops compat Suspense when the app renders no Suspense boundary", async () => {
@@ -465,7 +470,7 @@ describe("published package tree shaking", () => {
       // for the feature, including the index stamped on every history entry.
       const { gzipBytes } = await routerBundle({ __PRACHT_CLIENT_BLOCKER__: "false" });
 
-      expect(gzipBytes).toBeLessThanOrEqual(10_700);
+      expect(gzipBytes).toBeLessThanOrEqual(10_780);
     });
 
     it("keeps guards when the feature is enabled", async () => {
@@ -558,7 +563,7 @@ describe("published package tree shaking", () => {
       const { code, gzipBytes } = await routerBundle({ __PRACHT_SHELL_LOADERS__: "true" });
 
       expect(code).toContain("x-pracht-shell-data");
-      expect(gzipBytes).toBeLessThanOrEqual(11_400);
+      expect(gzipBytes).toBeLessThanOrEqual(11_490);
     });
 
     // Both opt-in router features at once: a route with a `search` schema
@@ -569,7 +574,7 @@ describe("published package tree shaking", () => {
         __PRACHT_SHELL_LOADERS__: "true",
       });
 
-      expect(gzipBytes).toBeLessThanOrEqual(11_500);
+      expect(gzipBytes).toBeLessThanOrEqual(11_590);
     });
   });
 
@@ -852,6 +857,20 @@ describe("published package tree shaking", () => {
 
       expect(code).toContain("web-bot-auth");
       expect(code).toContain("unknown_capability");
+    });
+
+    it("drops the human-approval startup gate only when the build proves no agent surface", async () => {
+      // Every generated server module awaits this gate, so without the define
+      // it would carry the approval code into apps with no capabilities.
+      const message = "nothing identifies the end user";
+      const proven = await bundleExport("assertHumanApprovalIdentity", {
+        entry: serverEntry,
+        define: { __PRACHT_AGENT_SURFACE__: "false" },
+      });
+      const unproven = await bundleExport("assertHumanApprovalIdentity", { entry: serverEntry });
+
+      expect(proven.code).not.toContain(message);
+      expect(unproven.code).toContain(message);
     });
   });
 });

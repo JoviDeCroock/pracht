@@ -199,6 +199,50 @@ describe("@pracht/cli inspect agents", () => {
     expect(stdout).not.toContain("this app exposes no agent surface");
   }, 30_000);
 
+  it("accepts lazy import refs in modules the manifest imports", () => {
+    const appDir = createRepoTempDir("pracht-cli-inspect-agents-shared-");
+    writeTypedManifestApp(appDir, { agents: true, mcpAuth: true });
+    writeProjectFile(
+      appDir,
+      "src/shared-agents.ts",
+      `export const sharedAgents = {
+  mcp: {
+    path: "/mcp",
+    auth: {
+      resource: "https://app.example/mcp",
+      authorizationServers: ["https://auth.example"],
+      verify: () => import("./server/mcp-token.ts"),
+    },
+  },
+};
+`,
+    );
+    writeProjectFile(
+      appDir,
+      "src/shared-routes.ts",
+      `import { route } from "@pracht/core";
+
+export const sharedRoutes = [route("/", () => import("./routes/home.tsx"), { id: "home" })];
+`,
+    );
+    writeProjectFile(
+      appDir,
+      "src/routes.ts",
+      `import { defineApp } from "@pracht/core";
+import { sharedAgents } from "./shared-agents.ts";
+import { sharedRoutes } from "./shared-routes.ts";
+
+export const app = defineApp({ agents: sharedAgents, routes: sharedRoutes });
+`,
+    );
+
+    const report = JSON.parse(runCli(["inspect", "agents", "--json"], { cwd: appDir }).stdout);
+    expect(report.agents.mcp.auth.verify).toBe("./server/mcp-token.ts");
+
+    const routes = JSON.parse(runCli(["inspect", "routes", "--json"], { cwd: appDir }).stdout);
+    expect(JSON.stringify(routes)).toContain("./routes/home.tsx");
+  }, 30_000);
+
   it("rejects an unknown target and lists the valid ones", () => {
     const appDir = createRepoTempDir("pracht-cli-inspect-agents-unknown-");
     writeTypedManifestApp(appDir, { capabilities: true });

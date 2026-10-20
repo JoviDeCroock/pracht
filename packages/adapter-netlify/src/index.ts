@@ -4,9 +4,9 @@ import {
   type SharedHeadersManifest,
 } from "@pracht/core/server";
 import { lstat, readFile, readdir, realpath } from "node:fs/promises";
-import { extname, resolve, sep } from "node:path";
+import { resolve, sep } from "node:path";
 import type { McpAuthConfig } from "@pracht/core";
-import type { PrachtAdapter } from "@pracht/vite-plugin";
+import type { PrachtAdapter } from "@pracht/core/adapter";
 import { URLPattern } from "urlpattern-polyfill";
 import type { Plugin } from "vite";
 import {
@@ -18,7 +18,7 @@ import {
   getTimeRevalidateSeconds,
   handlePrachtRequest,
   isCacheableISGResponse,
-  isDangerousPrerenderHeader,
+  isgPathKey,
   isMcpResourceMetadataPath,
   jsonResponse,
   matchAppRoute,
@@ -32,7 +32,11 @@ import {
   restoreBasePathInRequest,
   resolveRevalidationToken,
   routeSupportsMarkdown,
+  staticByteRange,
+  staticContentType,
+  staticPathCandidates,
   stripBase,
+  stripISGSecretHeaders,
   TRAILING_SLASH,
   type HandlePrachtRequestOptions,
   type ISGManifestEntry,
@@ -188,8 +192,10 @@ export function createNetlifyHandler<
       staticMethod &&
       !routeStateRequest &&
       !wantsMarkdown &&
+      routePathname !== null &&
       pathname !== null &&
-      pathname !== routePathname &&
+      routePathname.length > 1 &&
+      routePathname.endsWith("/") &&
       pathname in isgManifest
     ) {
       url.pathname = url.pathname.replace(/\/$/, "");
@@ -335,8 +341,6 @@ export function createNetlifyServerEntryModule(options: NetlifyAdapterOptions = 
     "]);",
     'const isgManifest = readManifest("isg-manifest.json", {});',
     'const headersManifest = readManifest("headers-manifest.json", {});',
-    "// `pracht build` writes headers-manifest.json in its shared form only for entries that read it.",
-    "export const headersManifestFormat = 2;",
     'const markdownManifest = readManifest("markdown-manifest.json", undefined);',
     "",
     "const handler = createNetlifyHandler({",
@@ -381,6 +385,8 @@ export function netlifyAdapter(options: NetlifyAdapterOptions = {}): PrachtAdapt
   return {
     id: "netlify",
     serverImports: 'import { resolveApp, resolveApiRoutes } from "@pracht/core/server";',
+    // The handler reads headers-manifest.json in its shared form.
+    features: { headersManifest: 2 },
     createServerEntryModule() {
       return createNetlifyServerEntryModule(options);
     },
@@ -851,9 +857,15 @@ function applyNetlifyISGCacheHeaders(
   cache: Required<NetlifyCacheOptions>,
 ): Response {
   if (response.status !== 200) return response;
+  // A render that sets a cookie or marks itself private is the visitor's own:
+  // it is answered as is and kept out of the shared cache.
+  if (!isCacheableISGResponse(response)) {
+    const headers = new Headers(response.headers);
+    headers.set("netlify-cdn-cache-control", "private");
+    return cloneResponse(response, headers);
+  }
 
   let prepared = stripDangerousSharedCacheHeaders(response, pathname);
-  if (!isCacheableISGResponse(prepared)) return prepared;
 
   const seconds = getTimeRevalidateSeconds(route.revalidate) ?? cache.staticMaxAge;
   const headers = new Headers(prepared.headers);
@@ -921,16 +933,10 @@ function applyNetlifyDynamicCacheHeaders(
 }
 
 function stripDangerousSharedCacheHeaders(response: Response, pathname: string): Response {
-  const dangerous = [...response.headers.keys()].filter(isDangerousPrerenderHeader);
-  if (dangerous.length === 0) return response;
-
-  const headers = new Headers(response.headers);
-  for (const name of dangerous) headers.delete(name);
-  console.error(
-    `Stripped ${dangerous.map((name) => `"${name}"`).join(", ")} from the ISG response for ` +
-      `"${pathname}" before Netlify's shared cache stored it.`,
-  );
-  return cloneResponse(response, headers);
+  const headers = stripISGSecretHeaders(response.headers, pathname);
+  return [...headers.keys()].length === [...response.headers.keys()].length
+    ? response
+    : cloneResponse(response, headers);
 }
 
 interface StaticFileResult {
@@ -947,7 +953,7 @@ async function resolveStaticFile(
   const exact = await findContainedFile(root, pathname);
   if (exact) {
     return {
-      contentType: MIME_TYPES[extname(exact)] ?? "application/octet-stream",
+      contentType: staticContentType(exact),
       document: exact.endsWith(".html"),
       filePath: exact,
     };
@@ -959,20 +965,20 @@ async function resolveStaticFile(
 }
 
 /**
- * Files Vite copies from `public/` sit at their decoded names, while
- * `pracht build` writes prerendered pages at the encoded route path
- * (`posts/caf%C3%A9/index.html`). Try the decoded spelling first, then the
- * raw one the request carries.
+ * The first file inside `root` among the spellings core's
+ * `staticPathCandidates()` names for `pathname`: the decoded spelling (files
+ * Vite copies from `public/`), then the encoded one `pracht build` writes for
+ * prerendered pages (`posts/caf%C3%A9/index.html`).
  */
 async function findContainedFile(
   root: string,
   pathname: string,
-  suffix?: string,
+  suffix?: "index.html",
 ): Promise<string | null> {
-  const decoded = resolveUrlPath(root, pathname, suffix);
-  if (decoded && (await isContainedFile(root, decoded))) return decoded;
-  const raw = resolveRawUrlPath(root, pathname, suffix);
-  if (raw && raw !== decoded && (await isContainedFile(root, raw))) return raw;
+  for (const candidate of staticPathCandidates(pathname, { index: suffix !== undefined }) ?? []) {
+    const filePath = resolve(root, `.${candidate}`);
+    if (pathIsInside(root, filePath) && (await isContainedFile(root, filePath))) return filePath;
+  }
   return null;
 }
 
@@ -986,6 +992,7 @@ async function serveStaticFile(
   const headers = applyDefaultSecurityHeaders(
     new Headers({
       "content-type": file.contentType,
+      "accept-ranges": "bytes",
     }),
   );
   applyHeadersManifest(headers, headersManifest, pathname);
@@ -999,8 +1006,22 @@ async function serveStaticFile(
     headers.set("netlify-cdn-cache-control", `public, durable, max-age=${staticMaxAge}`);
   }
   if (file.document) ensureNetlifyPageVary(headers);
-  const body = request.method === "HEAD" ? null : await readFile(file.filePath);
-  return new Response(body, { headers });
+  if (request.method === "HEAD") return new Response(null, { headers });
+  const body = await readFile(file.filePath);
+  const range = headers.has("content-digest")
+    ? null
+    : staticByteRange(request.headers, headers, body.byteLength);
+  if (range === null) return new Response(body, { headers });
+  // A partial answer is never a durable CDN entry for the whole file, under
+  // any of the cache policies Netlify's CDN reads.
+  for (const name of NETLIFY_CACHE_POLICY_HEADERS) headers.delete(name);
+  headers.set("cache-control", "no-store");
+  if (range === "unsatisfiable") {
+    headers.set("content-range", `bytes */${body.byteLength}`);
+    return new Response(null, { headers, status: 416 });
+  }
+  headers.set("content-range", `bytes ${range.start}-${range.end}/${body.byteLength}`);
+  return new Response(body.subarray(range.start, range.end + 1), { headers, status: 206 });
 }
 
 function hasExplicitCachePolicy(headers: Headers): boolean {
@@ -1097,9 +1118,9 @@ function nonNegativeInteger(value: number | undefined, fallback: number): number
   return integer >= 0 ? integer : fallback;
 }
 
+/** The ISG manifest key for a route path; a missing leading slash is added. */
 function normalizePathname(pathname: string): string {
-  if (!pathname.startsWith("/")) pathname = `/${pathname}`;
-  return pathname.length > 1 ? pathname.replace(/\/$/, "") : pathname;
+  return isgPathKey(pathname.startsWith("/") ? pathname : `/${pathname}`);
 }
 
 function cloneResponse(response: Response, headers: Headers): Response {
@@ -1108,40 +1129,6 @@ function cloneResponse(response: Response, headers: Headers): Response {
     status: response.status,
     statusText: response.statusText,
   });
-}
-
-function resolveUrlPath(root: string, pathname: string, suffix?: string): string | null {
-  const decodedPathname = decodeStaticPathname(pathname);
-  if (decodedPathname === null) return null;
-  const candidate = suffix
-    ? resolve(root, `.${decodedPathname}`, suffix)
-    : resolve(root, `.${decodedPathname}`);
-  return pathIsInside(root, candidate) ? candidate : null;
-}
-
-function resolveRawUrlPath(root: string, pathname: string, suffix?: string): string | null {
-  if (pathname.includes("\0") || pathname.includes("\\")) return null;
-  if (pathname.split("/").some((segment) => segment === "." || segment === "..")) return null;
-  const candidate = suffix ? resolve(root, `.${pathname}`, suffix) : resolve(root, `.${pathname}`);
-  return pathIsInside(root, candidate) ? candidate : null;
-}
-
-function decodeStaticPathname(pathname: string): string | null {
-  const decodedSegments: string[] = [];
-  for (const segment of pathname.split("/")) {
-    let decoded: string;
-    try {
-      decoded = decodeURIComponent(segment);
-    } catch {
-      return null;
-    }
-    if (decoded === "." || decoded === ".." || decoded.includes("/") || decoded.includes("\\")) {
-      return null;
-    }
-    if (decoded.includes("\0")) return null;
-    decodedSegments.push(decoded);
-  }
-  return decodedSegments.join("/");
 }
 
 async function isContainedFile(root: string, candidate: string): Promise<boolean> {
@@ -1158,30 +1145,6 @@ function pathIsInside(root: string, candidate: string): boolean {
   return candidate === root || candidate.startsWith(root.endsWith(sep) ? root : `${root}${sep}`);
 }
 
-const MIME_TYPES: Record<string, string> = {
-  ".atom": "application/atom+xml",
-  ".css": "text/css; charset=utf-8",
-  ".gif": "image/gif",
-  ".html": "text/html; charset=utf-8",
-  ".ico": "image/x-icon",
-  ".jpeg": "image/jpeg",
-  ".jpg": "image/jpeg",
-  ".js": "application/javascript; charset=utf-8",
-  ".json": "application/json; charset=utf-8",
-  ".markdown": "text/markdown; charset=utf-8",
-  ".md": "text/markdown; charset=utf-8",
-  ".otf": "font/otf",
-  ".png": "image/png",
-  ".svg": "image/svg+xml",
-  ".ttf": "font/ttf",
-  ".txt": "text/plain; charset=utf-8",
-  ".webmanifest": "application/manifest+json",
-  ".webp": "image/webp",
-  ".woff": "font/woff",
-  ".woff2": "font/woff2",
-  ".xml": "application/xml; charset=utf-8",
-};
-
-// The contract the factory returns, carried in this package's own declarations
-// so a value of it can be named without importing `@pracht/vite-plugin`.
-export type { PrachtAdapter } from "@pracht/vite-plugin";
+// The contract the factory returns, re-exported so a value of it can be named
+// from this package alone.
+export type { PrachtAdapter } from "@pracht/core/adapter";

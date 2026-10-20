@@ -404,6 +404,33 @@ importers:
         specifier: workspace:^
         version: link:../framework
 
+  packages/adapter-conformance:
+    devDependencies:
+      '@pracht/adapter-cloudflare':
+        specifier: workspace:^
+        version: link:../adapter-cloudflare
+      '@pracht/adapter-netlify':
+        specifier: workspace:^
+        version: link:../adapter-netlify
+      '@pracht/adapter-node':
+        specifier: workspace:^
+        version: link:../adapter-node
+      '@pracht/adapter-static':
+        specifier: workspace:^
+        version: link:../adapter-static
+      '@pracht/adapter-vercel':
+        specifier: workspace:^
+        version: link:../adapter-vercel
+      '@pracht/capabilities':
+        specifier: workspace:^
+        version: link:../capabilities
+      '@pracht/core':
+        specifier: workspace:^
+        version: link:../framework
+      '@pracht/vite-plugin':
+        specifier: workspace:^
+        version: link:../vite-plugin
+
   packages/adapter-netlify:
     dependencies:
       '@netlify/functions':
@@ -484,6 +511,10 @@ importers:
       yaml:
         specifier: ^2.8.1
         version: 2.9.0
+    devDependencies:
+      '@pracht/core':
+        specifier: workspace:^
+        version: link:../framework
 
   packages/framework:
     dependencies:

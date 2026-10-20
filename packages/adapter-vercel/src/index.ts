@@ -1,11 +1,12 @@
-import type { PrachtAdapter } from "@pracht/vite-plugin";
+import type { PrachtAdapter } from "@pracht/core/adapter";
 import {
+  captureISGSnapshot,
   createISGRegenerationRequest,
   createBaseRedirectResponse,
   handlePrachtRequest,
   type HandlePrachtRequestOptions,
-  isCacheableISGResponse,
-  isDangerousPrerenderHeader,
+  isISGSnapshotRejection,
+  isgPathKey,
   jsonResponse,
   classifyRevalidationSkip,
   matchAppRoute,
@@ -18,7 +19,9 @@ import {
   readRevalidationRequest,
   RevalidationReport,
   resolveRevalidationToken,
+  serveISGSnapshot,
   stripBase,
+  stripISGSecretHeaders,
   type PrachtApp,
   withBase,
 } from "@pracht/core/server";
@@ -74,8 +77,14 @@ export interface VercelNodeResponse {
   statusCode: number;
   statusMessage?: string;
   setHeader(name: string, value: string | string[]): unknown;
+  /** Returns `false` when the body must wait for `drain` (backpressure). */
   write(chunk: Uint8Array): unknown;
   end(): unknown;
+  /** Waits for `drain` and notices a client that left (`close`). */
+  once?(event: "drain" | "close", listener: () => void): unknown;
+  off?(event: "drain" | "close", listener: () => void): unknown;
+  readonly destroyed?: boolean;
+  readonly writableFinished?: boolean;
 }
 
 export function createVercelEdgeHandler<
@@ -222,7 +231,7 @@ export function createVercelNodeListener(
     try {
       const request = createNodeISGRequest(req);
       const response = await handler(request, context);
-      await writeNodeResponse(res, prepareVercelISGResponse(request, response));
+      await writeNodeResponse(res, await prepareVercelISGResponse(request, response));
     } finally {
       await drainWaitUntilTasks(waitUntilTasks);
     }
@@ -261,43 +270,68 @@ function readNodeHeader(req: VercelNodeRequest, name: string): string | undefine
 }
 
 /**
- * Vercel stores whatever a prerender function returns in the ISR cache and
- * replays it to every later visitor. Build-time prerendering refuses to emit
- * documents carrying credential headers at all; a runtime regeneration cannot
- * fail the build, so strip them and keep serving the page.
+ * Marks the 503 the ISG function answers for a render it refuses to store, so
+ * the revalidation webhook can report why instead of a bare status.
  */
-function prepareVercelISGResponse(request: Request, response: Response): Response {
-  const pathname = new URL(request.url).pathname;
-  const dangerous = [...response.headers.keys()].filter(isDangerousPrerenderHeader);
+const VERCEL_ISG_REFUSED_HEADER = "x-pracht-isg-refused";
 
-  let prepared = response;
-  if (dangerous.length > 0) {
-    const headers = new Headers(response.headers);
-    for (const name of dangerous) headers.delete(name);
-    console.error(
-      `Stripped ${dangerous.map((name) => `"${name}"`).join(", ")} from the ISG response for ` +
-        `"${pathname}" before Vercel's prerender cache stored it — cached ISG output is replayed ` +
-        "to every visitor. Move cookies and credential headers to API routes, middleware " +
-        "responses, or an SSR route.",
-    );
-    prepared = new Response(response.body, {
-      headers,
-      status: response.status,
-      statusText: response.statusText,
+/**
+ * Vercel stores what a prerender function returns in the ISR cache and
+ * replays it to every later visitor, so a cacheable page is answered as the
+ * snapshot every adapter stores.
+ *
+ * A render that marks itself request-specific (`Set-Cookie`, `Cache-Control:
+ * private` or `no-store`, `Vary` on cookies or credentials) must not be
+ * stored, and no prerender setting lets a response opt out. It is answered as
+ * a `503` with `no-store` instead: Vercel keeps the previous page (or the
+ * build's) for that path and retries the render about 30 seconds later, which
+ * is what the Node and Cloudflare adapters do when they decline a snapshot.
+ */
+async function prepareVercelISGResponse(request: Request, response: Response): Promise<Response> {
+  const pathname = new URL(request.url).pathname;
+  // The snapshot decides the headers; the body keeps streaming to Vercel, which
+  // stores it, with backpressure and cancellation intact.
+  const snapshot = await captureISGSnapshot(
+    new Response(null, { status: response.status, headers: response.headers }),
+    { pathname },
+  );
+  if (!isISGSnapshotRejection(snapshot)) {
+    return new Response(response.body, {
+      headers: serveISGSnapshot(snapshot).headers,
+      status: 200,
     });
   }
 
-  if (prepared.status === 200 && !isCacheableISGResponse(prepared)) {
+  if (snapshot.reason === "uncacheable") {
+    await response.body?.cancel().catch(() => undefined);
     console.warn(
-      `The ISG response for "${pathname}" marks itself uncacheable (Cache-Control private/no-store ` +
-        "or Vary on Cookie/Authorization), but Vercel's prerender cache stores it regardless. " +
-        "Render this route as SSR instead if its output is request-specific.",
+      `The ISG render for "${pathname}" was not stored: ${snapshot.detail}. Vercel keeps ` +
+        "serving the previous page and retries in about 30 seconds. Render this route as SSR " +
+        "if its output is request-specific.",
     );
+    return new Response("Service Unavailable", {
+      status: 503,
+      headers: {
+        "cache-control": "no-store",
+        "content-type": "text/plain; charset=utf-8",
+        [VERCEL_ISG_REFUSED_HEADER]: "uncacheable",
+      },
+    });
   }
-
-  return prepared;
+  return new Response(response.body, {
+    headers: stripISGSecretHeaders(response.headers, pathname),
+    status: response.status,
+    statusText: response.statusText,
+  });
 }
 
+/**
+ * Write a Web `Response` to the Node function's response. This package is
+ * built into the edge bundle too, so it cannot use `@pracht/adapter-node/bridge`
+ * (that pulls in `node:stream`); it keeps the same contract with web globals:
+ * every `Set-Cookie` apart, a write that waits for `drain`, and a body that is
+ * cancelled when the client leaves.
+ */
 async function writeNodeResponse(res: VercelNodeResponse, response: Response): Promise<void> {
   response = normalizeResponseHeaders(response);
   res.statusCode = response.status;
@@ -319,16 +353,38 @@ async function writeNodeResponse(res: VercelNodeResponse, response: Response): P
   }
 
   const reader = response.body.getReader();
+  let clientGone = res.destroyed === true;
+  const onClose = (): void => {
+    if (res.writableFinished) return;
+    clientGone = true;
+    void reader.cancel().catch(() => {});
+  };
+  res.once?.("close", onClose);
   try {
-    while (true) {
+    while (!clientGone) {
       const { done, value } = await reader.read();
-      if (done) break;
-      if (value) res.write(value);
+      if (done || clientGone) break;
+      if (value && res.write(value) === false) await waitForDrain(res);
     }
   } finally {
+    res.off?.("close", onClose);
+    if (clientGone) void reader.cancel().catch(() => {});
     reader.releaseLock();
-    res.end();
+    if (!clientGone) res.end();
   }
+}
+
+function waitForDrain(res: VercelNodeResponse): Promise<void> {
+  if (!res.once || res.destroyed) return Promise.resolve();
+  return new Promise((resolveDrain) => {
+    const settle = (): void => {
+      res.off?.("drain", settle);
+      res.off?.("close", settle);
+      resolveDrain();
+    };
+    res.once!("drain", settle);
+    res.once!("close", settle);
+  });
 }
 
 export function createVercelServerEntryModule(
@@ -387,7 +443,10 @@ async function handleVercelRevalidationEndpoint(
   const report = new RevalidationReport("global");
 
   for (const pathname of parsed.paths) {
-    const match = matchAppRoute(app, pathname);
+    // Reported as asked, fetched as the page: `/posts/caf%c3%a9` and
+    // `/posts/café` are `/posts/caf%C3%A9`, the path the prerender route names.
+    const key = isgPathKey(pathname);
+    const match = matchAppRoute(app, key);
     // Vercel matches route patterns rather than a prerender manifest, so a
     // matched ISG route always has somewhere to write.
     const skip = classifyRevalidationSkip(match?.route, match !== null);
@@ -399,7 +458,7 @@ async function handleVercelRevalidationEndpoint(
     // A failed regeneration keeps Vercel's cached prerender output and is
     // reported in `failed` instead of aborting the whole batch with a 500.
     try {
-      const revalidateUrl = new URL(withBase(pathname), request.url);
+      const revalidateUrl = new URL(withBase(key), request.url);
       const response = await fetch(revalidateUrl, {
         headers: {
           accept: "text/html",
@@ -409,7 +468,13 @@ async function handleVercelRevalidationEndpoint(
       });
 
       if (!response.ok) {
-        report.failed(pathname, `upstream_status_${response.status}`);
+        await response.body?.cancel().catch(() => undefined);
+        report.failed(
+          pathname,
+          response.headers.get(VERCEL_ISG_REFUSED_HEADER) === "uncacheable"
+            ? "uncacheable_render"
+            : `upstream_status_${response.status}`,
+        );
         continue;
       }
 
@@ -494,6 +559,6 @@ export function vercelAdapter(options: VercelServerEntryModuleOptions = {}): Pra
   };
 }
 
-// The contract the factory returns, carried in this package's own declarations
-// so a value of it can be named without importing `@pracht/vite-plugin`.
-export type { PrachtAdapter } from "@pracht/vite-plugin";
+// The contract the factory returns, re-exported so a value of it can be named
+// from this package alone.
+export type { PrachtAdapter } from "@pracht/core/adapter";

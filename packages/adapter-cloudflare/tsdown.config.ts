@@ -6,4 +6,5 @@ export default defineConfig({
   format: "esm",
   dts: true,
   external: [/^@pracht\/core(\/.*)?$/, /^node:/, /^cloudflare:/, "vite"],
+  outputOptions: { comments: { jsdoc: false } },
 });

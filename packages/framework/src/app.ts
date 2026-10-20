@@ -26,10 +26,13 @@ import { validateAgentsConfig as validateAgentsConfigShared } from "@pracht/capa
 import { formatUnknownNameError } from "./name-suggestions.ts";
 import { NOT_FOUND_ROUTE_ID, NOT_FOUND_ROUTE_PATH } from "./runtime-constants.ts";
 import {
+  indexSegments,
   matchResolvedRoute,
   matchRouteSegments,
   normalizeRoutePath,
+  notePlainPath,
   parseRouteSegments,
+  routeCovers,
   splitPathSegments,
 } from "./route-matching.ts";
 
@@ -37,6 +40,7 @@ export {
   buildHref,
   buildPathFromSegments,
   matchRoutePath,
+  parseRouteSegments,
   routePathIsDynamic,
 } from "./route-matching.ts";
 
@@ -296,16 +300,11 @@ function warnRouteConflicts(routes: readonly ResolvedRoute[]): void {
   };
 
   const byId = new Map<string, ResolvedRoute>();
-  // A fully static route only covers its own path, so static routes are found
-  // by path and never compared pairwise. Earlier routes with a parameter or
-  // catch-all are bucketed by first segment, so a route is only compared with
-  // those that could match its first segment ("" is the root).
-  const staticPaths = new Map<string, number>();
-  const byFirstStatic = new Map<string, number[]>();
-  const firstDynamic: number[] = [];
+  // The earlier routes, indexed so a route is only compared with the few that
+  // could match one of its URLs, never pairwise with the whole table.
+  const earlierRoutes = indexSegments();
 
-  for (let index = 0; index < routes.length; index += 1) {
-    const route = routes[index]!;
+  for (const route of routes) {
     if (route.id) {
       const first = byId.get(route.id);
       if (first) {
@@ -318,22 +317,9 @@ function warnRouteConflicts(routes: readonly ResolvedRoute[]): void {
       }
     }
 
-    const isStatic = route.segments.every((segment) => segment.type === "static");
-    const staticPath = isStatic
-      ? route.segments.map((segment) => (segment as { value: string }).value).join("/")
-      : "";
-    let shadow = isStatic ? staticPaths.get(staticPath) : undefined;
-    const head = route.segments[0];
-    const key = head === undefined ? "" : head.type === "static" ? head.value : undefined;
-    for (const candidates of [firstDynamic, key === undefined ? [] : byFirstStatic.get(key)]) {
-      for (const earlier of candidates ?? []) {
-        if (shadow !== undefined && earlier > shadow) break;
-        if (routeCoversRoute(routes[earlier]!.segments, route.segments)) {
-          shadow = earlier;
-          break;
-        }
-      }
-    }
+    const shadow = earlierRoutes
+      .overlapping(route.segments)
+      .find((earlier) => routeCovers(routes[earlier]!.segments, route.segments));
     if (shadow !== undefined) {
       const earlier = routes[shadow]!;
       warn(
@@ -342,49 +328,7 @@ function warnRouteConflicts(routes: readonly ResolvedRoute[]): void {
           `declaration order, so declare "${route.path}" before "${earlier.path}".`,
       );
     }
-
-    if (isStatic) {
-      if (!staticPaths.has(staticPath)) staticPaths.set(staticPath, index);
-    } else if (key === undefined) {
-      firstDynamic.push(index);
-    } else {
-      const bucket = byFirstStatic.get(key);
-      if (bucket) bucket.push(index);
-      else byFirstStatic.set(key, [index]);
-    }
-  }
-}
-
-/** Whether every pathname `later` matches is also matched by `earlier`. */
-function routeCoversRoute(
-  earlier: readonly RouteSegment[],
-  later: readonly RouteSegment[],
-): boolean {
-  for (let index = 0; index < earlier.length; index += 1) {
-    const segment = earlier[index]!;
-    if (segment.type === "catchall") {
-      return later.slice(index).every((rest) => rest.type !== "static" || decodes(rest.value));
-    }
-    const other = later[index];
-    if (other === undefined || other.type === "catchall") return false;
-    if (segment.type === "static" && (other.type !== "static" || other.value !== segment.value)) {
-      return false;
-    }
-    // A parameter rejects a segment that does not percent-decode, which a
-    // static segment such as `100%` still matches literally.
-    if (segment.type !== "static" && other.type === "static" && !decodes(other.value)) {
-      return false;
-    }
-  }
-  return later.length === earlier.length;
-}
-
-function decodes(value: string): boolean {
-  try {
-    decodeURIComponent(value);
-    return true;
-  } catch {
-    return false;
+    earlierRoutes.add(route.segments);
   }
 }
 
@@ -795,6 +739,7 @@ export function matchApiRoute(
 ): ApiRouteMatch | undefined {
   const normalizedPathname = normalizeRoutePath(pathname);
   const targetSegments = splitPathSegments(normalizedPathname);
+  notePlainPath(normalizedPathname, targetSegments);
 
   for (const route of apiRoutes) {
     const params = matchRouteSegments(route.segments, targetSegments);

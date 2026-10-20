@@ -1,7 +1,14 @@
 import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import type { Dirent } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
-import { buildStaticRouteStateUrl } from "@pracht/core/server";
+import { describeCapability } from "@pracht/capabilities/static";
+import {
+  buildStaticRouteStateUrl,
+  decodeStaticPath,
+  parseRouteSegments,
+  routePathIsDynamic,
+  staticPathCandidates,
+} from "@pracht/core/server";
 
 import { formatBytes } from "./bundle-report.js";
 
@@ -58,9 +65,7 @@ export function isStaticExportBuild(serverMod: { staticTarget?: unknown }): bool
 }
 
 interface CapabilityModuleView {
-  default?: {
-    expose?: { http?: unknown; mcp?: boolean; webmcp?: boolean } | null;
-  };
+  default?: Parameters<typeof describeCapability>[0];
 }
 
 const SERVERFUL_ADAPTERS =
@@ -115,16 +120,11 @@ function isSafeStaticDeployBase(base: string): boolean {
     const segments = base.split("/");
     return segments.every((segment, index) => {
       if (segment === "" && index !== 0 && index !== segments.length - 1) return false;
-      const decoded = decodeURIComponent(segment);
-      if (decoded === "." || decoded === "..") return false;
-      for (const character of decoded) {
+      const decoded = decodeStaticPath(segment);
+      if (!decoded.ok) return false;
+      for (const character of decoded.path) {
         const codePoint = character.codePointAt(0);
-        if (
-          character === "/" ||
-          character === "\\" ||
-          codePoint === 0 ||
-          (codePoint !== undefined && (codePoint <= 0x1f || codePoint === 0x7f))
-        ) {
+        if (codePoint !== undefined && (codePoint <= 0x1f || codePoint === 0x7f)) {
           return false;
         }
       }
@@ -312,7 +312,7 @@ export async function validateStaticExport(serverMod: StaticServerModuleView): P
 
   if (serverMod.staticExportConfig?.fallback && !serverMod.staticExportConfig.fallbackHead) {
     const dynamicSpaRoutes = routes.filter(
-      (route) => hasDynamicSegments(route.path) && isClientRoutableSpaRoute(route),
+      (route) => routePathIsDynamic(route.path) && isClientRoutableSpaRoute(route),
     );
     const fallbackRenderedRoutes = notFound ? [...dynamicSpaRoutes, notFound] : dynamicSpaRoutes;
     const headRoutes: string[] = [];
@@ -399,13 +399,10 @@ export async function validateStaticExport(serverMod: StaticServerModuleView): P
       invalidCapabilities.push(`    - ${name} (${file}): module has no default capability export`);
       continue;
     }
-    const expose = capabilityModule?.default?.expose;
-    if (expose && (expose.http || expose.mcp || expose.webmcp)) {
-      const surfaces = [
-        expose.http ? "http" : null,
-        expose.mcp ? "mcp" : null,
-        expose.webmcp ? "webmcp" : null,
-      ]
+    // What the runtime would serve, read the way every other consumer reads it.
+    const { http, mcp, webmcp } = describeCapability(capabilityModule.default, name);
+    if (http || mcp || webmcp) {
+      const surfaces = [http ? "http" : null, mcp ? "mcp" : null, webmcp ? "webmcp" : null]
         .filter(Boolean)
         .join(", ");
       exposedCapabilities.push(`    - ${name} (${file}; expose: ${surfaces})`);
@@ -488,36 +485,19 @@ export function resolveRouteStateOutputPath(clientDir: string, routePath: string
 export function decodeStaticOutputPath(routePath: string): string {
   if (!routePath.includes("%")) return routePath;
 
-  return routePath
-    .split("/")
-    .map((segment) => {
-      let decoded: string;
-      try {
-        decoded = decodeURIComponent(segment);
-      } catch {
-        throw new Error(
-          `Static export cannot write prerendered page ${JSON.stringify(routePath)} because segment ` +
-            `${JSON.stringify(segment)} is not valid percent-encoding. ` +
-            "Fix the route path or getStaticPaths() param.",
-        );
-      }
-      if (decoded.includes("/") || decoded.includes("\\") || decoded.includes("\0")) {
-        throw new Error(
-          `Static export cannot write prerendered page ${JSON.stringify(routePath)} because segment ` +
-            `${JSON.stringify(segment)} decodes to a path separator. ` +
-            "Fix the route path or getStaticPaths() param.",
-        );
-      }
-      if (decoded === "." || decoded === "..") {
-        throw new Error(
-          `Static export cannot write prerendered page ${JSON.stringify(routePath)} because segment ` +
-            `${JSON.stringify(segment)} decodes to a relative path segment. ` +
-            "Fix the route path or getStaticPaths() param.",
-        );
-      }
-      return decoded;
-    })
-    .join("/");
+  const decoded = decodeStaticPath(routePath);
+  if (decoded.ok) return decoded.path;
+  const problem =
+    decoded.reason === "malformed"
+      ? "is not valid percent-encoding"
+      : decoded.reason === "separator"
+        ? "decodes to a path separator"
+        : "decodes to a relative path segment";
+  throw new Error(
+    `Static export cannot write prerendered page ${JSON.stringify(routePath)} because segment ` +
+      `${JSON.stringify(decoded.segment)} ${problem}. ` +
+      "Fix the route path or getStaticPaths() param.",
+  );
 }
 
 /**
@@ -526,23 +506,32 @@ export function decodeStaticOutputPath(routePath: string): string {
  * owns rejecting malformed escapes, and these guards only widen their match.
  */
 function decodeOutputSegmentLenient(segment: string): string {
-  try {
-    return decodeURIComponent(segment);
-  } catch {
-    return segment;
-  }
+  const decoded = decodeStaticPath(segment);
+  return decoded.ok ? decoded.path : segment;
 }
 
 /**
  * Static-export variant of `resolvePrerenderOutputPath`.
  *
  * Only static exports decode: a static host resolves the request itself, so
- * the file has to sit at the decoded path. The serverful adapters keep the
- * encoded form because their own static lookup (`resolveStaticFile`) matches
- * against the raw `url.pathname` — decoding here would 404 their SSG pages.
+ * the file has to sit at the decoded path. Server deployments keep the encoded
+ * route path, which the manifests record and every reader in core's
+ * `staticPathCandidates()` order tries after the decoded spelling.
  */
 export function resolveStaticExportOutputPath(clientDir: string, routePath: string): string {
   return resolvePrerenderOutputPath(clientDir, decodeStaticOutputPath(routePath));
+}
+
+/**
+ * Cloudflare variant of `resolvePrerenderOutputPath`. The Workers assets
+ * binding decodes the request path before it looks a file up, so a page is
+ * written at its decoded spelling (`posts/café/index.html`), the first of
+ * core's `staticPathCandidates()`. A path with no decoded spelling (an encoded
+ * separator) keeps the encoded one; the Worker renders it.
+ */
+export function resolveCloudflarePrerenderOutputPath(clientDir: string, routePath: string): string {
+  const decoded = decodeStaticPath(routePath);
+  return resolvePrerenderOutputPath(clientDir, decoded.ok ? decoded.path : routePath);
 }
 
 export function resolvePrerenderOutputPath(clientDir: string, routePath: string): string {
@@ -551,18 +540,22 @@ export function resolvePrerenderOutputPath(clientDir: string, routePath: string)
   }
 
   const root = resolve(clientDir);
-  const filePath =
-    routePath === "/" ? resolve(root, "index.html") : resolve(root, `.${routePath}`, "index.html");
-  const relativePath = relative(root, filePath);
+  // Readers try the route path's own spelling last, so the file is written
+  // exactly as the manifests record the route path.
+  const spelling = staticPathCandidates(routePath, { index: true })?.at(-1);
+  const filePath = spelling ? resolve(root, `.${spelling}`) : null;
+  const relativePath = filePath === null ? ".." : relative(root, filePath);
 
   if (
+    filePath === null ||
     relativePath === "" ||
     relativePath === ".." ||
     relativePath.startsWith(`..${sep}`) ||
     isAbsolute(relativePath)
   ) {
     throw new Error(
-      `Refusing to write prerendered route "${routePath}" outside dist/client (${filePath}).`,
+      `Refusing to write prerendered route "${routePath}" outside dist/client` +
+        (filePath === null ? "." : ` (${filePath}).`),
     );
   }
 
@@ -752,11 +745,8 @@ function readStaticNotFoundState(html: string): StaticNotFoundState {
  * blank. A single dynamic segment (`/:slug`) only covers one path depth.
  */
 function matchesEveryPath(routePath: string): boolean {
-  return routePath === "/*" || /^\/:[^/]+\*$/.test(routePath);
-}
-
-function hasDynamicSegments(routePath: string): boolean {
-  return routePath.split("/").some((segment) => segment === "*" || segment.startsWith(":"));
+  const segments = parseRouteSegments(routePath);
+  return segments.length === 1 && segments[0]!.type === "catchall";
 }
 
 function isClientRoutableSpaRoute(route: StaticRouteView): boolean {
@@ -788,7 +778,7 @@ function hasUnshadowedClientRoutableSpaCatchAll(routes: StaticRouteView[]): bool
 
   return routes
     .slice(0, catchAllIndex)
-    .every((route) => !hasDynamicSegments(route.path) || isClientRoutableSpaRoute(route));
+    .every((route) => !routePathIsDynamic(route.path) || isClientRoutableSpaRoute(route));
 }
 
 function assertNoFixedArtifactRouteCollisions(

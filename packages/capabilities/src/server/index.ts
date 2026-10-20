@@ -105,6 +105,7 @@ export {
 
 // Durable approvals
 export {
+  assertHumanApprovalIdentity,
   capabilityApprovalId,
   createMemoryApprovalStore,
   createSqlApprovalStore,

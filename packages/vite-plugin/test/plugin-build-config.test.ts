@@ -2,10 +2,15 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-import { build, parseAst, resolveConfig, type Plugin } from "vite";
+import { build, parseAst, resolveConfig, rolldownVersion, type Plugin } from "vite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { islandChunkName } from "../src/chunk-groups.ts";
+import {
+  ISLAND_CHUNK_GROUP_DEBUG_NAME,
+  islandChunkConfig,
+  islandChunkName,
+  supportsChunkGroupDebugName,
+} from "../src/chunk-groups.ts";
 import { pracht, type PrachtAdapter } from "../src/index.ts";
 
 // A project root with a server islands directory and no islands directory.
@@ -654,6 +659,44 @@ describe("pracht plugin build config", () => {
       ).rejects.toThrow(new RegExp(`${specifier.replace(":", "\\:")} in `));
     },
   );
+});
+
+describe("island chunk group label", () => {
+  it("labels the function-named group only on a Rolldown that accepts the label", () => {
+    expect(supportsChunkGroupDebugName("1.2.10")).toBe(true);
+    expect(supportsChunkGroupDebugName("1.2.14")).toBe(true);
+    expect(supportsChunkGroupDebugName("1.3.0")).toBe(true);
+    expect(supportsChunkGroupDebugName("2.0.0-beta.1")).toBe(true);
+    expect(supportsChunkGroupDebugName("1.2.10-beta.0")).toBe(false);
+    expect(supportsChunkGroupDebugName("1.2.9")).toBe(false);
+    expect(supportsChunkGroupDebugName("1.0.0-rc.12")).toBe(false);
+    expect(supportsChunkGroupDebugName(undefined)).toBe(false);
+    expect(supportsChunkGroupDebugName("next")).toBe(false);
+  });
+
+  it("names the group for the bundler's timing report in every chunking form", () => {
+    for (const output of [undefined, { advancedChunks: {} }, { codeSplitting: {} }]) {
+      const config = islandChunkConfig(output, "/app/src/islands", { groupDebugName: true });
+      const options = config.output as {
+        codeSplitting?: { groups: Array<Record<string, unknown>> };
+        advancedChunks?: { groups: Array<Record<string, unknown>> };
+      };
+      const groups = (options.codeSplitting ?? options.advancedChunks)!.groups;
+      expect(groups[0]).toMatchObject({ debugName: ISLAND_CHUNK_GROUP_DEBUG_NAME });
+    }
+    const unlabeled = islandChunkConfig(undefined, "/app/src/islands").output as {
+      codeSplitting: { groups: Array<Record<string, unknown>> };
+    };
+    expect(unlabeled.codeSplitting.groups[0]).not.toHaveProperty("debugName");
+  });
+
+  it("follows the installed Rolldown from the plugin's config hook", () => {
+    const group = runConfigHook(nodeishAdapter, true).build?.rollupOptions?.output?.codeSplitting
+      ?.groups?.[0] as Record<string, unknown> | undefined;
+    expect(group?.debugName).toBe(
+      supportsChunkGroupDebugName(rolldownVersion) ? ISLAND_CHUNK_GROUP_DEBUG_NAME : undefined,
+    );
+  });
 });
 
 describe("islandChunkName", () => {

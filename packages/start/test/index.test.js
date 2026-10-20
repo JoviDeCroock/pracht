@@ -698,6 +698,51 @@ describe("create-pracht", () => {
     expect(existsSync(join(targetDir, "wrangler.jsonc"))).toBe(false);
   });
 
+  it.each([
+    [
+      11,
+      [
+        "allowBuilds:",
+        '  "esbuild": true',
+        '  "netlify-cli": false',
+        '  "sharp": false',
+        '  "unix-dgram": false',
+      ],
+    ],
+    [
+      10,
+      [
+        "onlyBuiltDependencies:",
+        '  - "esbuild"',
+        "ignoredBuiltDependencies:",
+        '  - "netlify-cli"',
+        '  - "sharp"',
+        '  - "unix-dgram"',
+      ],
+    ],
+  ])("decides every Netlify CLI build script for pnpm %d", async (pnpmMajor, lines) => {
+    const root = await mkdtemp(join(tmpdir(), "pracht-start-netlify-builds-"));
+    const targetDir = join(root, "my-netlify-app");
+
+    await scaffoldProject({
+      adapter: {
+        description: "Netlify Functions with durable CDN caching",
+        id: "netlify",
+        label: "Netlify",
+        packageName: "@pracht/adapter-netlify",
+        short: "netlify",
+      },
+      agentTools: false,
+      packageManager: "pnpm",
+      pnpmMajor,
+      resolveRemoteVersions: false,
+      targetDir,
+    });
+
+    const workspace = (await readFile(join(targetDir, "pnpm-workspace.yaml"), "utf-8")).split("\n");
+    for (const line of lines) expect(workspace).toContain(line);
+  });
+
   it("scaffolds a vercel starter", async () => {
     const root = await mkdtemp(join(tmpdir(), "pracht-start-vercel-"));
     const targetDir = join(root, "my-vercel-app");

@@ -183,9 +183,10 @@ With `agents.mcp.auth`, check:
   commits. `createSqlApprovalStore()` over D1/Postgres/Turso qualifies;
   `createMemoryApprovalStore()` in a deployed multi-replica app does not, and
   neither does a hand-rolled store over Cloudflare KV.
-- `confirmation: { mode: "human" }` without both a store and an end-user
-  principal (a resolver, or `agents.mcp.auth` on MCP) fails closed — check
-  both exist. Web Bot Auth alone is refused: it names the agent.
+- `confirmation: { mode: "human" }` without an end-user principal (a
+  resolver, or `agents.mcp.auth` on MCP) stops the server at startup, and
+  without a store refuses destructive calls — check both exist. Web Bot Auth
+  alone never counts: it names the agent.
 
 ## Step 4: Identity and policy
 

@@ -60,14 +60,21 @@
   },
   "peerDependencies": {
     "@pracht/capabilities": "workspace:^",
+    "@pracht/core": "workspace:^",
     "vite": "^8.0.0"
   },
   "peerDependenciesMeta": {
     "@pracht/capabilities": {
       "optional": true
     },
+    "@pracht/core": {
+      "optional": true
+    },
     "vite": {
       "optional": true
     }
+  },
+  "devDependencies": {
+    "@pracht/core": "workspace:^"
   }
 }

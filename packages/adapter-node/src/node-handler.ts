@@ -13,7 +13,11 @@ import {
   createWaitUntilTracker,
   type HandlePrachtRequestOptions,
   type ISGManifestEntry,
+  captureISGSnapshot,
   isCacheableISGResponse,
+  isgPathKey,
+  staticByteRange,
+  isISGSnapshotRejection,
   isMcpResourceMetadataPath,
   jsonResponse,
   matchAppRoute,
@@ -30,6 +34,7 @@ import {
   type ResolvedApiRoute,
   type PrachtApp,
   routeSupportsMarkdown,
+  serveISGSnapshot,
 } from "@pracht/core/server";
 
 import {
@@ -53,16 +58,17 @@ import {
 import {
   createISGRenderInput,
   createISGSnapshotWriteGuard,
-  getISGSnapshotHeaders,
+  getISGSnapshotPath,
   ISGSnapshotWriteError,
   type ISGSnapshotWriteGuard,
-  readISGSnapshotHeaders,
+  readISGSnapshot,
   regenerateISGPage,
+  type StoredISGSnapshot,
   writeISGSnapshot,
 } from "./node-isg.ts";
 import {
-  createClientDisconnectSignal,
   createWebRequest,
+  endEventStream,
   isClientDisconnectError,
   pipeToResponse,
   whenResponseHeadersStaged,
@@ -70,14 +76,12 @@ import {
   writeWebResponse,
 } from "./node-request.ts";
 import type { SharedHeadersManifest } from "@pracht/core/server";
-import {
-  applyHeadersManifest,
-  resolveStaticFile,
-  toRouteKey,
-  type HeadersManifest,
-} from "./node-static.ts";
+import { applyHeadersManifest, resolveStaticFile, type HeadersManifest } from "./node-static.ts";
 
 const ROUTE_STATE_REQUEST_HEADER = "x-pracht-route-state-request";
+// What browsers see on an ISG page whose render set no Cache-Control: always
+// revalidate with the server.
+const ISG_BROWSER_CACHE_CONTROL = "public, max-age=0, must-revalidate";
 
 export interface NodeAdapterContextArgs {
   request: Request;
@@ -97,6 +101,11 @@ export interface NodeAdapterOptions<TContext = unknown> {
   staticDir?: string;
   viteManifest?: unknown;
   isgManifest?: Record<string, ISGManifestEntry>;
+  /**
+   * The server entry's `buildId`. A regenerated ISG page is served only by
+   * the build that rendered it.
+   */
+  buildId?: string;
   apiRoutes?: ResolvedApiRoute[];
   clientEntryUrl?: string;
   islandsEntryUrl?: string;
@@ -166,9 +175,10 @@ export interface NodeRequestHandler {
    */
   drain(timeoutMs?: number): Promise<boolean>;
   /**
-   * Close every `text/event-stream` response still open, as if its client
-   * had disconnected (the request's `signal` aborts and the body stream is
-   * cancelled). Event streams never end on their own, so a graceful shutdown
+   * End every `text/event-stream` response still open: the request's
+   * `signal` aborts, the body stream is cancelled, and the response finishes
+   * cleanly (one not streaming its body yet is cut off instead). Event
+   * streams never end on their own, so a graceful shutdown
    * calls this after `server.close()` instead of waiting out its timeout;
    * `EventSource` clients reconnect. Other responses are left to finish.
    * From the first call on, a request that answers with an event stream later
@@ -214,37 +224,11 @@ export function createNodeRequestHandler<TContext = unknown>(
       );
     }
 
-    // Created before the body is read: a client that hangs up mid-upload has
-    // to abort the work its request already started.
-    const clientSignal = createClientDisconnectSignal(req, res);
-
-    let request: Request;
-    try {
-      request = await createWebRequest(req, {
-        canonicalOrigin,
-        trustProxy,
-        maxBodySize,
-        signal: clientSignal,
-      });
-    } catch (err) {
-      if (err instanceof Error && err.message === "Request body too large") {
-        // The rest of the body is never read, so the connection cannot be
-        // reused for another request.
-        res.statusCode = 413;
-        writeNodeResponseHeaders(
-          res,
-          applyDefaultSecurityHeaders(
-            new Headers({
-              "cache-control": "no-store",
-              connection: "close",
-              "content-type": "text/plain; charset=utf-8",
-            }),
-          ),
-        );
-        res.end("Payload Too Large");
-        return;
-      }
-      throw err;
+    const request = await createWebRequest(req, res, { canonicalOrigin, trustProxy, maxBodySize });
+    if (request instanceof Response) {
+      // 413 or 400: the request never reaches the application.
+      await writeWebResponse(res, request);
+      return;
     }
     // A stripped upstream pathname is a route path, not a public URL. Testing
     // it for the bare deploy base would make a route equal to that base segment
@@ -272,8 +256,9 @@ export function createNodeRequestHandler<TContext = unknown>(
       createTrailingSlashRedirectResponse(
         options.basePathStripped ? restoreBasePathInRequest(request) : request,
       );
-    // ISG entries are keyed by route path; `/about/` is the same page.
-    const isgKey = routePathname === null ? null : toRouteKey(routePathname);
+    // ISG entries are keyed by route path; `/about/` is the same page, and so
+    // is a lower-case-escaped spelling of an encoded one.
+    const isgKey = routePathname === null ? null : isgPathKey(routePathname);
     const isTransportRouteStateRequest = isRouteStateRequest(url, request.headers);
     // Only routes that can actually answer with markdown skip the static and
     // ISG fast paths: the client has to prefer markdown over HTML (a browser's
@@ -307,6 +292,26 @@ export function createNodeRequestHandler<TContext = unknown>(
       !isTransportRouteStateRequest &&
       routePathname !== null
     ) {
+      // `/page/index.html` names an ISG page's file: answer it as that page,
+      // so it serves the current snapshot rather than the build's HTML.
+      const isgAliasKey = routePathname.endsWith("/index.html")
+        ? isgPathKey(routePathname.slice(0, -"index.html".length))
+        : null;
+      if (isgAliasKey !== null && isgAliasKey in isgManifest) {
+        const served = await serveISGEntry(
+          request,
+          res,
+          options,
+          staticDir,
+          isgAliasKey,
+          isgManifest[isgAliasKey],
+          headersManifest,
+          compression,
+          waitUntil,
+          isgWriteGuard,
+        );
+        if (served) return;
+      }
       const staticResult = await resolveStaticFile(staticDir, routePathname, isgManifest);
       // A prerendered page answers one spelling under `pracht({ trailingSlash })`.
       const trailingSlashRedirect = staticResult?.document ? redirectToCanonicalPage() : null;
@@ -320,7 +325,6 @@ export function createNodeRequestHandler<TContext = unknown>(
           res,
           staticResult,
           headersManifest,
-          isgManifest,
           routePathname,
           compression,
         );
@@ -413,17 +417,16 @@ export function createNodeRequestHandler<TContext = unknown>(
         (response.headers.get("content-type")?.includes("text/html") ?? false) &&
         isCacheableISGResponse(response);
 
-      if (isIsgDocument) {
-        const html = await response.clone().text();
-        const htmlPath = resolveContainedPath(staticDir, isgDocumentKey);
-        if (htmlPath) {
+      const htmlPath = isIsgDocument ? resolveContainedPath(staticDir, isgDocumentKey) : null;
+      if (htmlPath) {
+        const snapshot = await captureISGSnapshot(response.clone(), {
+          buildId: options.buildId,
+          pathname: new URL(applicationRequest.url).pathname,
+        });
+        if (!isISGSnapshotRejection(snapshot)) {
           try {
-            await writeISGSnapshot(
-              htmlPath,
-              html,
-              getISGSnapshotHeaders(response, new URL(applicationRequest.url).pathname),
-            );
-            compressedAssetCache.invalidatePath(htmlPath);
+            await writeISGSnapshot(htmlPath, snapshot);
+            compressedAssetCache.invalidatePath(getISGSnapshotPath(htmlPath, snapshot.buildId));
           } catch (error) {
             // The render succeeded; an unwritable static directory must not
             // turn it into a 500. The next request renders again.
@@ -465,7 +468,10 @@ export function createNodeRequestHandler<TContext = unknown>(
     // that has not sent an event yet is closed as well.
     const contentType = String(res.getHeader("content-type") ?? "").toLowerCase();
     if (!contentType.startsWith("text/event-stream")) return;
-    res.destroy();
+    // A clean end of the response, so the client sees a finished stream
+    // rather than a dropped connection; cut it only when its body is not
+    // streaming yet.
+    if (!endEventStream(res)) res.destroy();
     closedEventStreams.add(served);
   };
   // A request still answering may answer with an event stream, so it is
@@ -576,7 +582,6 @@ async function serveStaticFile(
   res: ServerResponse,
   staticResult: { filePath: string; contentType: string; cacheControl: string },
   headersManifest: HeadersManifest | SharedHeadersManifest,
-  isgManifest: Record<string, ISGManifestEntry>,
   pathname: string,
   compression: CompressionState | undefined,
 ): Promise<void> {
@@ -594,12 +599,7 @@ async function serveStaticFile(
         "accept-ranges": "bytes",
       }),
     );
-    // `/page/index.html` names an ISG snapshot's file directly.
-    const snapshotHeaders =
-      (pathname.replace(/\/index\.html$/, "") || "/") in isgManifest
-        ? await readISGSnapshotHeaders(staticResult.filePath, fileStat)
-        : null;
-    applySnapshotOrManifestHeaders(headers, snapshotHeaders, headersManifest, pathname);
+    applyHeadersManifest(headers, headersManifest, pathname);
     const encoding = negotiateFileEncoding(request, headers, fileStat.size, compression);
 
     if (isNotModified(request, headers, compressionGeneration === 0)) {
@@ -618,7 +618,7 @@ async function serveStaticFile(
       encoding === null &&
       !headers.has("content-digest") &&
       !headers.has("content-md5")
-        ? resolveByteRange(request, headers, fileStat.size)
+        ? staticByteRange(request.headers, headers, fileStat.size)
         : null;
     if (range === "unsatisfiable") {
       res.statusCode = 416;
@@ -641,6 +641,8 @@ async function serveStaticFile(
     }
 
     res.statusCode = 200;
+    // The identity body is the file: GET and HEAD both say how long it is.
+    if (encoding === null) headers.set("content-length", String(fileStat.size));
     writeNodeHeaders(res, headers);
     if (request.method === "HEAD") {
       await writeFileHead(
@@ -814,6 +816,11 @@ async function writeFileHead(
   res.end();
 }
 
+/**
+ * Answer an ISG page from its regenerated snapshot, or from the build's HTML
+ * when it has none, and regenerate it in the background once stale. Returns
+ * `false` when there is neither, so the caller renders it.
+ */
 async function serveISGEntry<TContext>(
   request: Request,
   res: ServerResponse,
@@ -829,6 +836,113 @@ async function serveISGEntry<TContext>(
   const htmlPath = resolveContainedPath(staticDir, pathname);
   if (!htmlPath) return false;
 
+  const revalidateSeconds = getTimeRevalidateSeconds(entry.revalidate);
+  const isStaleSince = (renderedAt: number): boolean =>
+    revalidateSeconds !== null && Date.now() - renderedAt > revalidateSeconds * 1000;
+
+  // Started before the body is sent, so it is tracked by the time the
+  // visitor has the page.
+  const regenerateIfStale = (isStale: boolean): void => {
+    if (!isStale || !writeGuard.canRegenerate(htmlPath)) return;
+    // Tracked like application `waitUntil()` work, so a graceful shutdown
+    // lets an in-flight regeneration finish writing its snapshot.
+    waitUntil(
+      regenerateISGPageAndInvalidateCache(
+        options,
+        pathname,
+        htmlPath,
+        request,
+        compression,
+        waitUntil,
+      ).then(
+        () => writeGuard.succeeded(htmlPath),
+        (err) => {
+          if (err instanceof ISGSnapshotWriteError) {
+            writeGuard.failed(htmlPath, err, (revalidateSeconds ?? 0) * 1000);
+          } else {
+            console.error(`ISG regeneration failed for ${pathname}:`, err);
+          }
+        },
+      ),
+    );
+  };
+
+  const stored = await readISGSnapshot(htmlPath, options.buildId);
+  if (stored) {
+    const isStale = isStaleSince(stored.snapshot.generatedAt);
+    await writeISGSnapshotResponse(request, res, stored, isStale, compression, regenerateIfStale);
+    return true;
+  }
+  return serveBuildISGFile(
+    request,
+    res,
+    htmlPath,
+    pathname,
+    headersManifest,
+    compression,
+    isStaleSince,
+    regenerateIfStale,
+  );
+}
+
+/** Send a regenerated snapshot, with its own document headers. */
+async function writeISGSnapshotResponse(
+  request: Request,
+  res: ServerResponse,
+  stored: StoredISGSnapshot,
+  isStale: boolean,
+  compression: CompressionState | undefined,
+  beforeSend: (isStale: boolean) => void,
+): Promise<void> {
+  const served = serveISGSnapshot(stored.snapshot, {
+    stale: isStale,
+    browserCacheControl: ISG_BROWSER_CACHE_CONTROL,
+  });
+  void served.body?.cancel();
+  const headers = applyDefaultSecurityHeaders(new Headers({ vary: ROUTE_STATE_REQUEST_HEADER }));
+  for (const [name, value] of served.headers) headers.set(name, value);
+  headers.set("etag", stored.etag);
+  headers.set("last-modified", new Date(stored.snapshot.generatedAt).toUTCString());
+
+  const encoding = negotiateFileEncoding(request, headers, stored.body.byteLength, compression);
+  beforeSend(isStale);
+  if (isNotModified(request, headers, compression === undefined)) {
+    res.statusCode = 304;
+    writeNodeHeaders(res, headers);
+    res.end();
+    return;
+  }
+
+  let body = stored.body;
+  if (encoding && compression) {
+    const key =
+      `${stored.path}\0${stored.version}\0` +
+      `${compression.cache.getPathGeneration(stored.path)}\0${encoding}`;
+    body = await (compression.cache.getOrCompress(key, body.byteLength, () =>
+      compressBuffer(stored.body, encoding),
+    ) ?? compressBuffer(stored.body, encoding));
+  }
+  res.statusCode = 200;
+  headers.set("content-length", String(body.byteLength));
+  writeNodeHeaders(res, headers);
+  res.end(request.method === "HEAD" ? undefined : body);
+}
+
+/**
+ * Send the HTML the build wrote for an ISG page that has no regenerated
+ * snapshot (yet), with the build's headers. Returns `false` when there is no
+ * such file.
+ */
+async function serveBuildISGFile(
+  request: Request,
+  res: ServerResponse,
+  htmlPath: string,
+  pathname: string,
+  headersManifest: HeadersManifest | SharedHeadersManifest,
+  compression: CompressionState | undefined,
+  isStaleSince: (renderedAt: number) => boolean,
+  beforeSend: (isStale: boolean) => void,
+): Promise<boolean> {
   const file = await open(htmlPath, "r").catch(() => null);
   if (!file) return false;
 
@@ -837,22 +951,18 @@ async function serveISGEntry<TContext>(
     if (!fileStat.isFile()) return false;
     const compressionGeneration = compression?.cache.getPathGeneration(htmlPath) ?? 0;
     const compressionFileVersion = compression ? createCompressionFileVersion(fileStat) : undefined;
-
-    const ageMs = Date.now() - fileStat.mtimeMs;
-    const revalidateSeconds = getTimeRevalidateSeconds(entry.revalidate);
-    const isStale = revalidateSeconds !== null && ageMs > revalidateSeconds * 1000;
+    const isStale = isStaleSince(fileStat.mtimeMs);
 
     const headers = applyDefaultSecurityHeaders(
       new Headers({
         "content-type": "text/html; charset=utf-8",
-        "cache-control": "public, max-age=0, must-revalidate",
+        "cache-control": ISG_BROWSER_CACHE_CONTROL,
         etag: createWeakEtag(fileStat),
         "last-modified": fileStat.mtime.toUTCString(),
         vary: ROUTE_STATE_REQUEST_HEADER,
       }),
     );
-    const snapshotHeaders = await readISGSnapshotHeaders(htmlPath, fileStat);
-    applySnapshotOrManifestHeaders(headers, snapshotHeaders, headersManifest, pathname);
+    applyHeadersManifest(headers, headersManifest, pathname);
     await applyCompressionContentValidator(
       headers,
       htmlPath,
@@ -865,6 +975,7 @@ async function serveISGEntry<TContext>(
     headers.set("x-pracht-isg", isStale ? "stale" : "fresh");
 
     const encoding = negotiateFileEncoding(request, headers, fileStat.size, compression);
+    beforeSend(isStale);
 
     if (isNotModified(request, headers, compression === undefined)) {
       res.statusCode = 304;
@@ -897,31 +1008,6 @@ async function serveISGEntry<TContext>(
         );
       }
     }
-
-    if (isStale && writeGuard.canRegenerate(htmlPath)) {
-      // Tracked like application `waitUntil()` work, so a graceful shutdown
-      // lets an in-flight regeneration finish writing its snapshot.
-      waitUntil(
-        regenerateISGPageAndInvalidateCache(
-          options,
-          pathname,
-          htmlPath,
-          request,
-          compression,
-          waitUntil,
-        ).then(
-          () => writeGuard.succeeded(htmlPath),
-          (err) => {
-            if (err instanceof ISGSnapshotWriteError) {
-              writeGuard.failed(htmlPath, err, (revalidateSeconds ?? 0) * 1000);
-            } else {
-              console.error(`ISG regeneration failed for ${pathname}:`, err);
-            }
-          },
-        ),
-      );
-    }
-
     return true;
   } finally {
     await file.close();
@@ -954,12 +1040,14 @@ async function handleRevalidationEndpoint<TContext>(
 
   for (const pathname of parsed.paths) {
     try {
-      const entry = isgManifest[pathname];
-      const htmlPath = resolveContainedPath(staticDir, pathname);
+      // Reported as asked, looked up as the page: `/about/` is `/about`.
+      const key = isgPathKey(pathname);
+      const entry = isgManifest[key];
+      const htmlPath = resolveContainedPath(staticDir, key);
       const skip = classifyRevalidationSkip(
         entry && { render: "isg", revalidate: entry.revalidate },
         htmlPath !== null,
-        matchAppRoute(options.app, pathname)?.route ?? null,
+        matchAppRoute(options.app, key)?.route ?? null,
       );
       if (skip) {
         report.skipped(pathname, skip);
@@ -971,7 +1059,7 @@ async function handleRevalidationEndpoint<TContext>(
       if (
         await regenerateISGPageAndInvalidateCache(
           options,
-          pathname,
+          key,
           htmlPath!,
           request,
           compression,
@@ -1000,19 +1088,21 @@ async function regenerateISGPageAndInvalidateCache<TContext>(
   waitUntil: (promise: Promise<unknown>) => void,
 ): Promise<boolean> {
   const regenerated = await regenerateISGPage(options, pathname, htmlPath, origin, waitUntil);
-  if (regenerated) compression?.cache.invalidatePath(htmlPath);
+  if (regenerated) compression?.cache.invalidatePath(getISGSnapshotPath(htmlPath, options.buildId));
   return regenerated;
 }
 
 /**
- * Resolve a URL pathname to `<staticDir>/<pathname>/index.html` while
- * ensuring the result stays inside `staticDir`. Returns `null` when the
- * pathname would escape the root (`..`, encoded separators, NUL bytes,
- * etc.), which the caller treats as a miss. Also rejects NUL — Node
- * filesystem APIs throw on these but it's clearer to bail early.
+ * Resolve an ISG page's URL pathname to `<staticDir>/<key>/index.html`, where
+ * `key` is its `isgPathKey()` (the spelling the build wrote), while ensuring
+ * the result stays inside `staticDir`. Returns `null` when the pathname would
+ * escape the root (`..`, encoded separators, NUL bytes, etc.), which the
+ * caller treats as a miss. Also rejects NUL — Node filesystem APIs throw on
+ * these but it's clearer to bail early.
  */
-function resolveContainedPath(staticDir: string, pathname: string): string | null {
-  if (pathname.includes("\0")) return null;
+function resolveContainedPath(staticDir: string, url: string): string | null {
+  if (url.includes("\0")) return null;
+  const pathname = isgPathKey(url);
 
   const rootResolved = resolve(staticDir);
   const candidate =
@@ -1025,61 +1115,6 @@ function resolveContainedPath(staticDir: string, pathname: string): string | nul
     return null;
   }
   return resolved;
-}
-
-/**
- * A regenerated ISG snapshot is served with the headers it was rendered with;
- * the build's headers belong to the build's HTML.
- */
-function applySnapshotOrManifestHeaders(
-  headers: Headers,
-  snapshotHeaders: Record<string, string> | null,
-  headersManifest: HeadersManifest | SharedHeadersManifest,
-  pathname: string,
-): void {
-  if (!snapshotHeaders) {
-    applyHeadersManifest(headers, headersManifest, pathname);
-    return;
-  }
-  for (const [name, value] of Object.entries(snapshotHeaders)) headers.set(name, value);
-}
-
-/**
- * The single byte range a `GET` asks for. Returns `null` to serve the whole
- * file: no or malformed `Range`, several ranges, a unit other than `bytes`,
- * or an `If-Range` that no longer matches (a weak `ETag` never does).
- */
-function resolveByteRange(
-  request: Request,
-  headers: Headers,
-  size: number,
-): { start: number; end: number } | "unsatisfiable" | null {
-  const header = request.headers.get("range");
-  if (!header) return null;
-
-  const ifRange = request.headers.get("if-range")?.trim();
-  if (ifRange) {
-    const etag = headers.get("etag");
-    const matches = ifRange.startsWith('"')
-      ? etag !== null && !etag.startsWith("W/") && etag === ifRange
-      : !ifRange.startsWith("W/") && ifRange === headers.get("last-modified");
-    if (!matches) return null;
-  }
-
-  const match = /^bytes=(\d*)-(\d*)$/.exec(header.trim());
-  if (!match || (match[1] === "" && match[2] === "")) return null;
-
-  if (match[1] === "") {
-    const suffix = Number(match[2]);
-    if (suffix === 0 || size === 0) return "unsatisfiable";
-    return { start: Math.max(0, size - suffix), end: size - 1 };
-  }
-
-  const start = Number(match[1]);
-  if (match[2] !== "" && Number(match[2]) < start) return null;
-  if (start >= size) return "unsatisfiable";
-  const end = match[2] === "" ? size - 1 : Number(match[2]);
-  return { start, end: Math.min(end, size - 1) };
 }
 
 function isRouteStateRequest(url: URL, headers: Headers): boolean {

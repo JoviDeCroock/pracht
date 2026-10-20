@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { dirname, relative, resolve, sep } from "node:path";
 
 import {
   resolveMcpEndpoint,
@@ -22,7 +22,7 @@ import type {
 import { loadMcpTokenVerifier } from "@pracht/core/server";
 
 import { capabilityModuleLoader, createSourceReader } from "./app-graph.js";
-import { withAppServer } from "./app-server.js";
+import { withAppServer, type PluginManifestFacts } from "./app-server.js";
 import { formatBytes } from "./bundle-report.js";
 
 /**
@@ -73,6 +73,8 @@ export interface LiveGraphMetadata {
   staticTarget: boolean;
   /** Routes whose generated route or shell loader hint says a server fetch may be required. */
   loaderRoutePaths: ReadonlySet<string>;
+  /** Routes the build's hints say export no `head()`, and whose shell exports none either. */
+  headlessRoutePaths: ReadonlySet<string>;
   /** The module references the resolved manifest registers, as written in it. */
   manifest: ManifestModuleFacts;
 }
@@ -84,9 +86,50 @@ export interface ManifestModuleFacts {
    * from other files. Relative paths resolve against the app manifest.
    */
   modules: string[];
-  routeCount: number;
+  /** `null` when the routes could not all be read. */
+  routeCount: number | null;
   shells: { name: string; path: string }[];
   middleware: { name: string; path: string }[];
+  /** Local imports in the manifest's modules that name no file. */
+  missingImports?: string[];
+  /** Why the manifest could not be read, when it could not. */
+  readError?: string;
+  /** The manifest is an ejected pages layout; `undefined` when unknown. */
+  ejectedLayout?: boolean;
+}
+
+/**
+ * The same facts from the pracht plugin's static read of the manifest, for an
+ * app whose graph cannot be resolved.
+ */
+export function manifestModuleFactsFromPlugin(
+  facts: PluginManifestFacts,
+  manifestPath?: string,
+): ManifestModuleFacts {
+  const modules = new Set<string>();
+  const registry = (kind: string) =>
+    facts.refs.flatMap((ref) =>
+      ref.kind === kind && ref.ref !== null && ref.name !== undefined
+        ? [{ name: ref.name, path: ref.ref }]
+        : [],
+    );
+  for (const ref of facts.refs) {
+    if (ref.kind !== "mention" && ref.ref !== null) modules.add(ref.ref);
+  }
+  const manifestFile = manifestPath?.split(sep).join("/");
+  return {
+    modules: [...modules],
+    routeCount: facts.complete ? facts.refs.filter((ref) => ref.kind === "route").length : null,
+    shells: registry("shell"),
+    middleware: registry("middleware"),
+    missingImports: (facts.unresolvedImports ?? []).map(({ specifier, importer }) =>
+      importer === manifestFile || manifestFile === undefined
+        ? specifier
+        : `${specifier} (imported by ${relative(dirname(manifestFile), importer).split(sep).join("/")})`,
+    ),
+    ...(facts.error ? { readError: facts.error } : {}),
+    ...(typeof facts.ejectedLayout === "boolean" ? { ejectedLayout: facts.ejectedLayout } : {}),
+  };
 }
 
 /** Read the module references off the resolved app rather than the manifest's text. */
@@ -118,60 +161,70 @@ export function collectManifestModuleFacts(resolvedApp: {
   return { modules: [...modules], routeCount: routes.length, shells, middleware };
 }
 
-export async function resolveLiveGraphMetadata(root: string): Promise<LiveGraphMetadata> {
-  return withAppServer(root, async ({ project, server, serverModule }) => {
-    const resolvedRoutes = serverModule.resolvedApp.routes as ResolvedRoute[];
-    await assertMcpTokenVerifierModule(serverModule);
-    const routes = serializeAppRoutes(resolvedRoutes);
-    const api = await serializeApiRoutes(
-      serverModule.apiRoutes,
-      {
-        loadModule: (file) => server.ssrLoadModule(file),
-        readSource: (file) => readFileSync(resolve(root, `.${file}`), "utf-8"),
-      },
-      { strict: true },
-    );
-    const capabilities = withWebmcpRoutes(
-      await serializeCapabilities(
-        serverModule.resolvedApp.capabilities,
+export async function resolveLiveGraphMetadata(
+  root: string,
+  options: Parameters<typeof withAppServer>[2] = {},
+): Promise<LiveGraphMetadata> {
+  return withAppServer(
+    root,
+    async ({ project, server, serverModule }) => {
+      const resolvedRoutes = serverModule.resolvedApp.routes as ResolvedRoute[];
+      await assertMcpTokenVerifierModule(serverModule);
+      const routes = serializeAppRoutes(resolvedRoutes);
+      const api = await serializeApiRoutes(
+        serverModule.apiRoutes,
         {
-          loadModule: capabilityModuleLoader(server, serverModule),
-          readSource: createSourceReader(root, project.appFile),
+          loadModule: (file) => server.ssrLoadModule(file),
+          readSource: (file) => readFileSync(resolve(root, `.${file}`), "utf-8"),
         },
         { strict: true },
-      ),
-      resolvedRoutes,
-    );
+      );
+      const capabilities = withWebmcpRoutes(
+        await serializeCapabilities(
+          serverModule.resolvedApp.capabilities,
+          {
+            loadModule: capabilityModuleLoader(server, serverModule),
+            readSource: createSourceReader(root, project.appFile),
+          },
+          { strict: true },
+        ),
+        resolvedRoutes,
+      );
 
-    return {
-      graph: normalizeGraphSnapshot({
-        prachtGraphVersion: GRAPH_SNAPSHOT_VERSION,
-        mode: project.mode,
-        routes,
-        api,
-        capabilities,
-        mcpEndpoint: resolveMcpEndpoint(serverModule.resolvedApp.agents),
-        ...(servesDestructiveMcpTools(serverModule.resolvedApp, capabilities)
-          ? { mcpDestructive: true as const }
-          : {}),
-        mcpAuthenticated: !!serverModule.resolvedApp.agents?.mcp?.auth,
-        mcpAuth: serializeMcpAuth(serverModule.resolvedApp.agents?.mcp?.auth),
-        constraints: serverModule.resolvedApp.constraints ?? [],
-      }),
-      loaderRoutePaths: new Set(
-        resolvedRoutes
-          .filter(
-            (route) =>
-              route.loaderFile !== undefined ||
-              route.hasLoader !== false ||
-              route.hasShellLoader === true,
-          )
-          .map((route) => route.path),
-      ),
-      staticTarget: serverModule.staticTarget === true,
-      manifest: collectManifestModuleFacts(serverModule.resolvedApp),
-    };
-  });
+      return {
+        graph: normalizeGraphSnapshot({
+          prachtGraphVersion: GRAPH_SNAPSHOT_VERSION,
+          mode: project.mode,
+          routes,
+          api,
+          capabilities,
+          mcpEndpoint: resolveMcpEndpoint(serverModule.resolvedApp.agents),
+          ...(servesDestructiveMcpTools(serverModule.resolvedApp, capabilities)
+            ? { mcpDestructive: true as const }
+            : {}),
+          mcpAuthenticated: !!serverModule.resolvedApp.agents?.mcp?.auth,
+          mcpAuth: serializeMcpAuth(serverModule.resolvedApp.agents?.mcp?.auth),
+          constraints: serverModule.resolvedApp.constraints ?? [],
+        }),
+        loaderRoutePaths: new Set(
+          resolvedRoutes
+            .filter(
+              (route) =>
+                route.loaderFile !== undefined ||
+                route.hasLoader !== false ||
+                route.hasShellLoader === true,
+            )
+            .map((route) => route.path),
+        ),
+        headlessRoutePaths: new Set(
+          resolvedRoutes.filter((route) => route.hasHead === false).map((route) => route.path),
+        ),
+        staticTarget: serverModule.staticTarget === true,
+        manifest: collectManifestModuleFacts(serverModule.resolvedApp),
+      };
+    },
+    options,
+  );
 }
 
 async function assertMcpTokenVerifierModule(serverModule: Record<string, any>): Promise<void> {
@@ -196,13 +249,56 @@ export async function resolveLiveGraph(root: string): Promise<GraphSnapshot> {
  * capabilities` and the dev banner, where it is actionable.
  */
 function withoutLoadError(capability: AppGraphCapability): AppGraphCapability {
-  if (capability.error == null) return capability;
+  // `webmcpUntrustedContent` is left out for the same reason as a new field:
+  // committing it would mark the snapshot of every app that sets it stale on
+  // upgrade. The typegen consistency check still compares it.
+  if (capability.error == null && capability.webmcpUntrustedContent === undefined) {
+    return capability;
+  }
   // `unverifiedContract` deliberately stays: it is the difference between "this
   // capability has no middleware" and "we could not read whether it does", and
   // a reviewer diffing the snapshot needs to see it. Only the machine-specific
   // error text is dropped.
-  const { error: _error, ...rest } = capability;
+  const { error: _error, webmcpUntrustedContent: _untrusted, ...rest } = capability;
   return rest;
+}
+
+/**
+ * The key order a capability entry is written in: the order every snapshot
+ * committed so far uses. Staleness compares serialized text, so entry keys are
+ * put in one fixed order rather than whatever order a producer built them in —
+ * otherwise reordering the producer marks every committed snapshot stale.
+ * Keys not listed here follow in alphabetical order.
+ */
+const CAPABILITY_KEY_ORDER = [
+  "agentPolicy",
+  "description",
+  "effect",
+  "error",
+  "unverifiedContract",
+  "hasUi",
+  "httpPath",
+  "input",
+  "middleware",
+  "name",
+  "output",
+  "source",
+  "title",
+  "transports",
+  "mcpScopes",
+  "webmcpUntrustedContent",
+  "webmcpRoutes",
+];
+
+function withKeyOrder<T extends object>(entry: T, order: readonly string[] = []): T {
+  const rank = (key: string) => {
+    const index = order.indexOf(key);
+    return index === -1 ? order.length : index;
+  };
+  const keys = Object.keys(entry).sort(
+    (left, right) => rank(left) - rank(right) || (left < right ? -1 : left > right ? 1 : 0),
+  );
+  return Object.fromEntries(keys.map((key) => [key, (entry as Record<string, unknown>)[key]])) as T;
 }
 
 /** Stable ordering + JSON round-trip so snapshots diff cleanly in git. */
@@ -210,13 +306,17 @@ export function normalizeGraphSnapshot(snapshot: GraphSnapshot): GraphSnapshot {
   const normalized: GraphSnapshot = {
     prachtGraphVersion: snapshot.prachtGraphVersion,
     mode: snapshot.mode,
+    // Snapshots written before `streaming` existed omit it; reading the absent
+    // field as `null` keeps them current after an upgrade.
     routes: snapshot.routes
-      .map((route) => ({ ...route, streaming: route.streaming ?? null }))
+      .map((route) => withKeyOrder({ ...route, streaming: route.streaming ?? null }))
       .sort((left, right) => left.path.localeCompare(right.path)),
-    api: [...snapshot.api].sort((left, right) => left.path.localeCompare(right.path)),
-    capabilities: [...(snapshot.capabilities ?? [])].sort((left, right) =>
-      left.name.localeCompare(right.name),
-    ),
+    api: snapshot.api
+      .map((route) => withKeyOrder(route))
+      .sort((left, right) => left.path.localeCompare(right.path)),
+    capabilities: (snapshot.capabilities ?? [])
+      .map((capability) => withKeyOrder(capability, CAPABILITY_KEY_ORDER))
+      .sort((left, right) => left.name.localeCompare(right.name)),
     mcpEndpoint: snapshot.mcpEndpoint ?? null,
     ...(snapshot.mcpDestructive === true ? { mcpDestructive: true } : {}),
     mcpAuthenticated: snapshot.mcpAuthenticated ?? false,

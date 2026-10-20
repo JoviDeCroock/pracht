@@ -21,7 +21,13 @@
  * names adapters use.
  */
 import { DEFAULT_LOADER_TIMEOUT_MS, matchApiRoute, resolveApp } from "./app.ts";
-import { createWaitUntil, isSameOriginRequest } from "@pracht/capabilities/server/internal";
+import {
+  createRequestBudget,
+  createWaitUntil,
+  holdingWaitUntil,
+  isSameOriginRequest,
+  type RequestBudget,
+} from "@pracht/capabilities/server/internal";
 import {
   resolveBaseRedirectLocation,
   resolveTrailingSlashRedirectLocation,
@@ -178,14 +184,9 @@ export function createRequestWaitUntil<TContext>(
   const waitUntil = createWaitUntil(options.waitUntil, (error) => {
     reportRequestError(hook, error, requestPath, { ...context, phase: "waitUntil" });
   });
-  if (!budget) return waitUntil;
   // Work kept alive past the response may still read `signal`, so the budget
   // keeps running until it settles.
-  return (promise) => {
-    const release = budget.hold();
-    waitUntil(promise);
-    void Promise.resolve(promise).then(release, release);
-  };
+  return budget ? holdingWaitUntil(budget, waitUntil) : waitUntil;
 }
 
 /**
@@ -262,187 +263,14 @@ function resolveLoaderTimeoutMs(value: number | undefined): number {
 }
 
 /**
- * One request's budget: the `AbortSignal` handed to middleware, loaders, and
- * API route handlers, and the work that keeps its timer running.
- *
- * Two independent reasons to stop the work are folded into one signal: the
- * server-side budget (`defineApp({ loaderTimeoutMs })`, 30s by default) and
- * the client going away. Composing them is what makes `signal` worth passing
- * to `fetch()` or a database driver — a timeout alone keeps a request the
- * caller has already abandoned running to completion.
- *
- * The timer runs only while something can still use it: the pipeline until it
- * has produced a response, a streamed document until its body ends, and every
- * `waitUntil` promise until it settles. Each of those takes a `hold()`; when
- * the last one is released the timer is cleared. A pending timer keeps the
- * signal and everything its listeners close over reachable, so a timer left
- * to run out would retain every finished request for the whole budget.
- *
- * The signal is wired by hand rather than with `AbortSignal.timeout`/`.any`:
- * neither can be cancelled, and a composite signal with an abort listener is
- * kept alive until one of its sources aborts.
+ * Bodies the framework built for this request, which `releaseBudgetWith`
+ * passes through untouched: they are buffered, or they are a streamed
+ * document that took its own hold on the budget and keeps the body adapters
+ * recognise it by. Middleware may re-wrap a streamed document; its body keeps
+ * that marker.
  */
-export interface RequestBudget {
-  /** The composed signal. Created, and its timer started, on first read. */
-  readonly signal: AbortSignal;
-  /** Keep the budget running until the returned function is called. */
-  hold(): () => void;
-  /** Abort the signal now, with `reason`. */
-  abort(reason: unknown): void;
-  /** Release the pipeline's own hold, once its response is produced. */
-  release(): void;
-  /** Whether a signal was handed out and its timer is still pending. */
-  readonly timing: boolean;
-}
-
-const noop = () => {};
-
-export function createRequestBudget(
-  clientSignal: AbortSignal | undefined,
-  timeoutMs: number,
-): RequestBudget {
-  let controller: AbortController | undefined;
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  // The pipeline holds the budget from the start; it releases that hold
-  // through `release()`.
-  let holds = 1;
-  const clear = () => {
-    if (timer === undefined) return;
-    clearTimeout(timer);
-    timer = undefined;
-  };
-  const drop = () => {
-    if (holds > 0 && --holds === 0) clear();
-  };
-
-  const budget: RequestBudget = {
-    get signal() {
-      if (controller) return controller.signal;
-      const own = (controller = new AbortController());
-      if (clientSignal?.aborted) {
-        own.abort(clientSignal.reason);
-        return own.signal;
-      }
-      if (holds > 0) {
-        timer = setTimeout(() => {
-          timer = undefined;
-          own.abort(new DOMException("The operation was aborted due to timeout", "TimeoutError"));
-        }, timeoutMs);
-        // A budget must not keep a process alive on its own.
-        (timer as { unref?: () => void }).unref?.();
-      }
-      if (clientSignal) {
-        const onClientAbort = () => own.abort(clientSignal.reason);
-        clientSignal.addEventListener("abort", onClientAbort, { once: true });
-        own.signal.addEventListener(
-          "abort",
-          () => {
-            clear();
-            clientSignal.removeEventListener("abort", onClientAbort);
-          },
-          { once: true },
-        );
-      }
-      return own.signal;
-    },
-    hold() {
-      if (holds === 0) return noop;
-      holds++;
-      let released = false;
-      return () => {
-        if (released) return;
-        released = true;
-        drop();
-      };
-    },
-    abort(reason) {
-      const signal = budget.signal;
-      clear();
-      if (!signal.aborted) controller!.abort(reason);
-    },
-    release: (() => {
-      let released = false;
-      return () => {
-        if (released) return;
-        released = true;
-        drop();
-      };
-    })(),
-    get timing() {
-      return timer !== undefined;
-    },
-  };
-  return budget;
-}
-
-/**
- * Release the pipeline's hold on the budget once `response` is out, and
- * return the response to send. Work the app still runs against the signal
- * keeps the budget, so its timeout still applies:
- *
- * - A failed request (status 400 and up) keeps it until it fires. Its loader
- *   may have left sibling work running, such as a deferred field next to the
- *   one that threw.
- * - A body the app built holds it until that body is read, errors, or is
- *   cancelled, so a stalled proxied stream still times out. A body the
- *   framework built is left alone: it is buffered, or it is a streamed document
- *   that took its own hold and keeps the body adapters recognise it by.
- *
- * Nothing is wrapped when no signal was handed out: there is no timer then.
- */
-export function releaseBudgetWith(budget: RequestBudget, response: Response): Response {
-  if (!budget.timing) {
-    budget.release();
-    return response;
-  }
-  if (response.status >= 400) return response;
-  const body = response.body;
-  if (
-    !body ||
-    isOwnResponse(response) ||
-    // Middleware may re-wrap a streamed document; its body keeps the marker
-    // adapters stream by, and its own hold on the budget.
-    isStreamingHtmlResponse(response) ||
-    response.status === 101 ||
-    (response as { webSocket?: unknown }).webSocket
-  ) {
-    budget.release();
-    return response;
-  }
-  const releaseBody = budget.hold();
-  budget.release();
-  return new Response(holdUntilRead(body, releaseBody), {
-    status: response.status,
-    statusText: response.statusText,
-    headers: response.headers,
-  });
-}
-
-function holdUntilRead(
-  body: ReadableStream<Uint8Array>,
-  release: () => void,
-): ReadableStream<Uint8Array> {
-  const reader = body.getReader();
-  return new ReadableStream<Uint8Array>({
-    async pull(controller) {
-      try {
-        const { done, value } = await reader.read();
-        if (done) {
-          release();
-          controller.close();
-        } else {
-          controller.enqueue(value);
-        }
-      } catch (error) {
-        release();
-        controller.error(error);
-      }
-    },
-    cancel(reason) {
-      release();
-      return reader.cancel(reason);
-    },
-  });
+export function isFrameworkBody(response: Response): boolean {
+  return isOwnResponse(response) || isStreamingHtmlResponse(response);
 }
 
 /**
@@ -915,10 +743,21 @@ export async function dispatchApi<TContext>(
   const apiMiddlewareFiles = resolveApiMiddlewareFiles(options.app);
   let currentPhase: PrachtRuntimeDiagnosticPhase = "middleware";
 
+  // `OPTIONS` changes no state: a route that exports its own handler (a CORS
+  // preflight answer, usually) runs it for any origin. A `default` export
+  // stays behind the gate, since it answers every method alike.
   if (
     ctx.requireSameOrigin &&
     !SAFE_METHODS.has(request.method) &&
-    !isSameOriginRequest(request, url)
+    !isSameOriginRequest(request, url) &&
+    !(
+      request.method === "OPTIONS" &&
+      typeof (
+        await resolveRegistryModule<ApiRouteModule>(registry.apiModules, apiMatch.route.file).catch(
+          () => undefined,
+        )
+      )?.OPTIONS === "function"
+    )
   ) {
     return plainTextResponse("Cross-origin request blocked", 403);
   }

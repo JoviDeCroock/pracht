@@ -371,10 +371,11 @@ runtime-page.ts writes it), and every head node the server renders carries
   otherwise. A `-` entry is kept only when some URL could match it and a later
   `+` entry, so the table never lists more of the app — API paths included —
   than it needs to (`islandsNavigationRoutes()` in islands-server.ts). It is
-  built once per app by walking the entries backwards into a segment trie of
-  the `+` patterns seen so far, so each `-` entry costs one trie query rather
-  than a comparison with every later entry (`patternsOverlap()` is the pairwise
-  definition the tests check it against). Prerendering receives the app's
+  built once per app by walking the entries backwards into an `indexSegments`
+  index of the `+` patterns seen so far, so each `-` entry is compared with
+  `routesOverlap` only against the later `+` entries that could overlap it
+  (ROUTING.md describes the shared pattern algebra; the tests check the table
+  against a pairwise scan). Prerendering receives the app's
   `apiRoutes` so SSG documents carry the same table as SSR ones. It is about
   150 bytes gzip for 20 routes and 2.3 KB gzip for 1,000 (500 entries); it
   grows with the number of islands routes. Front-coding the entries was

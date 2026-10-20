@@ -215,7 +215,7 @@ setCapabilityApprovalPrincipalResolver<{ user: { id: string } }>(
 );
 ```
 
-Import this module from a server entry, the destructive capability's module, or middleware applied to that capability or the app's capability API chain; unrelated middleware is not enough.
+Import this module from a server entry, the destructive capability's module, or middleware applied to that capability or the app's capability API chain; unrelated middleware is not enough. A hand-written Node server must import it before `dist/server/server.js`, because human mode checks for a resolver as that module loads.
 
 The principal resolver runs after middleware. Return a stable authenticated user or tenant id, never caller-controlled input. On remote MCP with [`agents.mcp.auth`](/docs/capabilities#oauth-letting-a-real-host-connect), the verified token subject is bound too. With Web Bot Auth also on, a proposal binds both the user and the agent.
 
@@ -253,7 +253,7 @@ export async function POST({ request, context }: ApiRouteArgs) {
 
 Before enabling a store, know that:
 
-- `mode: "human"` fails closed without a store and an end-user identity (a principal resolver, or `agents.mcp.auth` on MCP). A Web Bot Auth key names only the agent, so it is refused.
+- `mode: "human"` needs an end-user identity: a principal resolver, or `agents.mcp.auth` on MCP. With neither, the server refuses to start, and `pracht build` and `pracht verify` fail. A Web Bot Auth key names only the agent, so it never counts. Without a store, destructive calls are refused.
 - Prepare and commit must reach the same store. A valid token whose proposal is unknown is refused.
 - Any exception from the store or principal resolver closes the gate.
 - `createMemoryApprovalStore()` is for tests and development. It is lost on restart and not shared across replicas.

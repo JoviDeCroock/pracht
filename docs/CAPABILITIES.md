@@ -191,12 +191,18 @@ transport request — or when the request budget runs out. Under
 `defineApp({ loaderTimeoutMs })`, 30 s by default), passed in as
 `handleCapabilityRequest({ budget })` / `handleMcpRequest({ budget })` (see the
 request budget in [DATA_LOADING.md](DATA_LOADING.md)). The dispatch holds it
-while `waitUntil()` work runs, and a failed dispatch (status 400 and up, before
-MCP turns it into a 200 tool error) keeps it until the timer fires. A host that
-passes no budget (the standalone host, `invokeCapability()` without a
-`signal`) gets a per-dispatch one of `timeoutMs` (30 s) with the same holds,
-cleared once the dispatch answers and its work settles. The
-`api.middleware` chain and capability middleware receive the same signal.
+while `waitUntil()` work runs, and a failed dispatch (status 500 and up, before
+MCP turns it into a 200 tool error) keeps it until the timer fires; a rejected
+call (bad input, wrong method) releases it. `createCapabilityHost` makes one
+budget per request it owns, of its own `loaderTimeoutMs` option (30 s by
+default, validated like `defineApp`'s), shared by the MCP or HTTP dispatch,
+composed invocations, and `waitUntil()` work; `host.invoke()` without a
+`signal` uses the same length through `CapabilityHost.timeoutMs`. A direct
+`handleCapabilityRequest()` call
+without `budget`, and `invokeCapability()` without a `signal`, get their own of
+`timeoutMs` (30 s) with the same holds. All of them are `createRequestBudget`;
+there is no second implementation. The `api.middleware` chain and capability
+middleware receive the same signal.
 
 `context` defaults to `CapabilityContext`: `context.agent` is typed as the
 verified Web Bot Auth identity (`PrachtAgentIdentity | null`, absent when
@@ -614,9 +620,9 @@ at all: `callCapability("notes.stats")`.
   Narrow the name before calling when the schemas differ; otherwise an input
   for one member could be dispatched under another member's runtime name.
 - Typegen reads capability metadata by loading the modules, while the browser
-  projection is built by static analysis. Typegen cross-checks the two and
-  fails when they disagree, so generated types can never promise an endpoint
-  the client bundle does not register.
+  projection is built by static analysis. Typegen compares the two whole
+  descriptors and fails when they disagree, so generated types can never
+  promise an endpoint the client bundle does not register.
 - The confirmation gate closes whenever `destructive` is *possible*: a name
   typed as a union of capabilities demands an explicit prepare marker or token
   if any member is destructive, as does a capability whose effect the build
@@ -710,7 +716,12 @@ pracht verify webmcp --browser /pinned/path/to/chrome
 Pracht locates an installed Chrome/Chromium build but never downloads an
 unpinned browser. The current runtime requires Chrome 150+ because Pracht
 targets `document.modelContext`; CI should install a pinned build and pass
-`--browser`. JSON distinguishes app startup, browser startup, unsupported API,
+`--browser`. Tool execution (`executeBrowserTool` in
+`packages/cli/src/webmcp-browser.ts`) handles both `executeTool()` input
+signatures: Chrome 146-153 takes a JSON string, Chrome 155+ takes the input
+object the draft specifies. It sends the string first and retries with the
+object only when the browser rejects the string before the tool runs.
+JSON distinguishes app startup, browser startup, unsupported API,
 registry failure, and graph drift, and includes browser/version, route,
 expected/observed descriptors, and focused mismatches. Dynamic route patterns
 use deterministic example segments. `--start` owns the server process group;
@@ -757,6 +768,43 @@ and serializes its resolved `input`. The module and validator never enter the
 client graph. A module that only loads inside an edge runtime cannot take this
 path during the Node build; keep that capability's input inline or move the
 edge-only import inside `run()`.
+
+### One descriptor normalizer
+
+Every reader of a capability's contract goes through
+`normalizeCapabilityDescriptor()` in `@pracht/capabilities/static`
+(`src/descriptor.ts`), which imports nothing that executes user code. It
+returns a `CapabilityDescriptor` — `title`, `description`, `effect`, `http`,
+`mcp` (with its normalized `scopes`), `webmcp` (with `untrustedContent`),
+`agentPolicy`, `middleware` — plus a list of problems:
+
+- `defineCapability()` normalizes the definition it receives
+  (`source: "executed"`) and throws the first problem; its runtime `expose`
+  is built from the descriptor.
+- `readStaticCapability()` / `extractCapabilityDescriptor()` normalize the
+  literal read from source (`source: "static"`). A key that is not an inline
+  literal, or that sits behind a spread, is `undefined` — unknown, never
+  guessed. The build fails on exposure problems; `pracht verify` reports every
+  problem with the same wording the runtime throws.
+- `describeCapability(capability, name)` reads a defined capability back (the
+  app graph's executed branch and the remote MCP projection);
+  `capabilityGraphFields()` / `capabilityDescriptorFromGraph()` convert to and
+  from the serialized graph entry. Every `mcpToolServing()` caller passes a
+  descriptor.
+- `diffCapabilityDescriptors(a, b)` compares every key of both descriptors,
+  skipping values either side could not determine. Typegen's consistency
+  check uses it, so MCP exposure, scopes, and the guard fields are compared
+  along with the HTTP path, effect, and WebMCP flag.
+
+Seam guards in `packages/capabilities/test/descriptor.test.ts`: an
+exhaustive-key `satisfies Record<keyof CapabilityDescriptor, true>` table
+(a new field fails the build until every producer and the drift table handle
+it); a deep-equality check of static and executed descriptors across every
+capability fixture in the repo; and a scan that allows exactly one OAuth
+`scope-token` validator (`isValidOAuthScopeToken`, re-exported by
+`@pracht/capabilities/server` and `@pracht/core`) and one list of the
+`agents.mcp` option keys (`src/agents-config-keys.ts`, exhaustive against the
+config types).
 
 ## Security defaults
 

@@ -1,5 +1,13 @@
 import { execFileSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+} from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -227,8 +235,16 @@ test("pracht build emits a deployable Vercel Build Output setup", async () => {
     // browser stub and rewrite its `process.env` fallback to `{}`. The server
     // entry now reaches Vercel's ambient process through globalThis without
     // preserving every raw process.env read in the noExternal edge bundle.
-    expect(functionSource).toContain("globalThis.process");
-    expect(functionSource).not.toContain('typeof process !== "undefined" && process.env');
+    // Match code, not doc comments: the env source, which may sit in a chunk
+    // next to the entry, reads `process` off its `globalThis` alias.
+    const renderFunctionDir = resolve(vercelDir, "functions/render.func");
+    const renderFunctionCode = readdirSync(renderFunctionDir, { recursive: true })
+      .map(String)
+      .filter((file) => file.endsWith(".js"))
+      .map((file) => readFileSync(resolve(renderFunctionDir, file), "utf-8"))
+      .join("\n");
+    expect(renderFunctionCode).toMatch(/=\s*globalThis;[\s\S]{0,40}\.process\?\.env\)/);
+    expect(renderFunctionCode).not.toContain('typeof process !== "undefined" && process.env');
     expect(functionSource).not.toContain("@pracht/core/env/server was imported in client code");
     // Vite keeps ownership of NODE_ENV inlining and its mode/NODE_ENV semantics.
     expect(functionSource).not.toContain("process.env.NODE_ENV");

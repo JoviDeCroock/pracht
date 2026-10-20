@@ -33,6 +33,7 @@ import {
   mcpToolName,
   mcpToolServing,
 } from "../protocol.ts";
+import { describeCapability } from "../descriptor.ts";
 import {
   clearDestructiveConfirmed,
   getCapabilityLoadFailures,
@@ -117,14 +118,7 @@ export function mcpExposedCapabilities(
   const config = { endpoint: true, destructive: mcp?.destructive === true, auth: !!mcp?.auth };
   return capabilities.filter(
     (entry) =>
-      mcpToolServing(
-        {
-          effect: entry.capability.effect,
-          mcp: entry.capability.expose?.mcp === true,
-          mcpScopes: entry.capability.expose?.mcpScopes,
-        },
-        config,
-      ) === "served",
+      mcpToolServing(describeCapability(entry.capability, entry.name), config) === "served",
   );
 }
 
@@ -414,6 +408,10 @@ async function handleMcpTransportRequest<TContext>(
       await loadDestructiveMcpRegistrationModules(options, destructiveFiles);
     } catch (error: unknown) {
       const detail = options.exposeErrors && error instanceof Error ? `: ${error.message}` : ".";
+      warnOnce(
+        "[pracht] The remote MCP endpoint refuses every request: destructive MCP setup " +
+          `modules failed to load: ${error instanceof Error ? error.message : String(error)}`,
+      );
       return respond(200, {
         jsonrpc: "2.0",
         id,
@@ -425,15 +423,14 @@ async function handleMcpTransportRequest<TContext>(
     }
     const unmet = destructiveMcpPreconditionErrors(options.agents);
     if (unmet.length > 0) {
+      const message =
+        "agents.mcp.destructive serves destructive capabilities, but this server cannot " +
+        `run their confirmation flow: ${unmet.join(" ")}`;
+      warnOnce(`[pracht] The remote MCP endpoint refuses every request: ${message}`);
       return respond(200, {
         jsonrpc: "2.0",
         id,
-        error: {
-          code: JSONRPC_INTERNAL_ERROR,
-          message:
-            "agents.mcp.destructive serves destructive capabilities, but this server cannot " +
-            `run their confirmation flow: ${unmet.join(" ")}`,
-        },
+        error: { code: JSONRPC_INTERNAL_ERROR, message },
       });
     }
   }
@@ -537,6 +534,15 @@ function servableDestructiveMiddlewareFiles<TContext>(
   }
   projection.destructiveFiles.set(key, files);
   return files;
+}
+
+const loggedMcpRefusals = new Set<string>();
+
+/** Log a configuration refusal once per process, not once per request. */
+function warnOnce(message: string): void {
+  if (loggedMcpRefusals.has(message)) return;
+  loggedMcpRefusals.add(message);
+  console.error(message);
 }
 
 async function loadDestructiveMcpRegistrationModules<TContext>(

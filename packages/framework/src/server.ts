@@ -6,6 +6,7 @@ export {
   matchApiRoute,
   matchAppRoute,
   matchRoutePath,
+  parseRouteSegments,
   resolveApiRoutes,
   resolveApp,
   route,
@@ -121,6 +122,8 @@ export {
   setCapabilityApprovalPrincipalResolver,
   setCapabilityApprovalStore,
 } from "./runtime-approval.ts";
+/** @internal Awaited by the generated server module at startup. */
+export { assertHumanApprovalIdentity } from "./runtime-approval.ts";
 export type {
   MemoryApprovalStoreOptions,
   SqlApprovalStoreDialect,
@@ -186,6 +189,16 @@ export {
   type RevalidationScope,
   type RevalidationSkipReason,
   type RevalidationSingleFlight,
+  captureISGSnapshot,
+  decodeISGSnapshot,
+  encodeISGSnapshot,
+  isgCacheKeyPath,
+  isgPathKey,
+  isISGSnapshotRejection,
+  serveISGSnapshot,
+  stripISGSecretHeaders,
+  type ISGSnapshot,
+  type ISGSnapshotRejection,
 } from "./revalidation.ts";
 export { PRACHT_GRAPH_ONLY_ENV } from "./runtime-constants.ts";
 export { redirect, type RedirectOptions } from "./runtime-middleware.ts";
@@ -283,6 +296,7 @@ export type {
   RouteModule,
   RouteParamInput,
   RouteParams,
+  RouteSegment,
   RouteParamsFor,
   RouteDataFor,
   RouteLoaderData,
@@ -327,6 +341,16 @@ export type {
   PrerenderResult,
 } from "./prerender.ts";
 
+export {
+  decodeStaticPath,
+  staticByteRange,
+  staticContentType,
+  staticPathCandidates,
+  type StaticByteRange,
+  type StaticPathCandidateOptions,
+  type StaticPathDecodeFailure,
+  type StaticPathDecodeResult,
+} from "./static-path.ts";
 export {
   applyHeadersManifest,
   expandHeadersManifest,

@@ -8,6 +8,7 @@ import {
   webhookRevalidate,
 } from "@pracht/core";
 import type { ModuleRegistry, RouteRevalidate } from "@pracht/core";
+import { decodeISGSnapshot } from "@pracht/core/server";
 
 import { createCloudflareFetchHandler, type CloudflareExecutionContext } from "../src/runtime.ts";
 
@@ -400,11 +401,18 @@ describe("createCloudflareFetchHandler ISG", () => {
 
     const updated = await cache.match(new Request(keyUrl));
     expect(updated).toBeDefined();
-    await expect(updated!.clone().text()).resolves.toContain("fresh-content");
-    expect(updated!.headers.get("vary")).toContain("x-pracht-route-state-request");
-    expect(Number(updated!.headers.get("x-pracht-isg-generated-at"))).toBeGreaterThan(
-      Date.now() - 5_000,
+    const snapshot = decodeISGSnapshot(await updated!.text());
+    expect(snapshot?.html).toContain("fresh-content");
+    expect(snapshot?.generatedAt).toBeGreaterThan(Date.now() - 5_000);
+
+    const next = await handler(
+      new Request(`https://${host}/pricing`),
+      { ASSETS: create404Assets() },
+      executionContext,
     );
+    expect(next.headers.get("x-pracht-isg")).toBe("fresh");
+    expect(next.headers.get("vary")).toContain("x-pracht-route-state-request");
+    await expect(next.text()).resolves.toContain("fresh-content");
   });
 
   it("serves the regenerated page on the next request with browser revalidation headers", async () => {
@@ -435,6 +443,54 @@ describe("createCloudflareFetchHandler ISG", () => {
     expect(second.headers.get("x-pracht-isg")).toBe("fresh");
     expect(second.headers.get("cache-control")).toBe("public, max-age=0, must-revalidate");
     await expect(second.text()).resolves.toContain("regenerated:fresh-content");
+  });
+
+  it("logs a refused uncacheable render once per page", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { cache, store } = createMockCaches();
+    vi.stubGlobal("caches", { default: cache });
+    const { executionContext, waitUntils } = createExecutionContext();
+    const host = "private.example";
+    const keyUrl = cacheKeyUrl("/account-teaser", host);
+    putCachedISGPage(store, keyUrl, "<html>build-copy</html>", Date.now() - 10_000);
+
+    const handler = createCloudflareFetchHandler({
+      app: defineApp({
+        routes: [
+          route("/account-teaser", "./routes/teaser.tsx", {
+            render: "isg",
+            revalidate: timeRevalidate(1),
+          }),
+        ],
+      }),
+      registry: {
+        routeModules: {
+          "./routes/teaser.tsx": async () => ({
+            Component: () => "per-visitor",
+            headers: () => ({ "cache-control": "private" }),
+          }),
+        },
+      },
+      isgManifest: { "/account-teaser": { revalidate: timeRevalidate(1) } },
+    });
+
+    for (let request = 0; request < 3; request += 1) {
+      const response = await handler(
+        new Request(`https://${host}/account-teaser`),
+        { ASSETS: create404Assets() },
+        executionContext,
+      );
+      await expect(response.text()).resolves.toContain("build-copy");
+      await Promise.all(waitUntils);
+    }
+
+    expect(waitUntils.length).toBeGreaterThanOrEqual(3);
+    const refusals = warn.mock.calls.filter(([message]) =>
+      String(message).includes('"/account-teaser" was not stored'),
+    );
+    expect(refusals).toHaveLength(1);
+    expect(String(refusals[0]![0])).toContain("Cache-Control: private");
+    await expect(cachedText(cache, keyUrl)).resolves.toContain("build-copy");
   });
 
   it("keeps the stale copy when background regeneration fails", async () => {
@@ -978,6 +1034,48 @@ describe("createCloudflareFetchHandler webhook revalidation", () => {
       expect(served.headers.has("x-pracht-isg-cache-control")).toBe(false);
     });
 
+    it("strips credential-shaped headers from a regenerated page", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const { cache } = createMockCaches();
+      vi.stubGlobal("caches", { default: cache });
+      const { executionContext } = createExecutionContext();
+      const host = "hook-secrets.example";
+      const app = defineApp({
+        routes: [
+          route("/notice", "./routes/notice.tsx", {
+            render: "isg",
+            revalidate: webhookRevalidate(),
+          }),
+        ],
+      });
+      const handler = createCloudflareFetchHandler({
+        app,
+        registry: {
+          routeModules: {
+            "./routes/notice.tsx": async () => ({
+              headers: () => ({ "x-robots-tag": "noindex", "x-api-token": "never-shared" }),
+              Component: () => "notice",
+            }),
+          },
+        },
+        isgManifest: { "/notice": { revalidate: webhookRevalidate() } },
+      });
+      const env = { ASSETS: create404Assets(), PRACHT_REVALIDATE_TOKEN: "secret" };
+
+      const webhook = await handler(
+        createWebhookRequest(host, ["/notice"], "secret"),
+        env,
+        executionContext,
+      );
+      await expect(webhook.json()).resolves.toMatchObject({ revalidated: ["/notice"] });
+
+      const served = await handler(new Request(`https://${host}/notice`), env, executionContext);
+      await expect(served.text()).resolves.toContain("notice");
+      expect(served.headers.get("x-robots-tag")).toBe("noindex");
+      expect(served.headers.has("x-api-token")).toBe(false);
+      expect(console.error).toHaveBeenCalledWith(expect.stringContaining('"x-api-token"'));
+    });
+
     it("keeps applying build headers to entries stored by an earlier version", async () => {
       const { cache, store } = createMockCaches();
       vi.stubGlobal("caches", { default: cache });
@@ -1358,7 +1456,12 @@ describe("createCloudflareFetchHandler and pracht({ trailingSlash })", () => {
 describe("createCloudflareFetchHandler ISG across deploys", () => {
   // `caches.default` is not cleared by `wrangler deploy`: the next version's
   // isolates read the same data-center cache the previous version wrote.
-  function deployVersion(version: string, generatedAt: number, revalidate: RouteRevalidate) {
+  function deployVersion(
+    version: string,
+    generatedAt: number | undefined,
+    revalidate: RouteRevalidate,
+    buildId?: string,
+  ) {
     const app = defineApp({
       routes: [route("/pricing", "./routes/pricing.tsx", { render: "isg", revalidate })],
     });
@@ -1374,6 +1477,7 @@ describe("createCloudflareFetchHandler ISG across deploys", () => {
       registry,
       clientEntryUrl: `/assets/app-${version}.js`,
       isgManifest: { "/pricing": { generatedAt, revalidate } },
+      buildId,
     });
     const env = {
       ASSETS: {
@@ -1437,6 +1541,39 @@ describe("createCloudflareFetchHandler ISG across deploys", () => {
     const v2 = deployVersion("v2", Date.now(), webhookRevalidate());
     const afterDeploy = await v2(new Request(`https://${host}/pricing`));
     await expect(afterDeploy.text()).resolves.not.toContain("v1");
+  });
+
+  // R443-1/R443-2: the generation is the build id, in the key's path, so it
+  // holds when two builds share (or lack) a prerender timestamp and when the
+  // zone's cache key drops query strings.
+  it("keeps deploys apart by build id, whatever their prerender timestamps", async () => {
+    const { cache, store } = createMockCaches();
+    const withoutQuery = (key: Request) => {
+      const url = new URL(key.url);
+      url.search = "";
+      return new Request(url, key);
+    };
+    vi.stubGlobal("caches", {
+      default: {
+        match: (key: Request) => cache.match(withoutQuery(key)),
+        put: (key: Request, response: Response) => cache.put(withoutQuery(key), response),
+      },
+    });
+    const host = "deploy-build-id.example";
+
+    for (const generatedAt of [undefined, 1_000]) {
+      store.clear();
+      const v1 = deployVersion("v1", generatedAt, webhookRevalidate(), "build-v1");
+      await v1(webhook(host));
+      await expect((await v1(new Request(`https://${host}/pricing`))).text()).resolves.toContain(
+        "render:v1",
+      );
+      expect([...store.keys()]).toEqual([`https://${host}/__pracht/isg-build/build-v1/pricing`]);
+
+      const v2 = deployVersion("v2", generatedAt, webhookRevalidate(), "build-v2");
+      const afterDeploy = await v2(new Request(`https://${host}/pricing`));
+      await expect(afterDeploy.text()).resolves.not.toContain("v1");
+    }
   });
 
   it("does not serve a time-based render from the previous deploy as fresh", async () => {

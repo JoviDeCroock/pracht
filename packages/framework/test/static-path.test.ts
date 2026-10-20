@@ -1,0 +1,230 @@
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { dirname, join, relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "vitest";
+
+import { isgPathKey } from "../src/revalidation.ts";
+import { getManifestHeaders } from "../src/runtime-headers.ts";
+import {
+  decodeStaticPath,
+  staticByteRange,
+  staticContentType,
+  staticPathCandidates,
+} from "../src/static-path.ts";
+
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
+
+describe("staticPathCandidates", () => {
+  it.each([
+    ["/", ["/"]],
+    ["/assets/app-Ab12.js", ["/assets/app-Ab12.js"]],
+    // Decoded first (static exports, `public/`), then the encoded build spelling.
+    ["/posts/caf%C3%A9", ["/posts/café", "/posts/caf%C3%A9"]],
+    // #471: escape case is not significant; the request's own spelling is last.
+    ["/posts/caf%c3%a9", ["/posts/café", "/posts/caf%C3%A9", "/posts/caf%c3%a9"]],
+    ["/legal%20terms.txt", ["/legal terms.txt", "/legal%20terms.txt"]],
+    // No decoded spelling: an encoded separator, or a lone `%` in a file name.
+    ["/posts/a%2Fb", ["/posts/a%2Fb"]],
+    ["/posts/a%2fb", ["/posts/a%2Fb", "/posts/a%2fb"]],
+    ["/100%.txt", ["/100%.txt"]],
+    ["/nul%00", ["/nul%00"]],
+  ])("names %s as %j", (pathname, expected) => {
+    expect(staticPathCandidates(pathname)).toEqual(expected);
+  });
+
+  it.each([
+    ["/", ["/index.html"]],
+    ["/about", ["/about/index.html"]],
+    ["/about/", ["/about/index.html"]],
+    [
+      "/posts/caf%c3%a9/",
+      ["/posts/café/index.html", "/posts/caf%C3%A9/index.html", "/posts/caf%c3%a9/index.html"],
+    ],
+  ])("names the index of %s as %j", (pathname, expected) => {
+    expect(staticPathCandidates(pathname, { index: true })).toEqual(expected);
+  });
+
+  it.each([
+    "relative",
+    "/a/../b",
+    "/a/./b",
+    "/..",
+    "/%2e%2e/etc/passwd",
+    "/a/%2E/b",
+    "/a/.%2e/b",
+    // A malformed escape earlier in the path does not hide a dot segment.
+    "/%ZZ/%2e%2e/x",
+    "/100%.txt/%2E%2E/etc",
+    "/a\\b",
+    "/a\0b",
+  ])("refuses %j", (pathname) => {
+    expect(staticPathCandidates(pathname)).toBeNull();
+    expect(staticPathCandidates(pathname, { index: true })).toBeNull();
+  });
+});
+
+describe("decodeStaticPath", () => {
+  it("decodes per segment", () => {
+    expect(decodeStaticPath("/posts/caf%C3%A9")).toEqual({ ok: true, path: "/posts/café" });
+    expect(decodeStaticPath("/plain/path")).toEqual({ ok: true, path: "/plain/path" });
+  });
+
+  it.each([
+    ["/a/%E0%A4%A", "malformed", "%E0%A4%A"],
+    ["/a%2Fb", "separator", "a%2Fb"],
+    ["/a%5Cb", "separator", "a%5Cb"],
+    ["/a%00", "separator", "a%00"],
+    ["/%2e%2e", "relative", "%2e%2e"],
+    ["/x/..", "relative", ".."],
+  ])("reports %s as %s", (pathname, reason, segment) => {
+    expect(decodeStaticPath(pathname)).toEqual({ ok: false, reason, segment });
+  });
+});
+
+describe("staticContentType", () => {
+  it.each([
+    ["/index.html", "text/html; charset=utf-8"],
+    ["app.JS", "application/javascript"],
+    ["feed.atom", "application/atom+xml"],
+    ["skill.md", "text/markdown; charset=utf-8"],
+    ["a/b.c/archive", "application/octet-stream"],
+    [".env", "application/octet-stream"],
+  ])("serves %s as %s", (file, contentType) => {
+    expect(staticContentType(file)).toBe(contentType);
+  });
+
+  it("returns the fallback for an unknown extension", () => {
+    expect(staticContentType("archive.tar", null)).toBeNull();
+    expect(staticContentType("logo.png", null)).toBe("image/png");
+  });
+});
+
+describe("getManifestHeaders", () => {
+  it("matches the build's upper-case escapes for a lower-case request", () => {
+    const manifest = { "/posts/caf%C3%A9": { "x-page": "café" } };
+    expect(getManifestHeaders(manifest, "/posts/caf%c3%a9")).toEqual({ "x-page": "café" });
+    expect(getManifestHeaders(manifest, "/posts/caf%c3%a9/")).toEqual({ "x-page": "café" });
+  });
+});
+
+describe("isgPathKey", () => {
+  it.each([
+    ["/", "/"],
+    ["/about/", "/about"],
+    ["/about//", "/about"],
+    // The build's escape case, so a lower-case request finds the ISG page.
+    ["/posts/caf%c3%a9", "/posts/caf%C3%A9"],
+    ["/posts/caf%c3%a9/", "/posts/caf%C3%A9"],
+  ])("keys %s as %s", (pathname, expected) => {
+    expect(isgPathKey(pathname)).toBe(expected);
+  });
+});
+
+describe("staticByteRange", () => {
+  const request = (range: string, ifRange?: string) =>
+    new Headers(ifRange ? { range, "if-range": ifRange } : { range });
+  const file = new Headers({ etag: '"v1"', "last-modified": "Mon, 01 Jan 2024 00:00:00 GMT" });
+
+  it.each([
+    ["bytes=0-99", { start: 0, end: 99 }],
+    ["bytes=900-", { start: 900, end: 999 }],
+    ["bytes=-100", { start: 900, end: 999 }],
+    ["bytes=990-2000", { start: 990, end: 999 }],
+    ["bytes=1000-", "unsatisfiable"],
+    ["bytes=-0", "unsatisfiable"],
+    ["bytes=5-1", null],
+    ["bytes=0-1,4-5", null],
+    ["items=0-1", null],
+  ])("reads %s of a 1000-byte file as %j", (range, expected) => {
+    expect(staticByteRange(request(range), file, 1000)).toEqual(expected);
+  });
+
+  it("serves the whole file when If-Range no longer matches", () => {
+    expect(staticByteRange(request("bytes=0-9", '"v1"'), file, 1000)).toEqual({ start: 0, end: 9 });
+    expect(staticByteRange(request("bytes=0-9", '"v0"'), file, 1000)).toBeNull();
+    expect(staticByteRange(request("bytes=0-9", '"v1"'), new Headers(), 1000)).toBeNull();
+  });
+});
+
+// Seam guard: the URL-path-to-file rule has one home. A `decodeURIComponent`
+// in an adapter or a build writer is a second copy of it, and a content-type
+// table outside static-path.ts is a second MIME table.
+describe("static path seam guard", () => {
+  function sourceFiles(dir: string, filter: (name: string) => boolean): string[] {
+    return readdirSync(dir, { recursive: true, withFileTypes: true })
+      .filter((entry) => entry.isFile() && filter(entry.name))
+      .map((entry) => join(entry.parentPath, entry.name));
+  }
+
+  const packagesDir = join(repoRoot, "packages");
+  const adapterSources = readdirSync(packagesDir)
+    .filter((name) => name.startsWith("adapter-") && existsSync(join(packagesDir, name, "src")))
+    .flatMap((name) => sourceFiles(join(packagesDir, name, "src"), (file) => file.endsWith(".ts")));
+  const buildWriters = sourceFiles(join(packagesDir, "cli", "src"), (file) =>
+    /^build-.*\.ts$/.test(file),
+  );
+
+  it("finds the files it guards", () => {
+    expect(adapterSources.length).toBeGreaterThan(5);
+    expect(buildWriters.length).toBeGreaterThan(1);
+  });
+
+  it("keeps decodeURIComponent out of adapters and build writers", () => {
+    const offenders = [...adapterSources, ...buildWriters]
+      .filter((file) => /decodeURI(Component)?\(/.test(readFileSync(file, "utf-8")))
+      .map((file) => relative(repoRoot, file));
+    expect(offenders).toEqual([]);
+  });
+
+  it("keeps one byte-range parser", () => {
+    const offenders = adapterSources
+      .filter((file) => /bytes=/.test(readFileSync(file, "utf-8")))
+      .map((file) => relative(repoRoot, file));
+    expect(offenders).toEqual([]);
+  });
+
+  // Any extension-to-type mapping counts, whatever its entries: an object
+  // literal (`".css": "text/css"`), a Map or tuple list (`[".css", "text/css"]`),
+  // or a switch (`case ".css": return "text/css"`). Two pairs in one file make
+  // a table.
+  const EXTENSION_TYPE_PAIR_RES = [
+    /["']\.[a-z0-9]+["']\s*[:,]\s*["'][a-z]+\/[\w.+-]+/gi,
+    /case\s+["']\.[a-z0-9]+["']\s*:[^;]{0,120}?["'][a-z]+\/[\w.+-]+/gi,
+  ];
+  const extensionTypePairs = (source: string): number =>
+    EXTENSION_TYPE_PAIR_RES.reduce((count, re) => count + (source.match(re)?.length ?? 0), 0);
+
+  it("recognizes an extension-to-type table in any shape", () => {
+    expect(extensionTypePairs(`const T = { ".css": "text/css", ".js": "text/javascript" };`)).toBe(
+      2,
+    );
+    expect(extensionTypePairs(`new Map([[".png", "image/png"], [".gif", "image/gif"]])`)).toBe(2);
+    expect(
+      extensionTypePairs(
+        `switch (ext) { case ".svg": return "image/svg+xml"; case ".avif":\n` +
+          `      return "image/avif"; }`,
+      ),
+    ).toBe(2);
+    expect(
+      extensionTypePairs(
+        readFileSync(join(packagesDir, "framework", "src", "static-path.ts"), "utf-8"),
+      ),
+    ).toBeGreaterThan(10);
+  });
+
+  it("keeps one static content-type table", () => {
+    // Every package, so a new one (as `@pracht/content` once did) cannot grow
+    // its own table unnoticed.
+    const candidates = readdirSync(packagesDir)
+      .filter((name) => existsSync(join(packagesDir, name, "src")))
+      .flatMap((name) =>
+        sourceFiles(join(packagesDir, name, "src"), (file) => /\.tsx?$/.test(file)),
+      );
+    expect(candidates).toContain(join(packagesDir, "content", "src", "vite.ts"));
+    const offenders = candidates
+      .filter((file) => !file.endsWith(join("framework", "src", "static-path.ts")))
+      .filter((file) => extensionTypePairs(readFileSync(file, "utf-8")) >= 2)
+      .map((file) => relative(repoRoot, file));
+    expect(offenders).toEqual([]);
+  });
+});

@@ -1,5 +1,6 @@
 import { applyTrailingSlash } from "./base.ts";
 import { serverEnv } from "./env-server.ts";
+import { canonicalizePercentEscapes } from "./static-path.ts";
 import type { RouteRevalidate, RouteRevalidatePolicy } from "./types.ts";
 
 export const PRACHT_REVALIDATE_ENDPOINT = "/__pracht/revalidate";
@@ -217,19 +218,26 @@ export function createRevalidationSingleFlight(): RevalidationSingleFlight {
  * authorization) all signal "don't cache this across users".
  */
 export function isCacheableISGResponse(response: Response): boolean {
-  const cacheControl = response.headers.get("cache-control")?.toLowerCase() ?? "";
-  if (/\b(no-store|private)\b/.test(cacheControl)) return false;
+  return uncacheableISGCause(response) === null;
+}
 
-  if (response.headers.get("set-cookie")) return false;
+/** What makes a render request-specific, in words for a log line; `null` when nothing does. */
+function uncacheableISGCause(response: Response): string | null {
+  const cacheControl = response.headers.get("cache-control") ?? "";
+  if (/\b(no-store|private)\b/i.test(cacheControl)) {
+    return `the render sets Cache-Control: ${cacheControl}`;
+  }
+
+  if (response.headers.get("set-cookie")) return "the render sets a cookie (Set-Cookie)";
 
   const vary = response.headers.get("vary")?.toLowerCase() ?? "";
-  if (!vary) return true;
-  if (vary.includes("*")) return false;
+  if (!vary) return null;
+  if (vary.includes("*")) return "the render sets Vary: *";
   const varied = vary.split(",").map((s) => s.trim());
   for (const name of varied) {
-    if (name === "cookie" || name === "authorization") return false;
+    if (name === "cookie" || name === "authorization") return `the render varies on ${name}`;
   }
-  return true;
+  return null;
 }
 
 const DANGEROUS_PRERENDER_HEADER_NAMES = new Set([
@@ -254,6 +262,207 @@ export function isDangerousPrerenderHeader(name: string): boolean {
     DANGEROUS_PRERENDER_HEADER_NAMES.has(normalized) ||
     SECRET_SHAPED_PRERENDER_HEADER_RE.test(normalized)
   );
+}
+
+// ---------------------------------------------------------------------------
+// ISG snapshots
+//
+// What an adapter stores for a regenerated ISG page, and how it replays it.
+// Every adapter captures and serves through these functions; only where the
+// snapshot lives (a file, the Cache API, Vercel's ISR cache) is per adapter.
+// ---------------------------------------------------------------------------
+
+/** A regenerated ISG page as an adapter stores it. */
+export interface ISGSnapshot {
+  html: string;
+  /**
+   * The render's document headers: transfer headers and `Cache-Control` are
+   * dropped, and credential-shaped headers are stripped.
+   */
+  headers: Record<string, string>;
+  /** The render's own `Cache-Control`, kept apart from any storage TTL. */
+  cacheControl: string | null;
+  /** The `buildId` of the server entry that rendered it, when known. */
+  buildId: string | null;
+  /** When it was rendered, in milliseconds since the epoch. */
+  generatedAt: number;
+}
+
+/** Why a render was not captured as a snapshot. */
+export interface ISGSnapshotRejection {
+  reason: "status" | "uncacheable";
+  detail: string;
+}
+
+const ISG_SNAPSHOT_FORMAT = 1;
+
+/** Response headers that describe one transfer, not the document. */
+const ISG_TRANSFER_HEADERS = new Set([
+  "age",
+  "cache-control",
+  "connection",
+  "content-encoding",
+  "content-length",
+  "date",
+  "etag",
+  "keep-alive",
+  "last-modified",
+  "transfer-encoding",
+  "x-pracht-isg",
+]);
+
+const ISG_CACHE_KEY_BUILD_PREFIX = "/__pracht/isg-build";
+
+/**
+ * The headers of a render that may be replayed to every visitor, with
+ * credential-shaped ones removed (and logged, naming `pathname`).
+ */
+export function stripISGSecretHeaders(headers: Headers, pathname: string): Headers {
+  const stripped = new Headers(headers);
+  const dangerous = [...headers.keys()].filter(isDangerousPrerenderHeader);
+  if (dangerous.length === 0) return stripped;
+  for (const name of dangerous) stripped.delete(name);
+  console.error(
+    `Stripped ${dangerous.map((name) => `"${name}"`).join(", ")} from the ISG snapshot for ` +
+      `"${pathname}" — snapshots are replayed to every visitor. Move cookies and credential ` +
+      "headers to API routes, middleware responses, or an SSR route.",
+  );
+  return stripped;
+}
+
+/**
+ * Capture a rendered ISG page as a snapshot, or say why it cannot be one: only
+ * a `200` that {@link isCacheableISGResponse} accepts is shared. Reads the
+ * body of an accepted response only.
+ */
+export async function captureISGSnapshot(
+  response: Response,
+  meta: { buildId?: string | null; pathname: string; now?: number },
+): Promise<ISGSnapshot | ISGSnapshotRejection> {
+  if (response.status !== 200) {
+    return { reason: "status", detail: `the render answered ${response.status}` };
+  }
+  const uncacheable = uncacheableISGCause(response);
+  if (uncacheable !== null) return { reason: "uncacheable", detail: uncacheable };
+  const headers: Record<string, string> = {};
+  for (const [name, value] of stripISGSecretHeaders(response.headers, meta.pathname)) {
+    if (!ISG_TRANSFER_HEADERS.has(name)) headers[name] = value;
+  }
+  return {
+    html: await response.text(),
+    headers,
+    cacheControl: response.headers.get("cache-control"),
+    buildId: meta.buildId ?? null,
+    generatedAt: meta.now ?? Date.now(),
+  };
+}
+
+/** Whether {@link captureISGSnapshot} refused the render. */
+export function isISGSnapshotRejection(
+  value: ISGSnapshot | ISGSnapshotRejection,
+): value is ISGSnapshotRejection {
+  return "reason" in value;
+}
+
+/**
+ * The response a snapshot replays. Its `Cache-Control` is the render's own,
+ * or `browserCacheControl` when the render set none. With `stale`, the
+ * response says whether it is (`x-pracht-isg: stale | fresh`).
+ */
+export function serveISGSnapshot(
+  snapshot: ISGSnapshot,
+  options: { stale?: boolean; browserCacheControl?: string } = {},
+): Response {
+  const headers = new Headers(snapshot.headers);
+  if (!headers.has("content-type")) headers.set("content-type", "text/html; charset=utf-8");
+  const cacheControl = snapshot.cacheControl ?? options.browserCacheControl;
+  if (cacheControl) headers.set("cache-control", cacheControl);
+  if (options.stale !== undefined) headers.set("x-pracht-isg", options.stale ? "stale" : "fresh");
+  return new Response(snapshot.html, { status: 200, headers });
+}
+
+/** A snapshot as one string, so storing it is one atomic write. */
+export function encodeISGSnapshot(snapshot: ISGSnapshot): string {
+  return JSON.stringify({
+    format: ISG_SNAPSHOT_FORMAT,
+    html: snapshot.html,
+    headers: snapshot.headers,
+    cacheControl: snapshot.cacheControl,
+    buildId: snapshot.buildId,
+    generatedAt: snapshot.generatedAt,
+  });
+}
+
+/** The snapshot {@link encodeISGSnapshot} wrote, or `null` for anything else. */
+export function decodeISGSnapshot(text: string): ISGSnapshot | null {
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  const { html, headers, cacheControl, buildId, generatedAt } = record;
+  if (
+    record.format !== ISG_SNAPSHOT_FORMAT ||
+    typeof html !== "string" ||
+    !headers ||
+    typeof headers !== "object" ||
+    Array.isArray(headers) ||
+    !Object.values(headers).every((header) => typeof header === "string") ||
+    (cacheControl !== null && typeof cacheControl !== "string") ||
+    (buildId !== null && typeof buildId !== "string") ||
+    typeof generatedAt !== "number" ||
+    !Number.isFinite(generatedAt)
+  ) {
+    return null;
+  }
+  return {
+    html,
+    headers: { ...(headers as Record<string, string>) },
+    cacheControl,
+    buildId,
+    generatedAt,
+  };
+}
+
+/**
+ * The key an ISG page has in the ISG manifest, for a URL path or a webhook
+ * path: `/about/` and `/about` are one page, recorded without the slash, and
+ * `/posts/caf%c3%a9` and `/posts/café` are `/posts/caf%C3%A9`, the spelling a
+ * URL carries with the escape case the build writes (the
+ * `staticPathCandidates()` rule).
+ */
+export function isgPathKey(pathname: string): string {
+  const key = canonicalizePercentEscapes(encodeRawPathCharacters(pathname));
+  return key.length > 1 && key.endsWith("/") ? key.replace(/\/+$/, "") || "/" : key;
+}
+
+/** Characters a URL path carries percent-encoded: controls, space, `"<>\`{}`, non-ASCII. */
+const RAW_PATH_CHARACTER_RE = /[^\x21-\x7e]|["<>`{}]/gu;
+
+/** `pathname` as `new URL()` would spell it, without resolving dot segments. */
+function encodeRawPathCharacters(pathname: string): string {
+  return pathname.replace(RAW_PATH_CHARACTER_RE, (character) => {
+    try {
+      return encodeURIComponent(character);
+    } catch {
+      // A lone surrogate has no UTF-8 spelling; no page is keyed by it.
+      return character;
+    }
+  });
+}
+
+/**
+ * The cache key path of an ISG page for one build. The build sits in the
+ * path, not the query, because a cache key may ignore query strings. Without
+ * a build the key is the bare path, shared by every build.
+ */
+export function isgCacheKeyPath(pathname: string, buildId: string | null | undefined): string {
+  return buildId
+    ? `${ISG_CACHE_KEY_BUILD_PREFIX}/${encodeURIComponent(buildId)}${pathname}`
+    : pathname;
 }
 
 export type RevalidationRequestResult =
@@ -363,10 +572,23 @@ export async function readRevalidationRequest(
       response: jsonResponse({ error: 'Expected body shape `{ "paths": ["/path"] }`.' }, 400),
     };
   }
+  if ("invalid" in paths) {
+    return {
+      ok: false,
+      response: jsonResponse(
+        {
+          error:
+            `Invalid revalidation path ${JSON.stringify(paths.invalid)}: a path starts with "/" ` +
+            'and has no query, fragment, backslash, NUL, or ".." segment.',
+        },
+        400,
+      ),
+    };
+  }
 
   return {
     ok: true,
-    paths,
+    paths: paths.valid,
   };
 }
 
@@ -426,7 +648,7 @@ function getRevalidationToken(request: Request): string | null {
   return match?.[1] ?? null;
 }
 
-function parseRevalidationPaths(body: unknown): string[] | null {
+function parseRevalidationPaths(body: unknown): { valid: string[] } | { invalid: string } | null {
   if (!body || typeof body !== "object") return null;
   const value = getRevalidationPathsValue(body);
   const paths = Array.isArray(value) ? value : typeof value === "string" ? [value] : null;
@@ -434,10 +656,12 @@ function parseRevalidationPaths(body: unknown): string[] | null {
 
   const unique = new Set<string>();
   for (const path of paths) {
-    if (!isValidRevalidationPath(path)) return null;
+    // A non-string entry is a shape error; a string that is no path names itself.
+    if (typeof path !== "string") return null;
+    if (!isValidRevalidationPath(path)) return { invalid: path };
     unique.add(path);
   }
-  return [...unique];
+  return { valid: [...unique] };
 }
 
 function hasTooManyRevalidationPaths(body: unknown): boolean {

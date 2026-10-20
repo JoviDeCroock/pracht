@@ -3,7 +3,7 @@ import preact from "@preact/preset-vite";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { isBuiltin } from "node:module";
 import { resolve } from "node:path";
-import { loadEnv, type Plugin, type UserConfig } from "vite";
+import { loadEnv, rolldownVersion, type Plugin, type UserConfig } from "vite";
 import {
   isPrachtClientModuleId,
   stripServerOnlyExportsForClient,
@@ -15,7 +15,11 @@ import {
   PRACHT_GRAPH_ONLY_ENV,
   type WaitUntilTracker,
 } from "@pracht/core/server";
-import { frameworkChunkConfig, islandChunkConfig } from "./chunk-groups.ts";
+import {
+  frameworkChunkConfig,
+  islandChunkConfig,
+  supportsChunkGroupDebugName,
+} from "./chunk-groups.ts";
 import { createEnvSafetyPlugin, PUBLIC_ENV_PREFIX, SERVER_ENV_MODULE_ID } from "./env-safety.ts";
 import { createServerCssAssetsPlugin } from "./plugin-server-css.ts";
 import { findAppRootModule } from "./plugin-app-root.ts";
@@ -74,13 +78,12 @@ import {
   routeHintsHaveSearch,
   createServerLoaderHintsForHotUpdates,
   createPrachtServerModuleSource,
-  invalidateManifestModuleFacts,
   isEjectedPagesLayout,
 } from "./plugin-codegen.ts";
-import { invalidatePageFacts } from "./pages-router.ts";
 import {
   createDevCssInjectionMiddleware,
   createDevMcpPreflightMiddleware,
+  useBeforeViteCors,
   createOwnedDevEntryMiddleware,
   createDevSSRMiddleware,
   injectDevCssForPath,
@@ -97,7 +100,10 @@ import {
   withAdditionalExtensions,
 } from "./route-extensions.ts";
 import type { PrachtAdapter } from "./plugin-adapter.ts";
-import { invalidateRouteFileAnalysis, type RouteHints } from "./route-loader-hints.ts";
+import { getAnalysisSession } from "./analysis.ts";
+import { stringifyLazyModuleRefs } from "./lazy-module-refs.ts";
+import { toPosixPath } from "./module-id.ts";
+import type { RouteHints } from "./route-loader-hints.ts";
 import { isNonModuleFile, moduleGlob } from "./source-files.ts";
 
 function emptyRouteHints(): RouteHints {
@@ -238,6 +244,9 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       adapter: resolved.adapter,
       // Manifest edits dev applied in place, without restarting the server.
       manifestUpdates: 0,
+      // What the app manifest says, read statically: `pracht verify` and the
+      // dev banner fall back to it when the app graph cannot be resolved.
+      manifestFacts: () => getAnalysisSession(resolved, root).manifest(),
     },
   };
   const prachtPlugin: Plugin = {
@@ -382,6 +391,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
             {
               edge: isEdge,
               serverIslandsDirectory: resolveConfigPath(configRoot, resolved.serverIslandsDir),
+              groupDebugName: supportsChunkGroupDebugName(rolldownVersion),
             },
           )
         : {};
@@ -657,17 +667,24 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       // `_app.config.ts` is the pages router's manifest for `agents`, whose
       // `mcp.auth.verify` is a module ref like any other.
       const isPagesAppConfig = isPagesMode && isPagesAppConfigModule(normalizedId, root, resolved);
-      if (normalizedId !== appFileAbs && !isPagesAppConfig) return null;
+      const isAppFile = normalizedId === appFileAbs;
+      // A local module the manifest imports (a shared `agents` constant, a
+      // route list) declares refs too, and they resolve against the manifest's
+      // directory exactly like its string refs do.
+      const isManifestModule = !isAppFile && !isPagesMode && manifestModuleFiles.has(normalizedId);
+      if (!isAppFile && !isPagesAppConfig && !isManifestModule) return null;
 
-      const withStringModuleRefs = code.replace(
-        /\(\)\s*=>\s*import\(\s*(['"])([^'"]+)\1\s*\)/g,
-        "$1$2$1",
-      );
+      // The manifest's own imports are ordinary modules too: there only refs in
+      // a ref position become strings, and executable helpers stay.
+      const withStringModuleRefs = stringifyLazyModuleRefs(code, {
+        refPositionsOnly: isManifestModule,
+      });
       // Only the app manifest is narrowed to `@pracht/core/manifest`; the config
-      // file is ordinary application code and may import whatever it needs.
-      const transformed = isPagesAppConfig
-        ? withStringModuleRefs
-        : rewriteManifestCoreImports(withStringModuleRefs);
+      // file and the manifest's own imports are ordinary application code and
+      // may import whatever they need.
+      const transformed = isAppFile
+        ? rewriteManifestCoreImports(withStringModuleRefs)
+        : withStringModuleRefs;
       if (transformed === code) return null;
       return { code: transformed, map: null };
     },
@@ -698,7 +715,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         maxBodySize: resolved.maxBodySize,
         waitUntil: backgroundWork.waitUntil,
       });
-      server.middlewares.use(createDevMcpPreflightMiddleware(server, ssrMiddleware));
+      useBeforeViteCors(server, createDevMcpPreflightMiddleware(server, ssrMiddleware));
       return () => {
         server.middlewares.use(ssrMiddleware);
       };
@@ -737,9 +754,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
     handleHotUpdate({ file, modules = [], server }) {
       // The analysis caches check file stamps on every read; dropping the
       // saved file as well covers filesystems with coarse timestamps.
-      invalidateRouteFileAnalysis(file);
-      invalidateManifestModuleFacts(file);
-      invalidatePageFacts(file);
+      getAnalysisSession(resolved, root).invalidate(file);
       const serverRoot = toPosixPath(server.config.root);
       const normalizedFile = toPosixPath(file);
       const relative = normalizedFile.startsWith(serverRoot)
@@ -901,12 +916,14 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         // reloads against the new route table. A module that gained or lost a
         // route or capability role is transformed differently now, so its
         // cached transform is dropped too.
-        const previousRoles = [externalRouteFiles, capabilityModulePaths];
+        const previousRoles = [externalRouteFiles, capabilityModulePaths, manifestModuleFiles];
         const previousAppRoot = appRootFile;
         refreshManifestState();
-        const changedRoles = [externalRouteFiles, capabilityModulePaths].flatMap((next, index) =>
-          symmetricDifference(previousRoles[index]!, next),
-        );
+        const changedRoles = [
+          externalRouteFiles,
+          capabilityModulePaths,
+          manifestModuleFiles,
+        ].flatMap((next, index) => symmetricDifference(previousRoles[index]!, next));
         if (previousAppRoot !== appRootFile) {
           for (const appRoot of [previousAppRoot, appRootFile]) {
             if (appRoot !== null) changedRoles.push(appRoot);
@@ -1608,6 +1625,8 @@ function invalidateManifestDependents(server: import("vite").ViteDevServer, file
   }
 }
 
+/** An inline lazy module ref, `() => import("./x")`, as the manifest transform rewrites it. */
+
 function symmetricDifference(previous: Set<string>, next: Set<string>): string[] {
   return [
     ...[...previous].filter((file) => !next.has(file)),
@@ -1765,10 +1784,6 @@ function resolveConfigPath(root: string, configPath: string): string {
     return `${normalizedRoot}/${relativePath}`;
   }
   return toPosixPath(resolve(root, relativePath));
-}
-
-function toPosixPath(p: string): string {
-  return p.replace(/\\/g, "/");
 }
 
 function withTrailingSep(p: string): string {

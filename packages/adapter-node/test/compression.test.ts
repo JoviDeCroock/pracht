@@ -1386,13 +1386,10 @@ describe("static asset compression", () => {
 
     // Model another deployment replica: the bytes and build metadata match,
     // but its local device/inode/ctime identity necessarily differs.
-    const primaryHtmlPath = join(primaryStaticDir, "page", "index.html");
-    const siblingHtmlPath = join(siblingStaticDir, "page", "index.html");
-    const fixedTimestamp = new Date(Math.floor(Date.now() / 1000) * 1000);
+    const primarySnapshotPath = join(primaryStaticDir, "page", ".index.html.pracht-isg.json");
+    const siblingSnapshotPath = join(siblingStaticDir, "page", ".index.html.pracht-isg.json");
     mkdirSync(join(siblingStaticDir, "page"), { recursive: true });
-    writeFileSync(siblingHtmlPath, readFileSync(primaryHtmlPath));
-    utimesSync(primaryHtmlPath, fixedTimestamp, fixedTimestamp);
-    utimesSync(siblingHtmlPath, fixedTimestamp, fixedTimestamp);
+    writeFileSync(siblingSnapshotPath, readFileSync(primarySnapshotPath));
     const siblingBase = await listen(
       createNodeRequestHandler({ ...options, staticDir: siblingStaticDir }),
     );

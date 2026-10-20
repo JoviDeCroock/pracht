@@ -21,19 +21,23 @@ import {
   type McpToolServing,
 } from "@pracht/capabilities";
 import {
+  capabilityDescriptorFromGraph,
   evaluateLiteral,
   extractCapabilityRegistrations,
   hasNamedValueExport,
+  isValidOAuthScopeToken,
+  MCP_AUTH_CONFIG_KEYS,
+  MCP_CONFIG_KEYS,
   readNamedExportInitializer,
+  readStaticCapability,
   resolvePagesCapabilityName,
   extractDefineAppObjectBody,
-  extractDefineCapabilityArgs,
   findTopLevelObjectProperty,
   maskCommentsAndStrings,
   scanTopLevelProperties,
   scanTopLevelPropertyEntries,
 } from "@pracht/capabilities/static";
-import { isValidOAuthScopeToken, OAUTH_PROTECTED_RESOURCE_WELL_KNOWN } from "@pracht/core";
+import { OAUTH_PROTECTED_RESOURCE_WELL_KNOWN } from "@pracht/core";
 import type { AppGraphCapability } from "@pracht/core";
 
 import { parseAst } from "vite";
@@ -42,26 +46,6 @@ import { extractRegistryEntries } from "./manifest.js";
 import { displayPath, resolveProjectPath, type ProjectConfig } from "./project.js";
 import { parserLanguage } from "./verification-pages.js";
 import { createCheck, isModuleSource, type Check } from "./verification-helpers.js";
-
-const CAPABILITY_EFFECTS = new Set(["read", "write", "destructive"]);
-const AGENT_POLICIES = new Set(["observe", "require"]);
-const MCP_CONFIG_KEYS = new Set([
-  "path",
-  "serverInfo",
-  "instructions",
-  "destructive",
-  "auth",
-  "pageSize",
-  "allowedOrigins",
-]);
-const MCP_AUTH_CONFIG_KEYS = new Set([
-  "resource",
-  "authorizationServers",
-  "scopesSupported",
-  "requiredScopes",
-  "resourceDocumentation",
-  "verify",
-]);
 
 /**
  * The manifest source the capability checks analyze, plus the file relative
@@ -309,7 +293,7 @@ export function collectCapabilityChecks(project: ProjectConfig, checks: Check[])
     }
 
     const source = readFileSync(filePath, "utf-8");
-    if (hasValidStaticHttpExposure(source)) {
+    if (hasValidStaticHttpExposure(entry.name, source)) {
       httpExposedNames.push(entry.name);
     }
     collectSingleCapabilityChecks(entry.name, entry.path, source, registeredMiddleware, checks, {
@@ -389,9 +373,11 @@ function readMcpProjectionConfig(manifestSource: string): McpProjectionConfigSca
 
 /**
  * Human approval must name the end user: a principal resolver or the OAuth
- * subject behind `agents.mcp.auth`. The runtime refuses every destructive call
- * without one; this reports it before deploy. A warning, like the store scan
- * below, because a resolver registered in a workspace package is invisible here.
+ * subject behind `agents.mcp.auth`. With neither, the server refuses to start
+ * (`assertHumanApprovalIdentity()`), so that is an error here. With only
+ * `agents.mcp.auth`, HTTP callers still have no end user and their destructive
+ * calls are refused, which stays a warning: a resolver registered in a
+ * workspace package is invisible to this scan.
  */
 function collectHumanApprovalChecks(
   destructiveServed: string[],
@@ -399,12 +385,25 @@ function collectHumanApprovalChecks(
   project: ProjectConfig,
   checks: Check[],
 ): void {
-  if (destructiveServed.length === 0 || !projection.humanApproval) return;
+  if (!projection.humanApproval) return;
   const scan = scanForSourceCall(
     project,
     /\bsetCapabilityApprovalPrincipalResolver\s*(?:<[^()]*>\s*)?\(/,
   );
   if (scan.found) return;
+  if (!projection.mcpAuth) {
+    checks.push(
+      createCheck(
+        "error",
+        'agents.confirmation.mode is "human", but nothing identifies the end user: no ' +
+          `\`setCapabilityApprovalPrincipalResolver(\` call was found in ${scan.searched.join(", ")} ` +
+          "and remote MCP has no agents.mcp.auth. The server refuses to start this way. Register " +
+          "a resolver from a server-only module, or protect remote MCP with agents.mcp.auth.",
+      ),
+    );
+    return;
+  }
+  if (destructiveServed.length === 0) return;
   checks.push(
     createCheck(
       "warning",
@@ -598,20 +597,13 @@ export function collectMcpServingChecks(
   const unserved = new Map<McpToolServing, string[]>();
   const servedDestructive: string[] = [];
   for (const capability of graph.capabilities) {
-    const serving = mcpToolServing(
-      {
-        effect: capability.effect,
-        mcp: capability.transports.includes("mcp"),
-        mcpScopes: capability.mcpScopes,
-      },
-      {
-        endpoint: graph.mcpEndpoint !== null,
-        // The graph sets `mcpDestructive` exactly when the opt-in is on and a
-        // destructive tool is otherwise servable — the case this rule decides.
-        destructive: graph.mcpDestructive === true,
-        auth: graph.mcpAuthenticated === true,
-      },
-    );
+    const serving = mcpToolServing(capabilityDescriptorFromGraph(capability), {
+      endpoint: graph.mcpEndpoint !== null,
+      // The graph sets `mcpDestructive` exactly when the opt-in is on and a
+      // destructive tool is otherwise servable — the case this rule decides.
+      destructive: graph.mcpDestructive === true,
+      auth: graph.mcpAuthenticated === true,
+    });
     if (serving === "served" && capability.effect === "destructive") {
       servedDestructive.push(capability.name);
     }
@@ -695,7 +687,7 @@ function collectMcpAuthChecks(
     checks.push(
       createCheck(
         "error",
-        `Unknown agents.mcp option ${JSON.stringify(key)}. Allowed options: ${[...MCP_CONFIG_KEYS].join(", ")}.`,
+        `Unknown agents.mcp option ${JSON.stringify(key)}. Allowed options: ${MCP_CONFIG_KEYS.join(", ")}.`,
       ),
     );
   }
@@ -714,7 +706,7 @@ function collectMcpAuthChecks(
     checks.push(
       createCheck(
         "error",
-        `Unknown agents.mcp.auth option ${JSON.stringify(key)}. Allowed options: ${[...MCP_AUTH_CONFIG_KEYS].join(", ")}.`,
+        `Unknown agents.mcp.auth option ${JSON.stringify(key)}. Allowed options: ${MCP_AUTH_CONFIG_KEYS.join(", ")}.`,
       ),
     );
   }
@@ -1032,8 +1024,8 @@ function collectMcpAuthChecks(
   }
 }
 
-function collectUnknownKeys(body: string, allowed: ReadonlySet<string>): string[] {
-  return [...scanTopLevelProperties(body).keys()].filter((key) => !allowed.has(key));
+function collectUnknownKeys(body: string, allowed: readonly string[]): string[] {
+  return [...scanTopLevelProperties(body).keys()].filter((key) => !allowed.includes(key));
 }
 
 /** Prove the runtime's `module.default` callable contract without executing user code. */
@@ -1181,12 +1173,9 @@ function collectShadowedNameChecks(names: string[], checks: Check[]): void {
  * HTTP-exposed. Private, WebMCP-only, and invalid or dynamic exposure entries
  * cannot create a runtime namespace collision and must not trigger the warning.
  */
-function hasValidStaticHttpExposure(source: string): boolean {
-  const args = extractDefineCapabilityArgs(source);
-  if (!args) return false;
-  const properties = scanTopLevelProperties(args);
-  const exposeFlags = readExposeFlags(properties.get("expose"));
-  return exposeFlags.hasHttp && !exposeFlags.unknown && exposeFlags.problems.length === 0;
+function hasValidStaticHttpExposure(name: string, source: string): boolean {
+  const read = readStaticCapability(name, source);
+  return !!read?.descriptor.http && !read.problems.some((problem) => problem.field === "expose");
 }
 
 function collectSingleCapabilityChecks(
@@ -1206,8 +1195,10 @@ function collectSingleCapabilityChecks(
   const { mcpExposed, destructiveMcpExposed, destructiveServed, projection, appAgentPolicy } =
     graph;
   const label = `Capability ${JSON.stringify(name)} (${displayPath})`;
-  const args = extractDefineCapabilityArgs(source);
-  if (!args) {
+  // The same normalizer `defineCapability()` runs, so verify reports exactly
+  // the contract violations the runtime would throw on.
+  const read = readStaticCapability(name, source);
+  if (!read) {
     checks.push(
       createCheck(
         "error",
@@ -1217,34 +1208,31 @@ function collectSingleCapabilityChecks(
     return;
   }
 
-  const { properties, truncated } = scanTopLevelPropertyEntries(args);
-  const title = readStaticString(properties.get("title"));
-  const description = readStaticString(properties.get("description"));
-  const effect = readStaticString(properties.get("effect"));
+  const { descriptor, properties, unreadable } = read;
+  const notInline = (field: string) => properties.has(field) && unreadable.has(field);
   const problems: string[] = [];
 
   const missing: string[] = [];
-  if (title.kind === "absent") missing.push("title");
-  if (description.kind === "absent") missing.push("description");
+  if (!properties.has("title")) missing.push("title");
+  if (!properties.has("description")) missing.push("description");
   if (!properties.has("input")) missing.push("input schema");
   if (!properties.has("output")) missing.push("output schema");
-  if (effect.kind === "absent") missing.push("effect");
+  if (!properties.has("effect")) missing.push("effect");
   if (missing.length > 0) {
     problems.push(`is missing required fields: ${missing.join(", ")}`);
   }
+  // A missing field is already reported above; its "must be" problem would
+  // only repeat it.
+  const contractProblems = read.problems.filter((problem) => !missing.includes(problem.field));
 
-  const exposeFlags = readExposeFlags(properties.get("expose"));
-  const exposed = exposeFlags.hasHttp || exposeFlags.hasMcp || exposeFlags.hasWebmcp;
-  const hasMcp = !exposeFlags.unknown && exposeFlags.hasMcp;
-  problems.push(...exposeFlags.problems);
+  const exposed = !!(descriptor.http || descriptor.mcp || descriptor.webmcp);
+  const exposeUnknown = notInline("expose");
+  const hasHttp = !!descriptor.http;
+  const hasMcp = !!descriptor.mcp;
+  const hasWebmcp = !!descriptor.webmcp;
 
-  for (const [field, value] of [
-    ["title", title],
-    ["description", description],
-  ] as const) {
-    if (value.kind === "invalid") {
-      problems.push(`"${field}" must be a non-empty string`);
-    } else if (value.kind === "unknown") {
+  for (const field of ["title", "description"] as const) {
+    if (notInline(field)) {
       checks.push(
         createCheck(
           "warning",
@@ -1254,10 +1242,8 @@ function collectSingleCapabilityChecks(
     }
   }
 
-  if (effect.kind === "invalid") {
-    problems.push('"effect" must be a non-empty string');
-  } else if (effect.kind === "unknown") {
-    if (!exposeFlags.unknown && exposeFlags.hasHttp) {
+  if (notInline("effect")) {
+    if (hasHttp) {
       problems.push(
         '"effect" must be an inline "read", "write", or "destructive" string literal for HTTP exposure',
       );
@@ -1271,66 +1257,52 @@ function collectSingleCapabilityChecks(
     }
   }
 
-  const effectValue = effect.kind === "valid" ? effect.value : null;
-  if (effectValue && !CAPABILITY_EFFECTS.has(effectValue)) {
-    problems.push('"effect" must be "read", "write", or "destructive"');
+  if (notInline("agentPolicy")) {
+    checks.push(
+      createCheck(
+        "warning",
+        `${label}: the "agentPolicy" field is not an inline string literal, so it could not be verified statically.`,
+      ),
+    );
   }
 
-  const agentPolicy = readStaticString(properties.get("agentPolicy"));
-  if (properties.has("agentPolicy")) {
-    if (agentPolicy.kind === "unknown") {
-      checks.push(
-        createCheck(
-          "warning",
-          `${label}: the "agentPolicy" field is not an inline string literal, so it could not be verified statically.`,
-        ),
-      );
-    } else if (agentPolicy.kind !== "valid" || !AGENT_POLICIES.has(agentPolicy.value)) {
-      problems.push('"agentPolicy" must be "observe" or "require"');
-    }
-  }
-
-  const middleware = readMiddlewareNames(properties.get("middleware"));
-  if (middleware.kind === "invalid") {
-    problems.push('"middleware" must be an array of names');
-  } else if (middleware.kind === "unknown") {
+  if (notInline("middleware")) {
     checks.push(
       createCheck(
         "warning",
         `${label}: the "middleware" field is not an inline array literal, so it could not be verified statically.`,
       ),
     );
-  } else if (middleware.kind === "valid") {
-    for (const middlewareName of middleware.names) {
-      if (!registeredMiddleware.has(middlewareName)) {
-        problems.push(`references unknown middleware ${JSON.stringify(middlewareName)}`);
-      }
+  }
+  for (const middlewareName of descriptor.middleware ?? []) {
+    if (!registeredMiddleware.has(middlewareName)) {
+      problems.push(`references unknown middleware ${JSON.stringify(middlewareName)}`);
     }
   }
 
-  if (exposeFlags.unknown) {
+  // The build generates the browser endpoint table from this same static read
+  // and fails when it cannot read the exposure, so verify fails with it.
+  if (exposeUnknown) {
     checks.push(
       createCheck(
-        "warning",
-        `${label}: the "expose" field is not an inline object literal, so its exposure contract ` +
-          "could not be verified statically — including the destructive-exposure and " +
-          "confirmation-secret checks. Inline the expose object so verification can cover it.",
+        "error",
+        `${label}: "expose" must be an inline object literal so the client projection can be ` +
+          "generated at build time; a constant, environment value, or call inside it cannot be read.",
       ),
+    );
+  } else if (!properties.has("expose") && read.truncated) {
+    problems.push(
+      "contains a spread or computed key the build cannot analyze, so its `expose` could not be " +
+        "read. Declare `expose`, `effect`, `agentPolicy`, and `middleware` as inline literals",
     );
   }
 
-  if (exposed && !exposeFlags.unknown) {
-    const { hasHttp, hasWebmcp } = exposeFlags;
+  if (exposed) {
     if (hasMcp) {
       mcpExposed.push(name);
       if (!isValidMcpToolName(mcpToolName(name))) {
         problems.push(MCP_TOOL_NAME_ERROR);
       }
-    }
-    if (hasWebmcp && !hasHttp) {
-      problems.push(
-        "sets expose.webmcp without expose.http — WebMCP tools dispatch through the HTTP projection",
-      );
     }
     if (hasWebmcp) {
       if (!isValidWebmcpToolName(name)) {
@@ -1339,55 +1311,54 @@ function collectSingleCapabilityChecks(
       // WebMCP dispatches are ordinary same-origin browser fetches with no
       // HTTP message signature, so a "require" Web Bot Auth policy —
       // capability-level or inherited from the app default — 401s every call
-      // the page tool can ever make. A truncated scan cannot distinguish
-      // "no agentPolicy" from "agentPolicy after the spread", so it must not
-      // report an inherited default the capability may in fact override.
+      // the page tool can ever make. An unreadable or truncated-away
+      // agentPolicy is `undefined`, never the inherited default: the
+      // capability may in fact override it.
       const effectivePolicy =
-        agentPolicy.kind === "valid"
-          ? agentPolicy.value
-          : agentPolicy.kind === "absent" && !truncated
-            ? appAgentPolicy
-            : undefined;
+        descriptor.agentPolicy === null ? appAgentPolicy : descriptor.agentPolicy;
       if (effectivePolicy === "require") {
         checks.push(
           createCheck(
             "warning",
             `${label} is exposed as a WebMCP page tool under agentPolicy "require"` +
-              `${agentPolicy.kind === "absent" ? " (inherited from agents.webBotAuth.policy)" : ""}. ` +
+              `${descriptor.agentPolicy === null ? " (inherited from agents.webBotAuth.policy)" : ""}. ` +
               "WebMCP calls are unsigned browser fetches, so every call from the page tool " +
               'will be rejected with a 401. Override with agentPolicy: "observe" on the ' +
               "capability, or drop expose.webmcp.",
           ),
         );
       }
-      collectWebmcpBudgetChecks(label, name, description, properties.get("input"), checks);
+      collectWebmcpBudgetChecks(
+        label,
+        name,
+        descriptor.description,
+        properties.get("input"),
+        checks,
+      );
     }
 
-    if (effectValue === "destructive") {
+    if (descriptor.effect === "destructive") {
       if (hasMcp) destructiveMcpExposed.push(name);
-      // `agents.mcp.auth` names the end user on remote MCP only; HTTP callers
-      // still need a principal resolver.
-      if (!hasWebmcp && (hasHttp || (hasMcp && projection.destructive && !projection.mcpAuth))) {
-        destructiveServed.push(name);
-      }
-      if (hasWebmcp) {
-        problems.push(
-          "is destructive and exposed as a WebMCP page tool — a browser host's approval UX is " +
-            "not a security boundary. Use expose.http, or expose.mcp with agents.mcp.destructive, " +
-            "both gated by the prepare/commit confirmation flow",
-        );
-      } else if (
-        (hasHttp || (hasMcp && projection.destructive)) &&
-        !process.env.PRACHT_CONFIRMATION_SECRET
-      ) {
-        problems.push(
-          "is destructive and exposed without PRACHT_CONFIRMATION_SECRET in the " +
-            "environment — the prepare/commit confirmation flow needs the secret and the " +
-            "runtime fails closed without it. Verification reads the real environment, not " +
-            "`.env`: `pracht dev` loads that file, but a deployed server takes its " +
-            "environment from the platform, so set a real variable (or a Cloudflare secret / " +
-            "Vercel environment variable) there",
-        );
+      // Destructive + WebMCP is a contract problem the normalizer reports.
+      if (!hasWebmcp) {
+        // `agents.mcp.auth` names the end user on remote MCP only; HTTP callers
+        // still need a principal resolver.
+        if (hasHttp || (hasMcp && projection.destructive && !projection.mcpAuth)) {
+          destructiveServed.push(name);
+        }
+        if (
+          (hasHttp || (hasMcp && projection.destructive)) &&
+          !process.env.PRACHT_CONFIRMATION_SECRET
+        ) {
+          problems.push(
+            "is destructive and exposed without PRACHT_CONFIRMATION_SECRET in the " +
+              "environment — the prepare/commit confirmation flow needs the secret and the " +
+              "runtime fails closed without it. Verification reads the real environment, not " +
+              "`.env`: `pracht dev` loads that file, but a deployed server takes its " +
+              "environment from the platform, so set a real variable (or a Cloudflare secret / " +
+              "Vercel environment variable) there",
+          );
+        }
       }
     }
   }
@@ -1430,23 +1401,25 @@ function collectSingleCapabilityChecks(
     problems.push(`${MCP_SCHEMA_ROOT_ERROR} (invalid: ${invalidMcpSchemaRoots.join(", ")})`);
   }
 
-  if (problems.length > 0) {
+  if (problems.length > 0 || contractProblems.length > 0) {
+    for (const problem of contractProblems) {
+      checks.push(createCheck("error", `${label}: ${problem.message}.`));
+    }
     for (const problem of problems) {
       checks.push(createCheck("error", `${label} ${problem}.`));
     }
     return;
   }
 
-  if (exposeFlags.unknown) {
-    // The exposure contract could not be verified; the warning above already
-    // says so. Don't claim a complete contract.
+  if (exposeUnknown) {
+    // The exposure contract could not be verified; the error above says so.
     return;
   }
 
   checks.push(
     createCheck(
       "ok",
-      `${label} declares a complete ${exposed ? "exposed" : "private"} contract${effectValue ? ` (effect: ${effectValue})` : ""}.`,
+      `${label} declares a complete ${exposed ? "exposed" : "private"} contract${descriptor.effect ? ` (effect: ${descriptor.effect})` : ""}.`,
     ),
   );
 }
@@ -1464,7 +1437,7 @@ const WEBMCP_PARAM_NAME_BUDGET = 30;
 function collectWebmcpBudgetChecks(
   label: string,
   name: string,
-  description: StaticString,
+  description: string | undefined,
   inputText: string | undefined,
   checks: Check[],
 ): void {
@@ -1477,11 +1450,11 @@ function collectWebmcpBudgetChecks(
       ),
     );
   }
-  if (description.kind === "valid" && description.value.length > WEBMCP_DESCRIPTION_BUDGET) {
+  if (description !== undefined && description.length > WEBMCP_DESCRIPTION_BUDGET) {
     checks.push(
       createCheck(
         "warning",
-        `${label} is exposed as a WebMCP page tool with a ${description.value.length}-character ` +
+        `${label} is exposed as a WebMCP page tool with a ${description.length}-character ` +
           `description — in-browser agents work best under ~${WEBMCP_DESCRIPTION_BUDGET} characters.`,
       ),
     );
@@ -1623,112 +1596,4 @@ function readScannedProperty(objectBody: string, key: string): string | null | u
   const text = properties.get(key);
   if (text !== undefined) return text;
   return truncated ? undefined : null;
-}
-
-type StaticString =
-  | { kind: "absent" }
-  | { kind: "invalid" }
-  | { kind: "unknown" }
-  | { kind: "valid"; value: string };
-
-function readStaticString(text: string | undefined): StaticString {
-  if (!text) return { kind: "absent" };
-  const value = evaluateLiteral(text);
-  if (value === undefined) return { kind: "unknown" };
-  if (typeof value !== "string" || value.trim() === "") return { kind: "invalid" };
-  return { kind: "valid", value };
-}
-
-type MiddlewareNames =
-  | { kind: "absent" }
-  | { kind: "invalid" }
-  | { kind: "unknown" }
-  | { kind: "valid"; names: string[] };
-
-function readMiddlewareNames(text: string | undefined): MiddlewareNames {
-  if (!text) return { kind: "absent" };
-  const value = evaluateLiteral(text);
-  if (value === undefined) return { kind: "unknown" };
-  if (!Array.isArray(value) || value.some((name) => typeof name !== "string")) {
-    return { kind: "invalid" };
-  }
-  return { kind: "valid", names: value };
-}
-
-function readExposeFlags(text: string | undefined): {
-  hasHttp: boolean;
-  hasMcp: boolean;
-  hasWebmcp: boolean;
-  /** `expose` is present but not an inline literal, so it can't be verified. */
-  unknown: boolean;
-  problems: string[];
-} {
-  if (text === undefined) {
-    return { hasHttp: false, hasMcp: false, hasWebmcp: false, unknown: false, problems: [] };
-  }
-  const value = evaluateLiteral(text);
-  if (value === undefined) {
-    return { hasHttp: false, hasMcp: false, hasWebmcp: false, unknown: true, problems: [] };
-  }
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return {
-      hasHttp: false,
-      hasMcp: false,
-      hasWebmcp: false,
-      unknown: false,
-      problems: ['"expose" must be an inline object literal'],
-    };
-  }
-  const expose = value as Record<string, unknown>;
-  const problems: string[] = [];
-  let hasHttp = false;
-  if (expose.http === true) {
-    hasHttp = true;
-  } else if (expose.http && typeof expose.http === "object" && !Array.isArray(expose.http)) {
-    hasHttp = true;
-    const http = expose.http as Record<string, unknown>;
-    if (http.method !== undefined && http.method !== "POST") {
-      problems.push('HTTP exposure only supports method: "POST"');
-    }
-    if (http.path !== undefined && !isValidCapabilityHttpPath(http.path)) {
-      problems.push('HTTP exposure "path" must be an exact same-origin pathname starting with "/"');
-    }
-  } else if (expose.http !== undefined && expose.http !== false && expose.http !== null) {
-    problems.push('"expose.http" must be true or an object');
-  }
-
-  let hasWebmcp = false;
-  if (expose.webmcp === true) {
-    hasWebmcp = true;
-  } else if (expose.webmcp && typeof expose.webmcp === "object" && !Array.isArray(expose.webmcp)) {
-    hasWebmcp = true;
-    const webmcp = expose.webmcp as Record<string, unknown>;
-    if (webmcp.untrustedContent !== undefined && typeof webmcp.untrustedContent !== "boolean") {
-      problems.push('WebMCP exposure "untrustedContent" must be a boolean');
-    }
-  } else if (expose.webmcp !== undefined && expose.webmcp !== false && expose.webmcp !== null) {
-    problems.push('"expose.webmcp" must be true or an options object');
-  }
-
-  let hasMcp = false;
-  if (expose.mcp === true) {
-    hasMcp = true;
-  } else if (expose.mcp && typeof expose.mcp === "object" && !Array.isArray(expose.mcp)) {
-    hasMcp = true;
-    const { scopes } = expose.mcp as Record<string, unknown>;
-    if (
-      scopes !== undefined &&
-      (!Array.isArray(scopes) || scopes.some((scope) => !isValidOAuthScopeToken(scope)))
-    ) {
-      problems.push('MCP exposure "scopes" must be an array of OAuth scope tokens');
-    }
-  }
-
-  return {
-    hasHttp,
-    hasMcp,
-    hasWebmcp,
-    unknown: false,
-    problems,
-  };
 }

@@ -3,6 +3,7 @@ import { once } from "node:events";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import {
   createServer,
+  Agent as HttpAgent,
   request as httpRequest,
   type IncomingMessage,
   type ServerResponse,
@@ -10,6 +11,7 @@ import {
 import type { AddressInfo } from "node:net";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createGunzip } from "node:zlib";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { defineApp, resolveApiRoutes } from "@pracht/core";
@@ -173,6 +175,68 @@ describe("closeEventStreams", () => {
     } finally {
       csv.destroy();
     }
+  });
+
+  it.each([
+    ["identity", false],
+    ["gzip", true],
+  ])("ends an open event stream as a complete response (%s)", async (encoding, compression) => {
+    const seen = { aborted: false, cancelled: false };
+    const handler = createNodeRequestHandler({
+      app: defineApp({ routes: [] }),
+      apiRoutes: resolveApiRoutes(["/src/api/events.ts"]),
+      canonicalOrigin: "http://localhost",
+      compression,
+      registry: {
+        apiModules: {
+          "/src/api/events.ts": async () => ({
+            GET: ({ request }: { request: Request }) => {
+              request.signal.addEventListener("abort", () => (seen.aborted = true));
+              const body = new ReadableStream({
+                start(controller) {
+                  controller.enqueue(new TextEncoder().encode("data: hello\n\n"));
+                },
+                cancel() {
+                  seen.cancelled = true;
+                },
+              });
+              return new Response(body, { headers: { "content-type": "text/event-stream" } });
+            },
+          }),
+        },
+      },
+    });
+    const port = await listen(handler);
+    const response = await new Promise<IncomingMessage>((resolveStream, reject) => {
+      const req = httpRequest(
+        {
+          hostname: "127.0.0.1",
+          port,
+          path: "/api/events",
+          headers: { "accept-encoding": encoding },
+        },
+        resolveStream,
+      );
+      req.on("error", reject);
+      req.end();
+    });
+    expect(response.headers["content-encoding"]).toBe(compression ? "gzip" : undefined);
+    const stream = compression ? response.pipe(createGunzip()) : response;
+    const chunks: Buffer[] = [];
+    stream.on("data", (chunk: Buffer) => chunks.push(chunk));
+    const ended = new Promise<void>((resolveEnd, reject) => {
+      stream.on("end", resolveEnd);
+      stream.on("error", reject);
+      response.on("aborted", () => reject(new Error("aborted")));
+    });
+    await vi.waitFor(() => expect(Buffer.concat(chunks).toString()).toContain("data: hello"));
+
+    await handler.closeEventStreams();
+
+    await ended;
+    expect(response.complete).toBe(true);
+    expect(Buffer.concat(chunks).toString()).toBe("data: hello\n\n");
+    expect(seen).toEqual({ aborted: true, cancelled: true });
   });
 
   it("closes streams before their first event and ones opened afterwards, then drains their work", async () => {
@@ -416,6 +480,32 @@ describe("graceful shutdown of the generated Node entry", () => {
     expect(Date.now() - startedAt).toBeLessThan(5_000);
     // Work the stream's abort listener registered was drained, not cut off.
     expect(existsSync(streamMarker)).toBe(true);
+  }, 20_000);
+
+  it("closes a keep-alive event stream's socket once the stream ends", async () => {
+    const { child, exited, port } = await startEntry({ workMs: 0 });
+    const agent = new HttpAgent({ keepAlive: true });
+
+    const stream = await new Promise<IncomingMessage>((resolveStream, reject) => {
+      const req = httpRequest(
+        { agent, hostname: "127.0.0.1", port, path: "/api/events" },
+        resolveStream,
+      );
+      req.on("error", reject);
+      req.end();
+    });
+    await once(stream, "data");
+    const ended = once(stream, "end");
+    stream.resume();
+
+    const startedAt = Date.now();
+    child.kill("SIGTERM");
+    // The stream completes as a response, not a dropped connection.
+    await ended;
+    await exited;
+    // Its socket, idle once the stream ended, does not hold server.close().
+    expect(Date.now() - startedAt).toBeLessThan(1_500);
+    agent.destroy();
   }, 20_000);
 
   it("stops waiting at shutdownTimeoutMs", async () => {

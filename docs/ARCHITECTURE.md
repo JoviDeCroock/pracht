@@ -429,12 +429,13 @@ production requests skip all timing work.
 
 ### Writing the response
 
-The dev middleware hands the runtime's `Response` to Node the same way the
-production Node adapter does (`writeNodeResponseHeaders` in
-`packages/adapter-node/src/node-request.ts`), and for the same reason: a
-difference here only shows up after deploy.
+The dev middleware reads the request and writes the runtime's `Response`
+through the production Node adapter's bridge (`@pracht/adapter-node/bridge`),
+for the same reason: a difference here only shows up after deploy. The bridge
+answers an oversized body with the adapter's 413, gives `request.signal` the
+client-disconnect signal, and streams bodies with backpressure.
 
-- Headers are copied with `writeDevResponseHeaders()`, which reads `set-cookie`
+- Headers are copied with `writeNodeResponseHeaders()`, which reads `set-cookie`
   through `getSetCookie()`. `Headers.forEach()` yields that one header
   comma-joined and `res.setHeader()` replaces rather than appends, so a loader
   or API route setting two cookies would otherwise emit one broken header.
@@ -487,13 +488,59 @@ difference here only shows up after deploy.
   staged, answering a cross-origin 500 with a CORS failure and no readable
   overlay.
 
+### Source analysis
+
+Every build-time question about an app's source goes through one reader,
+`AnalysisSession` (`packages/vite-plugin/src/analysis.ts`), keyed by one id
+function, `canonicalModuleId()` (`module-id.ts`). A `ModuleId` is the module's
+root-relative POSIX path with a leading `/`, no query, and `.`/`..` resolved
+(`/src/routes/home.tsx`), which is the key `import.meta.glob` gives the file.
+`./routes/home.tsx`, a bare `routes/home.tsx`, and `/src/other/../routes/home.tsx`
+written in the manifest all map to it, so a table keyed by id and a lookup that
+canonicalizes a ref cannot disagree.
+
+`session.module(id)` returns a module's facts (`readModuleFacts()` in
+`route-loader-hints.ts`): which of `loader`, `head`, `headers`,
+`getStaticPaths` and `search` it may export, and its literal `CAPABILITIES`.
+They are cached per file stamp, so an unchanged file is read and parsed once
+however many readers ask: the hint tables, the pages scanner
+(`scanPagesDirectory`), and the dev server's hot-update path. The parser
+configuration follows the extension (one Babel parse for `.ts`, `.tsx`, `.js`,
+`.jsx`); Markdown, TSRX and configured extensions skip the parser and use the
+lexical reader, and Markdown is read with fenced code masked.
+`test/analysis-parse-count.test.ts` holds this to at most one Babel parse per
+file per regeneration across the client, server and dev modules, in manifest
+and pages mode, with only the edited file parsed again after a save.
+
+`session.manifest()` returns the app's `ManifestFacts`: every ref the manifest
+and the local modules it imports write, each with its kind (route, not-found,
+shell, middleware, capability, loader, or a path-shaped `mention`), its id
+(`null` for a computed ref) and its route's hydration; whether that list is
+`complete`; the registered `appRoot`; whether the manifest is an ejected
+pages layout; the local imports that name no file (`unresolvedImports`); and why
+a manifest module did not parse (`error`). In pages mode the same shape comes from the pages scanner. Each
+manifest module is parsed once per file stamp with Vite's `parseAst`. Registry
+codegen (external keyed imports), the non-full-hydration exclusion, the
+unreferenced-module exclusion, external feature hints, the client transform's
+external-route identity and `findAppRootModule()` all read these facts, and
+`test/analysis-seam.test.ts` fails when another module parses the manifest,
+re-derives route exports, or spells module identity itself. The plugin hands
+the same facts to the CLI as `api.pracht.manifestFacts()`, which `pracht
+verify` and the dev banner read when the app graph cannot be resolved, and which
+verify's middleware-in-client-registry check reads for `ejectedLayout` in every
+case. `packages/cli/test/manifest-facts-seam.test.ts` keeps the CLI from
+growing its own reader: it runs every regex literal, `new RegExp()` and string
+search in the CLI source against manifest text and the same text with its
+vocabulary renamed (`route(`, `group(`, the ejected-layout marker, `head`
+exports), and fails on any that tells the two apart.
+
 ### Route hint tables
 
 `createRouteHints()` (`route-loader-hints.ts`) answers, per route and shell
 module, whether it exports `loader`, `head`, `headers`, `getStaticPaths`; the
 router reads those answers to decide whether a navigation must fetch route
 state. The server and dev modules bake them in as boolean tables with two keys
-per file (`./routes/x.tsx` and `/src/routes/x.tsx`). The browser entry gets
+per file (`./routes/x.tsx` and the module id `/src/routes/x.tsx`). The browser entry gets
 one compact table instead (`createClientRouteHintTable()` in
 `plugin-codegen.ts`): one canonical root-absolute key per module, as the
 entry's `canonicalModuleKey` produces it, and a bitfield value (1 loader, 2
@@ -532,7 +579,9 @@ Pracht uses Vite's multi-environment build:
 1. **client** — browser JavaScript + CSS
    - Entry: `virtual:pracht/client`
    - Output: `dist/client/assets/` (hashed filenames)
-   - Produces: `.vite/manifest.json` for asset injection
+   - Produces: `.vite/manifest.json` for asset injection; `pracht build` moves it
+     to `dist/server/.vite/client-manifest.json` once read, so no deploy target
+     serves the module graph
 
 2. **ssr** — server bundle
    - Entry: `virtual:pracht/server`
@@ -550,11 +599,11 @@ Pracht uses Vite's multi-environment build:
 dist/
   client/
     assets/                    # Hashed JS/CSS chunks
-    .vite/manifest.json        # Client asset manifest
     index.html                 # SSG-generated pages...
     about/index.html
     blog/hello/index.html
   server/
+    .vite/client-manifest.json  # Client asset manifest (moved out of client/)
     headers-manifest.json       # Prerendered document headers
     markdown-manifest.json      # Routes with raw Markdown representations
     isg-manifest.json           # ISG revalidation config

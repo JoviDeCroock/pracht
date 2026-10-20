@@ -9,106 +9,104 @@ import {
   createRouteHints,
   createRouteLoaderHints,
   createRouteStaticPathsHints,
-  detectHeadersExport,
-  detectLoaderExport,
-  detectStaticPathsExport,
+  analyzeRouteExports,
 } from "../src/route-loader-hints.ts";
 
-describe("detectHeadersExport", () => {
+/** What the hint tables read off one route module's source. */
+const exportsOf = (source: string) => analyzeRouteExports(source, "route.tsx");
+const exportsHeaders = (source: string) => exportsOf(source).headers;
+const exportsLoader = (source: string) => exportsOf(source).loader;
+const exportsStaticPaths = (source: string) => exportsOf(source).getStaticPaths;
+
+describe("exportsHeaders", () => {
   it("recognizes declarations, export lists, and re-exports", () => {
-    expect(detectHeadersExport("export function headers() { return {}; }\n")).toBe(true);
+    expect(exportsHeaders("export function headers() { return {}; }\n")).toBe(true);
     expect(
-      detectHeadersExport(
+      exportsHeaders(
         "const responseHeaders = () => ({}); export { responseHeaders as headers };\n",
       ),
     ).toBe(true);
-    expect(detectHeadersExport('export { headers } from "./policy.ts";\n')).toBe(true);
-    expect(
-      detectHeadersExport('const policy = () => ({}); export { policy as "headers" };\n'),
-    ).toBe(true);
-    expect(detectHeadersExport('export * from "./policy.ts";\n')).toBe(true);
+    expect(exportsHeaders('export { headers } from "./policy.ts";\n')).toBe(true);
+    expect(exportsHeaders('const policy = () => ({}); export { policy as "headers" };\n')).toBe(
+      true,
+    );
+    expect(exportsHeaders('export * from "./policy.ts";\n')).toBe(true);
   });
 
   it("ignores comments, strings, local bindings, and type-only exports", () => {
     expect(
-      detectHeadersExport("// export function headers() {}\nexport function Component() {}\n"),
+      exportsHeaders("// export function headers() {}\nexport function Component() {}\n"),
     ).toBe(false);
-    expect(detectHeadersExport('const text = "export { headers }";\n')).toBe(false);
-    expect(detectHeadersExport("function headers() {}\nexport function Component() {}\n")).toBe(
-      false,
-    );
-    expect(detectHeadersExport("export type headers = Record<string, string>;\n")).toBe(false);
+    expect(exportsHeaders('const text = "export { headers }";\n')).toBe(false);
+    expect(exportsHeaders("function headers() {}\nexport function Component() {}\n")).toBe(false);
+    expect(exportsHeaders("export type headers = Record<string, string>;\n")).toBe(false);
   });
 });
 
-describe("detectLoaderExport", () => {
+describe("exportsLoader", () => {
   it("recognizes commented declarations and export lists", () => {
-    expect(detectLoaderExport("export /* build-time */ function loader() {}\n")).toBe(true);
-    expect(
-      detectLoaderExport("const loader = () => {}; export { /* route state */ loader };\n"),
-    ).toBe(true);
-    expect(detectLoaderExport('export { data as loader } from "./data.ts";\n')).toBe(true);
-    expect(detectLoaderExport('export /* conservative */ * from "./data.ts";\n')).toBe(true);
+    expect(exportsLoader("export /* build-time */ function loader() {}\n")).toBe(true);
+    expect(exportsLoader("const loader = () => {}; export { /* route state */ loader };\n")).toBe(
+      true,
+    );
+    expect(exportsLoader('export { data as loader } from "./data.ts";\n')).toBe(true);
+    expect(exportsLoader('export /* conservative */ * from "./data.ts";\n')).toBe(true);
   });
 
   it("recognizes loaders exported through destructuring bindings", () => {
-    expect(detectLoaderExport("export const { value: loader } = source;\n")).toBe(true);
-    expect(detectLoaderExport("export const { nested: { loader } } = source;\n")).toBe(true);
-    expect(detectLoaderExport("export const [loader] = source;\n")).toBe(true);
-    expect(detectLoaderExport("export const route = { loader: source };\n")).toBe(false);
+    expect(exportsLoader("export const { value: loader } = source;\n")).toBe(true);
+    expect(exportsLoader("export const { nested: { loader } } = source;\n")).toBe(true);
+    expect(exportsLoader("export const [loader] = source;\n")).toBe(true);
+    expect(exportsLoader("export const route = { loader: source };\n")).toBe(false);
   });
 
   it("only treats exported variable bindings as loaders", () => {
-    expect(detectLoaderExport("export const Component = () => <Widget loader={value} />;\n")).toBe(
+    expect(exportsLoader("export const Component = () => <Widget loader={value} />;\n")).toBe(
       false,
     );
     expect(
-      detectLoaderExport(
+      exportsLoader(
         "export const Component = () => <Widget loader={value} />, loader = () => ({});\n",
       ),
     ).toBe(true);
   });
 
   it("does not treat identifiers in TypeScript generic types as variable bindings", () => {
-    expect(detectLoaderExport("export const Component: Pair<View, loader> = view;\n")).toBe(false);
-    expect(
-      detectLoaderExport("export const Component = view satisfies Pair<View, loader>;\n"),
-    ).toBe(false);
-    expect(detectLoaderExport("export const Component = async <T, loader>() => null;\n")).toBe(
+    expect(exportsLoader("export const Component: Pair<View, loader> = view;\n")).toBe(false);
+    expect(exportsLoader("export const Component = view satisfies Pair<View, loader>;\n")).toBe(
       false,
     );
+    expect(exportsLoader("export const Component = async <T, loader>() => null;\n")).toBe(false);
     expect(
-      detectLoaderExport(
-        "export const Component: Pair<View, loader> = view, loader = () => ({});\n",
-      ),
+      exportsLoader("export const Component: Pair<View, loader> = view, loader = () => ({});\n"),
     ).toBe(true);
   });
 
   it("ignores loader-shaped text in comments and strings", () => {
     expect(
-      detectLoaderExport(
+      exportsLoader(
         'const text = "export function loader() {}";\n// export { loader }\nexport { text };\n',
       ),
     ).toBe(false);
   });
 
   it("ignores type-only loader exports", () => {
-    expect(detectLoaderExport("export interface loader { value: string }\n")).toBe(false);
-    expect(detectLoaderExport("export type loader = () => unknown;\n")).toBe(false);
-    expect(detectLoaderExport("export declare const loader: () => unknown;\n")).toBe(false);
-    expect(detectLoaderExport('export { type loader } from "./types.ts";\n')).toBe(false);
+    expect(exportsLoader("export interface loader { value: string }\n")).toBe(false);
+    expect(exportsLoader("export type loader = () => unknown;\n")).toBe(false);
+    expect(exportsLoader("export declare const loader: () => unknown;\n")).toBe(false);
+    expect(exportsLoader('export { type loader } from "./types.ts";\n')).toBe(false);
   });
 
   it("falls back safely for JSX and TSRX component syntax", () => {
     expect(
-      detectLoaderExport(`
+      exportsLoader(`
         export function Component() {
           return <section><p>client-only</p></section>;
         }
       `),
     ).toBe(false);
     expect(
-      detectLoaderExport(`
+      exportsLoader(`
         export /* build-time */ function loader() { return {}; }
         export component Component() { <p>TSRX</p> }
       `),
@@ -117,7 +115,7 @@ describe("detectLoaderExport", () => {
 
   it("does not mistake regex contents for comments in the JSX fallback", () => {
     expect(
-      detectLoaderExport(
+      exportsLoader(
         'export function Component() { return <p>{/a\\/*b/.test("x")}</p>; } export function loader() { return {}; }',
       ),
     ).toBe(true);
@@ -226,28 +224,28 @@ describe("createRouteHeadersHints", () => {
   });
 });
 
-describe("detectStaticPathsExport", () => {
+describe("exportsStaticPaths", () => {
   it("recognizes declarations, export lists, and re-exports", () => {
-    expect(detectStaticPathsExport("export function getStaticPaths() { return []; }\n")).toBe(true);
-    expect(detectStaticPathsExport("export async function getStaticPaths() {}\n")).toBe(true);
-    expect(detectStaticPathsExport("export const getStaticPaths = () => [];\n")).toBe(true);
+    expect(exportsStaticPaths("export function getStaticPaths() { return []; }\n")).toBe(true);
+    expect(exportsStaticPaths("export async function getStaticPaths() {}\n")).toBe(true);
+    expect(exportsStaticPaths("export const getStaticPaths = () => [];\n")).toBe(true);
     expect(
-      detectStaticPathsExport("const paths = () => []; export { paths as getStaticPaths };\n"),
+      exportsStaticPaths("const paths = () => []; export { paths as getStaticPaths };\n"),
     ).toBe(true);
-    expect(detectStaticPathsExport('export { getStaticPaths } from "./paths.ts";\n')).toBe(true);
+    expect(exportsStaticPaths('export { getStaticPaths } from "./paths.ts";\n')).toBe(true);
     // `export *` could expose one, so it stays conservative.
-    expect(detectStaticPathsExport('export * from "./paths.ts";\n')).toBe(true);
+    expect(exportsStaticPaths('export * from "./paths.ts";\n')).toBe(true);
   });
 
   it("does not mistake comments, strings, or local bindings for an export", () => {
     expect(
-      detectStaticPathsExport("// TODO: add getStaticPaths\nexport function Component() {}\n"),
+      exportsStaticPaths("// TODO: add getStaticPaths\nexport function Component() {}\n"),
     ).toBe(false);
-    expect(detectStaticPathsExport('const hint = "getStaticPaths";\n')).toBe(false);
+    expect(exportsStaticPaths('const hint = "getStaticPaths";\n')).toBe(false);
     expect(
-      detectStaticPathsExport("function getStaticPaths() {}\nexport function Component() {}\n"),
+      exportsStaticPaths("function getStaticPaths() {}\nexport function Component() {}\n"),
     ).toBe(false);
-    expect(detectStaticPathsExport("export function Component() {}\n")).toBe(false);
+    expect(exportsStaticPaths("export function Component() {}\n")).toBe(false);
   });
 });
 

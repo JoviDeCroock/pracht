@@ -436,6 +436,37 @@ describe("createNetlifyHandler", () => {
     return dir;
   }
 
+  it.each([
+    ["bytes=0-1", 206],
+    ["bytes=50-", 416],
+  ])(
+    "answers %s with %d and no CDN cache policy from the headers manifest",
+    async (range, status) => {
+      const staticDir = await createStaticBuild();
+      const handler = createNetlifyHandler({
+        app: defineApp({ routes: [] }),
+        headersManifest: {
+          "/robots.txt": {
+            "cache-control": "public, max-age=60",
+            "cdn-cache-control": "public, max-age=3600",
+            "netlify-cdn-cache-control": "public, durable, max-age=3600",
+          },
+        },
+        staticDir,
+      });
+
+      const response = await handler(
+        new Request("https://example.com/robots.txt", { headers: { range } }),
+        {},
+      );
+
+      expect(response.status).toBe(status);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(response.headers.get("cdn-cache-control")).toBeNull();
+      expect(response.headers.get("netlify-cdn-cache-control")).toBeNull();
+    },
+  );
+
   it("serves OAuth metadata before a colliding static file", async () => {
     const staticDir = await createStaticBuild();
     const metadataDir = join(staticDir, ".well-known/oauth-protected-resource");
@@ -648,6 +679,13 @@ describe("createNetlifyHandler", () => {
     expect(response.headers.get("content-type")).toContain("text/html");
     expect(response.headers.get("netlify-cdn-cache-control")).toContain("durable");
     expect(await response.text()).toBe("<html>café post</html>");
+
+    // Escape case is not significant (#471): a lower-case spelling finds the
+    // upper-case file the build wrote instead of re-rendering uncached.
+    const lowerCase = await handler(new Request("https://example.com/posts/caf%c3%a9"), {});
+    expect(lowerCase.status).toBe(200);
+    expect(lowerCase.headers.get("netlify-cdn-cache-control")).toContain("durable");
+    expect(await lowerCase.text()).toBe("<html>café post</html>");
 
     const traversal = await handler(new Request("https://example.com/posts/%2E%2E%2Fguide"), {});
     expect(await traversal.text()).not.toBe("<html>static guide</html>");

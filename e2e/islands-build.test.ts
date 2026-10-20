@@ -85,7 +85,7 @@ test("islands build hydrates islands only and ships minimal JS", async ({ page }
 
     // --- Static output shape ---------------------------------------------
     const manifest = JSON.parse(
-      readFileSync(resolve(exampleDir, "dist/client/.vite/manifest.json"), "utf-8"),
+      readFileSync(resolve(exampleDir, "dist/server/.vite/client-manifest.json"), "utf-8"),
     ) as Record<string, { file: string; src?: string; css?: string[] }>;
     const clientEntryUrl = `/${manifest["virtual:pracht/client"].file}`;
     const islandsEntryUrl = `/${manifest["virtual:pracht/islands-client"].file}`;

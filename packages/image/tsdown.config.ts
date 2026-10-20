@@ -6,4 +6,5 @@ export default defineConfig({
   format: "esm",
   dts: true,
   external: ["preact", "sharp", "vite", /^node:/],
+  outputOptions: { comments: { jsdoc: false } },
 });

@@ -11,4 +11,5 @@ export default defineConfig({
   ],
   format: "esm",
   dts: true,
+  outputOptions: { comments: { jsdoc: false } },
 });

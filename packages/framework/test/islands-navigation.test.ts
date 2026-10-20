@@ -11,8 +11,9 @@ import {
   settleFocus,
 } from "../src/islands-navigation.ts";
 import { policyFingerprint } from "../src/islands-shared.ts";
-import { islandsNavigationRoutes, patternsOverlap } from "../src/islands-server.ts";
+import { islandsNavigationRoutes } from "../src/islands-server.ts";
 import { resolveApp, route, defineApp } from "../src/index.ts";
+import { parseRouteSegments, routesOverlap } from "../src/route-matching.ts";
 
 const OWN = "data-pracht-owned";
 
@@ -101,61 +102,23 @@ describe("islandsNavigationRoutes", () => {
     );
     expect(
       islandsNavigationRoutes(app, [
-        { path: "/api/hello", file: "x", segments: [] },
-        { path: "/api/*", file: "y", segments: [] },
+        { path: "/api/hello", file: "x", segments: parseRouteSegments("/api/hello") },
+        { path: "/api/*", file: "y", segments: parseRouteSegments("/api/*") },
       ]),
     ).toEqual(["-/blog/drafts", "+/blog/:slug", "+/static"]);
   });
 
   it("decides overlap segment by segment", () => {
-    expect(patternsOverlap("-/a/:id", "+/a/b")).toBe(true);
-    expect(patternsOverlap("-/a/b", "+/a/c")).toBe(false);
-    expect(patternsOverlap("-/a", "+/a/b")).toBe(false);
-    expect(patternsOverlap("-/*", "+/a/b")).toBe(true);
-    expect(patternsOverlap("-/a/b/c", "+/a/:rest*")).toBe(true);
-    expect(patternsOverlap("-/", "+/")).toBe(true);
-  });
-
-  it("keeps exactly the `-` entries some later `+` entry overlaps", () => {
-    const pool = ["a", "b", ":x", ":y", "*", ":rest*", "c"];
-    // 32-bit LCG; the high bits pick, since its low bits cycle quickly.
-    let seed = 1;
-    const random = (n: number) => {
-      seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
-      return (seed >>> 8) % n;
-    };
-    let kept = 0;
-    let dropped = 0;
-    for (let table = 0; table < 500; table += 1) {
-      const routes = [];
-      for (let index = 0, count = 1 + random(8); index < count; index += 1) {
-        const segments: string[] = [];
-        for (let depth = 0, length = random(4); depth < length; depth += 1) {
-          segments.push(pool[random(pool.length)]!);
-        }
-        routes.push(
-          route(`/${segments.join("/")}`, `./r${index}.tsx`, {
-            id: `r${index}`,
-            hydration: random(2) ? "islands" : "full",
-          }),
-        );
-      }
-      const app = resolveApp(defineApp({ routes }));
-      const all = app.routes.map(
-        (resolved) => `${resolved.hydration === "islands" ? "+" : "-"}${resolved.path}`,
-      );
-      const pairwise = all.filter(
-        (entry, index) =>
-          entry.startsWith("+") ||
-          all.slice(index + 1).some((later) => later[0] === "+" && patternsOverlap(entry, later)),
-      );
-      expect(islandsNavigationRoutes(app), all.join(" ")).toEqual(pairwise);
-      if (pairwise.some((entry) => entry.startsWith("-"))) kept += 1;
-      if (all.some((entry) => entry.startsWith("-") && !pairwise.includes(entry))) dropped += 1;
-    }
-    // The generator must exercise overlap queries both ways.
-    expect(kept).toBeGreaterThan(100);
-    expect(dropped).toBeGreaterThan(100);
+    const overlap = (a: string, b: string) =>
+      routesOverlap(parseRouteSegments(a), parseRouteSegments(b));
+    expect(overlap("/a/:id", "/a/b")).toBe(true);
+    expect(overlap("/a/b", "/a/c")).toBe(false);
+    expect(overlap("/a", "/a/b")).toBe(false);
+    expect(overlap("/*", "/a/b")).toBe(true);
+    expect(overlap("/a/b/c", "/a/:rest*")).toBe(true);
+    expect(overlap("/", "/")).toBe(true);
+    // A parameter never matches a segment that does not percent-decode.
+    expect(overlap("/a/100%", "/a/:id")).toBe(false);
   });
 
   it("keeps a parameter or catch-all blocker in front of an islands route", () => {

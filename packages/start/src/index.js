@@ -1290,6 +1290,17 @@ function pnpmBuildAllowlist(adapter, tailwind) {
   return packages.sort();
 }
 
+/**
+ * Dependencies whose install scripts the starter never needs, denied by name
+ * so pnpm 11 does not stop the install on a build it has no decision for
+ * (`ERR_PNPM_IGNORED_BUILDS`). The Netlify CLI's postinstall only prints, and
+ * its native modules are optional: `sharp` ships prebuilt binaries and
+ * `unix-dgram` backs syslog output.
+ */
+function pnpmBuildDenylist(adapter) {
+  return adapter.id === "netlify" ? ["netlify-cli", "sharp", "unix-dgram"] : [];
+}
+
 function pnpmBuildPolicyName(pnpmMajor) {
   return pnpmMajor <= 10 ? "onlyBuiltDependencies" : "allowBuilds";
 }
@@ -1297,14 +1308,27 @@ function pnpmBuildPolicyName(pnpmMajor) {
 function createPnpmWorkspaceConfig(adapter, tailwind, pnpmMajor) {
   const policy = pnpmBuildPolicyName(pnpmMajor);
   const entries = pnpmBuildAllowlist(adapter, tailwind);
+  const denied = pnpmBuildDenylist(adapter);
+
+  if (policy === "onlyBuiltDependencies") {
+    return [
+      "packages:",
+      '  - "."',
+      `${policy}:`,
+      ...entries.map((name) => `  - ${JSON.stringify(name)}`),
+      ...(denied.length > 0
+        ? ["ignoredBuiltDependencies:", ...denied.map((name) => `  - ${JSON.stringify(name)}`)]
+        : []),
+      "",
+    ].join("\n");
+  }
 
   return [
     "packages:",
     '  - "."',
     `${policy}:`,
-    ...(policy === "onlyBuiltDependencies"
-      ? entries.map((name) => `  - ${JSON.stringify(name)}`)
-      : entries.map((name) => `  ${JSON.stringify(name)}: true`)),
+    ...entries.map((name) => `  ${JSON.stringify(name)}: true`),
+    ...denied.map((name) => `  ${JSON.stringify(name)}: false`),
     "",
   ].join("\n");
 }

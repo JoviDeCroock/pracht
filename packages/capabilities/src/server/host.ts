@@ -25,6 +25,7 @@ import { bindAgentContext } from "./agent-context.ts";
 import { verifyAgentSignature } from "./agent-auth.ts";
 import { validateAgentsConfig } from "./agents-config.ts";
 import {
+  CAPABILITY_TIMEOUT_MS,
   envelopeResponse,
   getCapabilityLoadFailures,
   handleCapabilityRequest,
@@ -43,6 +44,12 @@ import {
 import { handleMcpMetadataRequest, handleMcpRequest, normalizeMcpRequestPath } from "./mcp.ts";
 import { formatUnknownNameError } from "./names.ts";
 import { isSameOriginRequest } from "./same-origin.ts";
+import {
+  createRequestBudget,
+  holdingWaitUntil,
+  releaseBudgetWith,
+  type RequestBudget,
+} from "./request-budget.ts";
 import { createWaitUntil, logWaitUntilFailure } from "./wait-until.ts";
 import type {
   CapabilityAuditHook,
@@ -119,6 +126,14 @@ export interface CreateCapabilityHostOptions<TContext = Record<string, unknown>>
    * the host produces. Default `true`.
    */
   securityHeaders?: boolean;
+  /**
+   * Request budget in milliseconds, the `defineApp({ loaderTimeoutMs })`
+   * equivalent. Middleware, `run()`, composed invocations, and `waitUntil()`
+   * work share one signal per request, which aborts when the budget runs out
+   * or the client disconnects. `invoke()` uses it when no `signal` is passed.
+   * Default `30000`.
+   */
+  loaderTimeoutMs?: number;
 }
 
 export interface CapabilityHostFetchInit<TContext> {
@@ -224,6 +239,7 @@ export function createCapabilityHost<TContext = Record<string, unknown>>(
     middleware: middlewareFilesByName,
   };
 
+  const timeoutMs = resolveHostTimeoutMs(options.loaderTimeoutMs);
   const exposeErrors = options.exposeErrors ?? false;
   const requireSameOrigin = options.requireSameOrigin ?? true;
   const securityHeaders = options.securityHeaders ?? true;
@@ -239,6 +255,110 @@ export function createCapabilityHost<TContext = Record<string, unknown>>(
     if (explicit !== undefined) return explicit;
     if (options.createContext) return options.createContext(request);
     return {} as TContext;
+  };
+
+  /** Serve one request the host owns, on that request's budget. */
+  const serveOwned = async (
+    request: Request,
+    url: URL,
+    init: CapabilityHostFetchInit<TContext>,
+    isMcpRequest: boolean,
+    match: ResolvedCapability | undefined,
+    budget: RequestBudget,
+  ): Promise<Response | null> => {
+    let requestContext: unknown = await resolveContext(request, init.context);
+    let agent: PrachtAgentIdentity | null = null;
+
+    // Web Bot Auth: verify the agent signature once per request when
+    // configured. The result (identity or null) lands on the request
+    // context before middleware or capabilities run.
+    if (agents?.webBotAuth) {
+      if (request.headers.has("signature-input")) {
+        agent = await verifyAgentSignature(request, agents.webBotAuth);
+      }
+      try {
+        const bound = bindAgentContext(requestContext, agent);
+        requestContext = bound;
+        agent = (bound as PrachtContextExtensions).agent ?? null;
+      } catch (error: unknown) {
+        return new Response(
+          exposeErrors
+            ? `Request context could not carry verified agent identity: ${
+                error instanceof Error ? error.message : String(error)
+              }`
+            : "Internal Server Error",
+          { status: 500, headers: { "content-type": "text/plain; charset=utf-8" } },
+        );
+      }
+    }
+
+    // Register the request so `invokeCapability()`-style composition works
+    // from capability middleware and run() bodies.
+    setActiveCapabilityHost(
+      request,
+      app,
+      registry,
+      isMcpRequest ? "mcp" : "http",
+      options.onAudit,
+      agent,
+      undefined,
+      undefined,
+      holdingWaitUntil(budget, createWaitUntil(init.waitUntil, logWaitUntilFailure)),
+    );
+
+    if (isMcpRequest && agents?.mcp) {
+      return handleMcpRequest({
+        app,
+        capabilities: [],
+        loadCapabilities: () => resolveAppCapabilities(app, registry),
+        context: requestContext,
+        registry,
+        request,
+        url,
+        exposeErrors,
+        mcp: agents.mcp,
+        apiMiddlewareFiles,
+        agents,
+        agent,
+        onAudit: options.onAudit,
+        budget,
+      });
+    }
+
+    if (match) {
+      // Same CSRF stance as pracht's API surface: capability calls may be
+      // session-authenticated POSTs, so cross-origin browser requests are
+      // rejected unless the embedder opted out.
+      if (
+        requireSameOrigin &&
+        request.method.toUpperCase() !== "GET" &&
+        request.method.toUpperCase() !== "HEAD" &&
+        !isSameOriginRequest(request, url)
+      ) {
+        return envelopeResponse(403, {
+          ok: false,
+          error: { code: "cross_origin_blocked", message: "Cross-origin request blocked" },
+        });
+      }
+
+      return handleCapabilityRequest({
+        match,
+        context: requestContext,
+        registry,
+        request,
+        url,
+        pathname: match.httpPath ?? url.pathname,
+        exposeErrors,
+        apiMiddlewareFiles,
+        agents,
+        agent,
+        onAudit: options.onAudit,
+        budget,
+      });
+    }
+
+    // `isMcpRequest` and `match` exhaust the owned paths above.
+    return null;
   };
 
   return {
@@ -327,104 +447,21 @@ export function createCapabilityHost<TContext = Record<string, unknown>>(
         }
       }
 
-      let requestContext: unknown = await resolveContext(request, init.context);
-      let agent: PrachtAgentIdentity | null = null;
-
-      // Web Bot Auth: verify the agent signature once per request when
-      // configured. The result (identity or null) lands on the request
-      // context before middleware or capabilities run.
-      if (agents?.webBotAuth) {
-        if (request.headers.has("signature-input")) {
-          agent = await verifyAgentSignature(request, agents.webBotAuth);
-        }
-        try {
-          const bound = bindAgentContext(requestContext, agent);
-          requestContext = bound;
-          agent = (bound as PrachtContextExtensions).agent ?? null;
-        } catch (error: unknown) {
-          return finalize(
-            new Response(
-              exposeErrors
-                ? `Request context could not carry verified agent identity: ${
-                    error instanceof Error ? error.message : String(error)
-                  }`
-                : "Internal Server Error",
-              { status: 500, headers: { "content-type": "text/plain; charset=utf-8" } },
-            ),
-          );
-        }
+      // One budget per owned request, as a pracht app makes: middleware,
+      // `run()`, composed invocations, and `waitUntil()` work share its signal.
+      const budget = createRequestBudget(request.signal, timeoutMs);
+      let response: Response | null;
+      try {
+        response = await serveOwned(request, url, init, isMcpRequest, match, budget);
+      } catch (error: unknown) {
+        budget.release();
+        throw error;
       }
-
-      // Register the request so `invokeCapability()`-style composition works
-      // from capability middleware and run() bodies.
-      setActiveCapabilityHost(
-        request,
-        app,
-        registry,
-        isMcpRequest ? "mcp" : "http",
-        options.onAudit,
-        agent,
-        undefined,
-        undefined,
-        createWaitUntil(init.waitUntil, logWaitUntilFailure),
-      );
-
-      if (isMcpRequest && agents?.mcp) {
-        const mcpResponse = await handleMcpRequest({
-          app,
-          capabilities: [],
-          loadCapabilities: () => resolveAppCapabilities(app, registry),
-          context: requestContext,
-          registry,
-          request,
-          url,
-          exposeErrors,
-          mcp: agents.mcp,
-          apiMiddlewareFiles,
-          agents,
-          agent,
-          onAudit: options.onAudit,
-        });
-        return finalize(mcpResponse);
+      if (!response) {
+        budget.release();
+        return null;
       }
-
-      if (match) {
-        // Same CSRF stance as pracht's API surface: capability calls may be
-        // session-authenticated POSTs, so cross-origin browser requests are
-        // rejected unless the embedder opted out.
-        if (
-          requireSameOrigin &&
-          request.method.toUpperCase() !== "GET" &&
-          request.method.toUpperCase() !== "HEAD" &&
-          !isSameOriginRequest(request, url)
-        ) {
-          return finalize(
-            envelopeResponse(403, {
-              ok: false,
-              error: { code: "cross_origin_blocked", message: "Cross-origin request blocked" },
-            }),
-          );
-        }
-
-        return finalize(
-          await handleCapabilityRequest({
-            match,
-            context: requestContext,
-            registry,
-            request,
-            url,
-            pathname: match.httpPath ?? url.pathname,
-            exposeErrors,
-            apiMiddlewareFiles,
-            agents,
-            agent,
-            onAudit: options.onAudit,
-          }),
-        );
-      }
-
-      // `isMcpRequest` and `match` exhaust the owned paths above.
-      return null;
+      return finalize(releaseBudgetWith(budget, response));
     },
 
     async invoke<T = unknown>(
@@ -437,6 +474,7 @@ export function createCapabilityHost<TContext = Record<string, unknown>>(
         registry,
         onAudit: options.onAudit,
         waitUntil: createWaitUntil(invokeOptions.waitUntil, logWaitUntilFailure),
+        timeoutMs,
       };
       const request = invokeOptions.request ?? new Request(`${HOST_INVOKE_ORIGIN}/`);
       const context =
@@ -468,6 +506,15 @@ function couldBeCapabilityPath(
     if (typeof path === "string" && normalizeCapabilityHttpPath(path) === normalized) return true;
   }
   return false;
+}
+
+/** Validate the request budget the way `defineApp({ loaderTimeoutMs })` does. */
+function resolveHostTimeoutMs(value: number | undefined): number {
+  if (value === undefined) return CAPABILITY_TIMEOUT_MS;
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) return value;
+  throw new TypeError(
+    `createCapabilityHost({ loaderTimeoutMs }) must be a positive number of milliseconds, received ${JSON.stringify(value)}.`,
+  );
 }
 
 function resolveHostAgents(

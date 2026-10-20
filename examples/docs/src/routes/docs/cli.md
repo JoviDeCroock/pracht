@@ -64,7 +64,7 @@ A failing loader, middleware, or render prints one terminal line — phase, rout
 
 When several dev servers share one checkout, give each its own `--cache-dir` so they do not race on Vite's optimizer cache (default `node_modules/.vite`).
 
-The startup banner prints the resolved app graph: routes with render mode, shell, and middleware; API endpoints with methods; and any [capabilities](/docs/capabilities) with effect class, exposure, and dispatch path. Route and API tables show their first 25 rows, and `pracht inspect routes` lists the rest. The banner prints again after every `routes.ts` edit and whenever the server restarts.
+The startup banner prints the resolved app graph: routes with render mode, shell, and middleware; API endpoints with methods; and any [capabilities](/docs/capabilities) with effect class, exposure, and dispatch path. Route and API tables show their first 25 rows, and `pracht inspect routes` lists the rest. The banner prints again after every `routes.ts` edit and whenever the server restarts. When the app graph cannot be resolved, for example because a route names an unknown shell, the server prints its URLs, the error, and how many routes the manifest defines instead.
 
 ---
 

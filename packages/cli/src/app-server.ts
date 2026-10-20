@@ -21,6 +21,36 @@ interface PrachtPluginWithMetadata {
   };
 }
 
+/**
+ * What the pracht plugin reads statically off the app manifest
+ * (`AnalysisSession.manifest()` in `@pracht/vite-plugin`), as far as the CLI
+ * uses it.
+ */
+export interface PluginManifestFacts {
+  refs: readonly { kind: string; ref: string | null; name?: string }[];
+  complete: boolean;
+  /** Absent from plugins older than the CLI. */
+  ejectedLayout?: boolean;
+  unresolvedImports?: readonly { specifier: string; importer: string }[];
+  error?: string | null;
+}
+
+/** The manifest facts of the resolved pracht plugin, or null when it cannot give them. */
+export function readPluginManifestFacts(
+  plugins: readonly { name?: string; api?: unknown }[],
+): PluginManifestFacts | null {
+  const api = plugins.find((plugin) => plugin.name === "pracht")?.api as
+    | { pracht?: { manifestFacts?: unknown } }
+    | undefined;
+  const read = api?.pracht?.manifestFacts;
+  if (typeof read !== "function") return null;
+  try {
+    return read() as PluginManifestFacts;
+  } catch {
+    return null;
+  }
+}
+
 /** Read the version-compatible metadata exposed by the resolved pracht plugin. */
 export function readBuildLlmsTxtEnabled(
   plugins: readonly PrachtPluginWithMetadata[],
@@ -81,6 +111,7 @@ export async function resolveBuildLlmsTxtEnabled(root: string): Promise<boolean 
 export async function withAppServer<T>(
   root: string,
   fn: (context: AppServerContext) => Promise<T>,
+  options: { onServer?: (server: ViteDevServer) => void } = {},
 ): Promise<T> {
   const project = readProjectConfig(root);
 
@@ -137,6 +168,7 @@ export async function withAppServer<T>(
     } finally {
       releaseStartup();
     }
+    options.onServer?.(server);
 
     // A later startup must not set the process-wide flag while this server is
     // evaluating app metadata, API routes, or capabilities. Shared operation

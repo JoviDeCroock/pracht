@@ -348,10 +348,18 @@ async function fetchAgentDirectory(
   }
 
   let keys: ResolvedAgentKey[] = [];
+  // A cancellable timer rather than a static timeout signal, which would keep
+  // this request's fetch reachable for the whole timeout after it finished.
+  const controller = new AbortController();
+  const timer = setTimeout(
+    () => controller.abort(new DOMException("The operation timed out.", "TimeoutError")),
+    DIRECTORY_FETCH_TIMEOUT_MS,
+  );
+  (timer as { unref?: () => void }).unref?.();
   try {
     const response = await fetchImpl(`${origin}${SIGNATURE_AGENT_DIRECTORY_PATH}`, {
       redirect: "error",
-      signal: AbortSignal.timeout(DIRECTORY_FETCH_TIMEOUT_MS),
+      signal: controller.signal,
       headers: { accept: "application/http-message-signatures-directory+json" },
     });
     if (response.ok) {
@@ -361,6 +369,8 @@ async function fetchAgentDirectory(
     }
   } catch {
     keys = [];
+  } finally {
+    clearTimeout(timer);
   }
 
   directoryCache.set(origin, { keys, expiresAt: Date.now() + cacheTtlSeconds * 1000 });

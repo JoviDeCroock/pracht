@@ -320,6 +320,64 @@ describe("createCapabilityHost invoke()", () => {
   });
 });
 
+describe("createCapabilityHost request budget", () => {
+  // run() waits for its signal and reports why it aborted, so each projection
+  // shows which budget it was handed.
+  const reasons: string[] = [];
+  const waitsForAbort = () =>
+    searchCapability({
+      expose: { http: true, mcp: true },
+      async run({ signal }: { signal: AbortSignal }) {
+        const reason = await new Promise<unknown>((resolve) => {
+          if (signal.aborted) resolve(signal.reason);
+          signal.addEventListener("abort", () => resolve(signal.reason), { once: true });
+        });
+        reasons.push((reason as { name?: string }).name ?? String(reason));
+        return { notes: [] };
+      },
+    });
+  const host = () =>
+    createCapabilityHost({
+      capabilities: { "notes.wait": waitsForAbort() },
+      agents: { mcp: {} },
+      loaderTimeoutMs: 20,
+    });
+
+  afterEach(() => {
+    reasons.length = 0;
+  });
+
+  it("aborts an HTTP dispatch after loaderTimeoutMs", async () => {
+    const response = await host().fetch(post("/api/capabilities/notes/wait", { query: "a" }));
+    expect(response?.status).toBe(200);
+    expect(reasons).toEqual(["TimeoutError"]);
+  });
+
+  it("aborts an MCP tools/call after loaderTimeoutMs", async () => {
+    const response = await host().fetch(mcpCall("notes_wait", { query: "a" }));
+    const body = (await response?.json()) as { result: { isError: boolean } };
+    expect(body.result.isError).toBe(false);
+    expect(reasons).toEqual(["TimeoutError"]);
+  });
+
+  it("aborts invoke() after loaderTimeoutMs when no signal is passed", async () => {
+    await expect(host().invoke("notes.wait", { query: "a" })).resolves.toMatchObject({ ok: true });
+    expect(reasons).toEqual(["TimeoutError"]);
+  });
+
+  it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY, "100"])(
+    "rejects loaderTimeoutMs %s at construction",
+    (value) => {
+      expect(() =>
+        createCapabilityHost({
+          capabilities: { "notes.search": searchCapability() },
+          loaderTimeoutMs: value as number,
+        }),
+      ).toThrow(/createCapabilityHost\(\{ loaderTimeoutMs \}\) must be a positive number/);
+    },
+  );
+});
+
 describe("createCapabilityHost remote MCP", () => {
   const mcpHost = () =>
     createCapabilityHost({

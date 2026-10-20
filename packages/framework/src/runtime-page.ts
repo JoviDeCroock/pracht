@@ -406,7 +406,9 @@ async function runPageLoader<TContext>(
   // preserve their markers until the renderer and hydration channel consume them.
   let data: unknown;
   try {
-    data = job.willStream ? loaderResult : await resolveDeferredData(loaderResult);
+    data = job.willStream
+      ? loaderResult
+      : await resolveDeferredData(loaderResult, () => job.ctx.budget.hold());
   } finally {
     if (loader && timings) timings.loader = performance.now() - loaderStart;
   }
@@ -447,7 +449,7 @@ async function runShellLoader<TContext>(
     result = error;
   }
   if (result instanceof Response) return { response: result };
-  const data = await resolveDeferredData(result);
+  const data = await resolveDeferredData(result, () => job.ctx.budget.hold());
   // Encoded once, here, so a value the browser cannot receive fails as this
   // loader's error instead of while the error page is being rendered. Like
   // route data, it is only checked when it ships: islands and `none` pages

@@ -113,9 +113,9 @@ The budget defaults to 30 seconds; set it app-wide with
 
 One budget covers the whole request: middleware, the loader, the not-found page
 after `notFound()`, any response body still streaming, and `waitUntil` work.
-When a successful request finishes all of it, the budget stops and `signal`
-aborts only on a client disconnect. After an error response, the budget still
-runs out and aborts leftover loader work.
+When a request answers with a success or a 4xx and finishes all of it, the
+budget stops and `signal` aborts only on a client disconnect. After a 5xx
+response, the budget still runs out and aborts leftover work.
 
 - **A loader that ignores `signal` still holds the response** until it
   finishes. Set `defineApp({ enforceLoaderTimeout: true })` to answer with the
@@ -304,7 +304,7 @@ export function ErrorBoundary({ error }: ErrorBoundaryProps) {
 }
 ```
 
-A route boundary catches that route's errors, a shell boundary catches errors from any route in the shell, and anything else reaches the global handler. If a component throws while a client navigation renders and no boundary catches it, the router reloads the page so the server renders it, or its error page, instead of leaving the page blank.
+A route boundary catches that route's errors, a shell boundary catches errors from any route in the shell, and anything else reaches the global handler. If a component throws while a client navigation renders and no boundary catches it, the router reloads the page so the server renders it, or its error page, instead of leaving the page blank. If one throws while the first page hydrates, the server-rendered page stays on screen without interactivity, and the error is reported to the console.
 
 #### Scoping a boundary to a subtree
 

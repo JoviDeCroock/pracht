@@ -8,15 +8,18 @@ import {
   scanTopLevelProperties,
 } from "@pracht/capabilities/static";
 import { evaluateConstraints, matchRoutePath } from "@pracht/core";
-import type { AppGraphRoute } from "@pracht/core";
+import type { Plugin } from "vite";
 
+import { readPluginManifestFacts } from "./app-server.js";
 import {
   GRAPH_SNAPSHOT_PATH,
+  manifestModuleFactsFromPlugin,
   readGraphSnapshotFromDisk,
   resolveLiveGraphMetadata,
   serializeGraphSnapshot,
   type GraphSnapshot,
   type LiveGraphMetadata,
+  type ManifestModuleFacts,
 } from "./graph-snapshot.js";
 import { listFilesRecursively, resolveProjectPath, type ProjectConfig } from "./project.js";
 import { detectAdapterTarget } from "./commands/preview.js";
@@ -24,17 +27,35 @@ import { collectMcpServingChecks } from "./verification-capabilities.js";
 import { createCheck, isModuleSource, type Check } from "./verification-helpers.js";
 import { collectStaticExportChecks } from "./verification-static.js";
 
-const HEAD_EXPORT_RE =
-  /export\s+(?:async\s+)?(?:function|const|let|var)\s+head\b|export\s*\{[^}]*\bhead\b[^}]*\}/;
+/**
+ * A live graph resolution attempt that callers can share across checks. A
+ * failed one still carries the pracht plugin's static manifest facts when the
+ * Vite config itself loaded.
+ */
+export type LiveGraphResult =
+  | { metadata: LiveGraphMetadata }
+  | { error: string; manifest?: ManifestModuleFacts };
 
-/** A live graph resolution attempt that callers can share across checks. */
-export type LiveGraphResult = { metadata: LiveGraphMetadata } | { error: string };
-
-export async function tryResolveLiveGraph(root: string): Promise<LiveGraphResult> {
+export async function tryResolveLiveGraph(
+  root: string,
+  manifestPath?: string,
+): Promise<LiveGraphResult> {
+  let plugins: readonly Plugin[] | undefined;
   try {
-    return { metadata: await resolveLiveGraphMetadata(root) };
+    const metadata = await resolveLiveGraphMetadata(root, {
+      onServer: (server) => (plugins = server.config.plugins),
+    });
+    // The resolved app does not say whether the manifest is an ejected pages
+    // layout; the plugin's facts do.
+    const ejectedLayout = plugins ? readPluginManifestFacts(plugins)?.ejectedLayout : undefined;
+    if (typeof ejectedLayout === "boolean") metadata.manifest.ejectedLayout = ejectedLayout;
+    return { metadata };
   } catch (error) {
-    return { error: error instanceof Error ? error.message : String(error) };
+    const facts = plugins ? readPluginManifestFacts(plugins) : null;
+    return {
+      error: error instanceof Error ? error.message : String(error),
+      ...(facts ? { manifest: manifestModuleFactsFromPlugin(facts, manifestPath) } : {}),
+    };
   }
 }
 
@@ -124,7 +145,7 @@ export async function collectGraphChecks(
   collectMcpRouteCollisionChecks(live, checks);
   collectWebmcpRouteChecks(live, checks);
   collectStaticExportChecks(live, checks, { loaderRoutePaths, staticTarget });
-  collectConstraintChecks(project, live, checks);
+  collectConstraintChecks(live, checks, result.metadata.headlessRoutePaths);
   collectSnapshotChecks(project, live, checks, snapshotExists);
 }
 
@@ -281,15 +302,17 @@ function projectDeclaresApiRoutes(project: ProjectConfig): boolean {
 }
 
 function collectConstraintChecks(
-  project: ProjectConfig,
   live: GraphSnapshot,
   checks: Check[],
+  headlessRoutePaths: ReadonlySet<string>,
 ): void {
   const constraints = live.constraints;
   if (constraints.length === 0) return;
 
+  // The build's own head hints decide it: a route with no `head()`, in its
+  // module or its shell, is one the hints marked headless.
   const violations = evaluateConstraints(live.routes, constraints, {
-    routeHasHead: (route) => routeHasHeadExport(project, route as AppGraphRoute),
+    routeHasHead: (route) => !headlessRoutePaths.has(route.path),
   });
 
   if (violations.length === 0) {
@@ -393,42 +416,4 @@ function manifestDeclaresAgents(project: ProjectConfig): boolean {
     (scanTopLevelProperties(appBody).has("agents") ||
       /\bagents\b/.test(maskCommentsAndStrings(appBody)))
   );
-}
-
-/**
- * Whether the route module (or its shell) exports `head()`. Returns undefined
- * when the sources cannot be read, which skips the route.
- */
-function routeHasHeadExport(project: ProjectConfig, route: AppGraphRoute): boolean | undefined {
-  const routeSource = readModuleSource(project, route.file);
-  if (routeSource === null) return undefined;
-  if (HEAD_EXPORT_RE.test(routeSource)) return true;
-
-  if (route.shellFile) {
-    const shellSource = readModuleSource(project, route.shellFile);
-    if (shellSource === null) return undefined;
-    return HEAD_EXPORT_RE.test(shellSource);
-  }
-
-  return false;
-}
-
-function readModuleSource(project: ProjectConfig, file: string): string | null {
-  try {
-    return readFileSync(resolveModuleFile(project, file), "utf-8");
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Manifest module refs are relative to the manifest file ("./routes/home.tsx");
- * pages-router and virtual-module refs are app-absolute ("/src/pages/index.tsx").
- */
-function resolveModuleFile(project: ProjectConfig, file: string): string {
-  if (file.startsWith("./") || file.startsWith("../")) {
-    const manifestPath = resolveProjectPath(project.root, project.appFile);
-    return resolve(dirname(manifestPath), file);
-  }
-  return resolveProjectPath(project.root, file);
 }

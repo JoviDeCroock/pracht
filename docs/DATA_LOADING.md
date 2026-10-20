@@ -263,24 +263,35 @@ pipeline and the prerendering rules.
 `signal` composes two independent reasons to stop: the request's own
 `AbortSignal` (the client went away) and a server-side budget. The budget
 defaults to 30 seconds and is set app-wide with `defineApp({ loaderTimeoutMs })`.
-It is one budget per request (`createRequestBudget` in `runtime-request.ts`) —
-the middleware chain, the loader, and the not-found render that follows a
-thrown `notFound()` all share it, so a 404 page cannot mint itself a fresh 30
-seconds on top of a loader that already spent them. The timer runs only while
-work can still read the signal: the pipeline holds the budget until it has a
-response, a streamed document until its body ends, and each `waitUntil` promise
-until it settles. `releaseBudgetWith` hands the pipeline's hold to an app-built
-body (a proxied stream from a handler, loader, or middleware) until that body is
-read, errors, or is cancelled, and a 4xx/5xx response keeps the hold, so work a
-failed loader left behind (a sibling of the deferred field that threw) still
-times out. Neither applies when no code read `signal`, because then there is no
-timer. When the last hold is released the timer is cleared; a timer
-left to run out kept every finished request's signal and listener closures
-reachable for the whole budget (about 2 KB per request, 22 KB with a listener).
+It is one budget per request (`createRequestBudget` in
+`@pracht/capabilities/server/internal`, `capabilities/src/server/request-budget.ts`)
+— the middleware chain, the loader, the not-found render that follows a thrown
+`notFound()`, and any capability the request dispatches all share it, so a 404
+page cannot mint itself a fresh 30 seconds on top of a loader that already
+spent them. It lives in the capabilities package because core already imports
+its request plumbing from there, and a standalone capability host needs the
+same budget. The timer runs only while work can still read the signal: the
+pipeline holds the budget until it has a response, a streamed document until
+its body ends, each pending deferred field and each `waitUntil` promise until it
+settles. `releaseBudgetWith` hands the pipeline's hold to an app-built body (a
+proxied stream from a handler, loader, or middleware) through
+`holdUntilBodySettles` until that body is read, errors, or is cancelled. A 5xx
+response keeps the hold until the timer fires (`failureKeepsBudget`), so work a
+failure abandoned (the sibling of a call that threw inside `Promise.all`) still
+times out; a 4xx is a deliberate answer and releases. Neither applies when no
+code read `signal`, because then there is no timer. When the last hold is
+released the timer is cleared; a timer left to run out kept every finished
+request's signal and listener closures reachable for the whole budget (about
+2 KB per request, 22 KB with a listener). `bench/budget-probe.mjs` measures it.
 The signal is composed by hand — one `AbortController`, a cancellable
 `setTimeout`, and a listener on `request.signal` that stays wired for the
-request's lifetime — because `AbortSignal.timeout` cannot be cancelled and an
-`AbortSignal.any` composite with a listener stays alive until a source aborts.
+request's lifetime — because a static timeout signal cannot be cancelled and a
+composite signal with a listener stays alive until a source aborts.
+`request-budget-seam.test.ts` bans both helpers, any second budget, and a
+hand-rolled `new AbortController()` aborted from a `setTimeout`, from
+`framework/src`, `capabilities/src/server` and every adapter. Its one exception,
+the signature-agent directory fetch, is cached across requests and so is not
+request work.
 
 Prerendering runs loaders through the same pipeline, so `loaderTimeoutMs`
 bounds SSG/ISG builds too. A budget tuned down for an edge runtime fails the
@@ -780,8 +791,13 @@ render or layout-effect error thrown while a client navigation commits
 (`afterCommitCallback` still pending): it reports the error with
 `reportError()`, renders nothing for that route version, and reloads the
 document, which the server renders or answers with its error page. Errors
-during hydration or any later update propagate as before, so the reload cannot
-loop. A static host's SPA-fallback boot is excluded (a reload would serve the
+during any later update propagate as before, so the reload cannot loop. One
+that escapes the initial `hydrate()` call (synchronously, so a Suspense
+boundary resolving later is not covered) would leave `#pracht-root` empty,
+because Preact removes the DOM it had not claimed yet: `initClientRouter`
+snapshots `root.innerHTML` before hydrating, puts it back, reports the error
+(`reportError()`, plus an explanatory `console.error` in dev) and returns
+without installing the router, so links and forms work as plain HTML. A static host's SPA-fallback boot is excluded (a reload would serve the
 same fallback), and the wrapper is unkeyed and clears on the next route version
 (a cancelled `beforeunload` leaves the page usable).
 
@@ -1388,7 +1404,7 @@ const blocker = useBlocker(
 ```
 
 **Where the guard runs.** `<Link>` clicks and `useNavigate()` calls are checked
-at the top of the router's `navigate()`, before `latestNavigationId` moves — a
+at the top of the router's `navigate()`, before it aborts the live navigation — a
 guard that ran later would cancel the page already on screen in order to refuse
 the one replacing it. Back/forward traversals are checked in the `popstate`
 handler instead, because by then the URL has already changed and refusing means

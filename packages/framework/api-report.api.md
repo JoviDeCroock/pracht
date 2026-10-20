@@ -253,6 +253,7 @@ RouteSearchFor: type
 RouteSearchInput: type
 RouteSearchOutput: type
 RouteSearchOutputFor: type
+RouteSegment: type
 RouteStateResult: type
 RouteTarget: type
 RouteTreeNode: type
@@ -370,6 +371,7 @@ mcpResourceMetadataUrl: function
 normalizeResponseHeaders: function
 normalizeRouteRevalidate: function
 notFound: function
+parseRouteSegments: function
 planMarkdownFiles: function
 prefetch: const
 prerenderApp: function
@@ -608,6 +610,7 @@ RouteSearchFor: type
 RouteSearchInput: type
 RouteSearchOutput: type
 RouteSearchOutputFor: type
+RouteSegment: type
 RouteStateResult: type
 RouteTarget: type
 RouteTreeNode: type
@@ -679,6 +682,7 @@ matchAppRoute: function
 matchRoutePath: function
 matchRoutePattern: function
 notFound: function
+parseRouteSegments: function
 parseSafeNavigationUrl: function
 prefetch: const
 publicEnv: const
@@ -716,6 +720,25 @@ useWebVitals: function
 validateStandardSchema: function
 webhookRevalidate: function
 withBase: function
+```
+
+## `@pracht/core/adapter`
+
+Source: `packages/framework/src/adapter.ts`
+
+```text
+PRACHT_BUILD_ID_ENV: const @internal
+PrachtAdapter: interface
+PrachtAdapterBuildContext: interface
+PrachtAdapterDevOptions: interface
+PrachtAdapterDevRequest: interface
+PrachtServerEntry: interface
+PrachtServerEntryFeatures: interface
+PrachtServerEntryModuleContext: interface
+ReadServerEntryOptions: interface
+SERVER_ENTRY_CONTRACT: const
+createBuildId: function @internal
+readServerEntry: function
 ```
 
 ## `@pracht/core/agent-auth`
@@ -950,6 +973,8 @@ HrefRouteDefinition: interface
 HttpMethod: type
 HydrationMode: type
 ISGManifestEntry: interface
+ISGSnapshot: interface
+ISGSnapshotRejection: interface
 InvokeCapabilityContext: interface
 IslandCapture: interface
 IslandCaptureContext: const
@@ -1038,6 +1063,7 @@ RouteSearchFor: type
 RouteSearchInput: type
 RouteSearchOutput: type
 RouteSearchOutputFor: type
+RouteSegment: type
 RouteTarget: type
 RouteTreeNode: type
 STATIC_STATE_PREFIX: const
@@ -1063,6 +1089,10 @@ SqlApprovalStoreDialect: type
 SqlApprovalStoreExecute: type
 SqlApprovalStoreOptions: interface
 SqlApprovalStoreResult: interface
+StaticByteRange: type
+StaticPathCandidateOptions: interface
+StaticPathDecodeFailure: type
+StaticPathDecodeResult: type
 TRAILING_SLASH: const
 TimeRevalidatePolicy: interface
 TypedJsonResponse: interface
@@ -1078,6 +1108,7 @@ apiValidationErrorResponse: function
 applyDefaultSecurityHeaders: function
 applyHeadersManifest: function
 applyTrailingSlash: function
+assertHumanApprovalIdentity: function
 buildAppGraph: function
 buildHref: function
 buildLlmsTxt: function
@@ -1085,6 +1116,7 @@ buildPathFromSegments: function
 buildStaticFallbackHtml: function
 buildStaticRouteStateUrl: function
 capabilityHttpPath: function
+captureISGSnapshot: function
 classifyRevalidationSkip: function
 clearCapabilityAuditListeners: function
 createBaseRedirectResponse: function @internal
@@ -1097,6 +1129,8 @@ createRevalidationSingleFlight: function
 createSqlApprovalStore: function
 createTrailingSlashRedirectResponse: function @internal
 createWaitUntilTracker: function
+decodeISGSnapshot: function
+decodeStaticPath: function
 defineApi: function
 defineApp: function
 describeRenderError: function
@@ -1104,6 +1138,7 @@ destructiveMcpPreconditionErrors: function
 detectApiExports: function
 detectApiExportsStatic: function
 detectApiMethods: function
+encodeISGSnapshot: function
 expandHeadersManifest: function
 filterPublicEnv: function
 formDataToRecord: function
@@ -1118,10 +1153,13 @@ isApiValidationErrorBody: function
 isAuthorizedRevalidationRequest: function
 isCacheableISGResponse: function
 isDangerousPrerenderHeader: function
+isISGSnapshotRejection: function
 isMcpResourceMetadataPath: function
 isProtocolSwitchResponse: function
 isStreamingHtmlResponse: function
 isUpgradeRequest: function
+isgCacheKeyPath: function
+isgPathKey: function
 json: function
 jsonResponse: function
 loadMcpTokenVerifier: function
@@ -1134,6 +1172,7 @@ mcpResourceMetadataPath: function
 normalizeResponseHeaders: function
 normalizeRouteRevalidate: function
 notFound: function
+parseRouteSegments: function
 prefersMarkdown: function
 prerenderApp: function
 prerenderMarkdown: function
@@ -1158,6 +1197,7 @@ serializeApiRoutesStatic: function
 serializeAppRoutes: function
 serializeCapabilities: function
 serializeEventStreamMessage: function
+serveISGSnapshot: function
 setCapabilityApprovalPrincipalResolver: const
 setCapabilityApprovalStore: function
 setCapabilityAuditHook: function
@@ -1166,7 +1206,11 @@ setIslandsClientEntryUrl: function
 setServerEnv: function
 setServerIslandsClientEntryUrl: function
 shareHeadersManifest: function
+staticByteRange: function
+staticContentType: function
+staticPathCandidates: function
 stripBase: function
+stripISGSecretHeaders: function
 timeRevalidate: function
 useServerIslandData: function
 validateIslandProps: function

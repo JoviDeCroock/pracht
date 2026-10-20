@@ -1,3 +1,5 @@
+import { parseRouteSegments } from "@pracht/core";
+
 import { quote } from "../utils.js";
 import { dynamicParamNames, titleCase } from "./generate-paths.js";
 
@@ -192,17 +194,11 @@ export function buildRouteSmokeTestSource({
 /** Substitute example values for dynamic segments, matching the getStaticPaths stub. */
 function exampleVisitPath(routePath: string): string {
   if (routePath === "/") return "/";
-  const segments = routePath
-    .split("/")
-    .filter(Boolean)
-    .map((segment) => {
-      if (segment === "*") return "example-slug";
-      if (segment.startsWith(":")) {
-        const name = segment.endsWith("*") ? segment.slice(1, -1) : segment.slice(1);
-        return `example-${name || "slug"}`;
-      }
-      return segment;
-    });
+  const segments = parseRouteSegments(routePath).map((segment) => {
+    if (segment.type === "static") return segment.value;
+    const name = segment.name === "*" ? "" : segment.name;
+    return `example-${name || "slug"}`;
+  });
   return `/${segments.join("/")}`;
 }
 

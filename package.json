@@ -29,6 +29,7 @@
     "bench:update": "node ./bench/run.mjs --bytes-only --update",
     "api:update": "node ./packages/framework/scripts/api-report.ts --update",
     "pack:smoke": "node ./scripts/pack-smoke.mjs",
+    "pack:upgrade": "node ./scripts/pack-upgrade.mjs",
     "dev:example": "cd examples/cloudflare && node ../../packages/cli/bin/pracht.js dev",
     "build:example": "cd examples/cloudflare && node ../../packages/cli/bin/pracht.js build"
   },

@@ -1,5 +1,6 @@
 import { defineCommand } from "citty";
 
+import { handleCliError } from "../utils.js";
 import { runVerification } from "../verification.js";
 import webmcpCommand from "./verify-webmcp.js";
 
@@ -25,7 +26,12 @@ export default defineCommand({
     // Citty runs the parent command after a nested command. The WebMCP child
     // owns its own output and exit status, so do not append static verify.
     if (args._?.[0] === "webmcp") return;
-    const report = await runVerification(process.cwd(), { changed: Boolean(args.changed) });
+    let report: Awaited<ReturnType<typeof runVerification>>;
+    try {
+      report = await runVerification(process.cwd(), { changed: Boolean(args.changed) });
+    } catch (error) {
+      handleCliError(error, { json: Boolean(args.json) });
+    }
 
     if (args.json) {
       console.log(JSON.stringify(report, null, 2));

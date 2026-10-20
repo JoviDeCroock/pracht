@@ -95,6 +95,8 @@ Requests without any of those headers â€” curl, server-to-server calls, tests â€
 
 **WebSocket upgrade requests get the same check**, even though they are `GET`, because browsers do not apply CORS to WebSockets.
 
+To answer a CORS preflight yourself, export an `OPTIONS` handler from the route. It runs for every origin, in `pracht dev` as in production, while the cross-origin `POST` it allows still meets the check unless you opt out below.
+
 Turn it off with `requireSameOrigin` on the API config:
 
 ```ts [src/routes.ts]

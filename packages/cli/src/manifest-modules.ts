@@ -1,27 +1,15 @@
 import { resolveRegistryModule } from "@pracht/core";
+import type { PrachtServerEntry } from "@pracht/core/adapter";
 
 type ModuleMap = Record<string, () => Promise<unknown>>;
 
-interface ManifestRouteRecord {
+/** The parts of a route record the module check reads. */
+interface ManifestModuleRefs {
   id?: string;
   path?: string;
   file?: string;
   shellFile?: string;
   middlewareFiles?: string[];
-}
-
-interface ServerModuleShape {
-  resolvedApp?: {
-    routes?: ManifestRouteRecord[];
-    notFound?: ManifestRouteRecord;
-    middleware?: Record<string, string>;
-    api?: { middleware?: string[] };
-  };
-  registry?: {
-    routeModules?: ModuleMap;
-    shellModules?: ModuleMap;
-    middlewareModules?: ModuleMap;
-  };
 }
 
 /**
@@ -40,9 +28,9 @@ async function registryHas(modules: ModuleMap | undefined, file: string): Promis
  * Every one of them fails each request that reaches it.
  */
 export async function findUnresolvedManifestModules(
-  serverModule: ServerModuleShape,
+  serverModule: Pick<PrachtServerEntry, "resolvedApp" | "registry">,
 ): Promise<string[]> {
-  const registry = serverModule.registry;
+  const registry = serverModule.registry as Record<string, ModuleMap | undefined> | undefined;
   const app = serverModule.resolvedApp;
   if (!registry || !app) return [];
 
@@ -57,7 +45,7 @@ export async function findUnresolvedManifestModules(
     problems.push(`${label}: ${kind} ${JSON.stringify(file)}`);
   };
 
-  const records: Array<[string, ManifestRouteRecord]> = (app.routes ?? []).map((route) => [
+  const records: Array<[string, ManifestModuleRefs]> = (app.routes ?? []).map((route) => [
     `route ${JSON.stringify(route.id ?? route.path)} (${route.path})`,
     route,
   ]);

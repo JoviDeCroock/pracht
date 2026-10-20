@@ -1,11 +1,20 @@
-import type { IncomingMessage } from "node:http";
+import type { IncomingMessage, ServerResponse } from "node:http";
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createISGRegenerationRequest } from "../src/node-isg.ts";
-import { createWebRequest } from "../src/node-request.ts";
+import { createWebRequest as createBridgeRequest } from "../src/bridge.ts";
+
+async function createWebRequest(
+  req: IncomingMessage,
+  options: { canonicalOrigin?: string; trustProxy?: boolean },
+): Promise<Request> {
+  const request = await createBridgeRequest(req, {} as ServerResponse, options);
+  if (!(request instanceof Request)) throw new Error(`unexpected ${request.status}`);
+  return request;
+}
 import { resolveStaticFile } from "../src/node-static.ts";
 
 const tempDirs: string[] = [];
