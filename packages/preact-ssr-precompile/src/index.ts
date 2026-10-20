@@ -7,6 +7,8 @@ import {
   type RolldownString,
 } from "rolldown-string";
 
+import { decodeJsxEntities } from "./jsx-entities.ts";
+
 type FilterPattern = string | RegExp | ReadonlyArray<string | RegExp>;
 
 type NodeLike = {
@@ -312,7 +314,7 @@ class TransformContext {
     }
 
     if (value.type === "Literal") {
-      this.appendStaticAttribute(strings, attrName, value.value);
+      this.appendStaticAttribute(strings, attrName, decodeJsxEntities(String(value.value ?? "")));
       return;
     }
 
@@ -450,7 +452,7 @@ class TransformContext {
     if (!value) return "true";
 
     if (value.type === "Literal") {
-      return JSON.stringify(String(value.value ?? ""));
+      return JSON.stringify(decodeJsxEntities(String(value.value ?? "")));
     }
 
     if (value.type === "JSXExpressionContainer") {
@@ -605,7 +607,7 @@ function jsxTextToString(value: string, escape: boolean): string {
     if (index < lines.length - 1) line = line.trimEnd();
     if (line === "") continue;
     if (index > 0 && text !== "") text += " ";
-    text += line;
+    text += decodeJsxEntities(line);
   }
 
   return escape ? encodeEntities(text) : text;

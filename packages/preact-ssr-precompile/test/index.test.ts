@@ -402,6 +402,47 @@ export function view(props) {
     });
   });
 
+  it("keeps trailing whitespace on a component's last text child", async () => {
+    const source = `
+const Label = (props) => props.children;
+
+export function view(props) {
+  return (
+    <p>
+      <Label>{props.label} </Label>
+      {props.value}
+    </p>
+  );
+}
+`;
+
+    await expectPrecompiledRenderMatches(source, [{ label: "Phone", value: "123" }], {
+      expectedHtml: ["<p>Phone 123</p>"],
+    });
+  });
+
+  it("decodes HTML entities in JSX text and attribute strings", async () => {
+    const source = `
+const Label = (props) => <b title={props.title}>{props.children}</b>;
+
+export function view() {
+  return (
+    <p title="A &amp; B &quot;q&quot;">
+      A &amp; B&nbsp;&copy; &#169; &#x41; &lt;i&gt;
+      <Label title="&lt;x&gt; &amp;">C &amp; D</Label>
+      &bogus; &#X41; &#xD800; &amp &a&amp; &check;
+    </p>
+  );
+}
+`;
+
+    await expectPrecompiledRenderMatches(source, [{}], {
+      expectedHtml: [
+        '<p title="A &amp; B &quot;q&quot;">A &amp; B © © A &lt;i><b title="&lt;x> &amp;">C &amp; D</b>&amp;bogus; &amp;#X41; &amp;#xD800; &amp;amp &amp;a&amp; &amp;check;</p>',
+      ],
+    });
+  });
+
   it("honors upstream skip element and dynamic prop options", async () => {
     const source = `
 export function view(props) {
