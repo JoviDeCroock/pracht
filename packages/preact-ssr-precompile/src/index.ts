@@ -210,7 +210,7 @@ class TransformContext {
     if (node.type === "JSXFragment") {
       const strings = [""];
       const dynamics: string[] = [];
-      this.serializeChildrenToTemplate(getNodeArray(node.children), strings, dynamics, false);
+      this.serializeChildrenToTemplate(getNodeArray(node.children), strings, dynamics);
       return this.genTemplate(strings, dynamics);
     }
 
@@ -285,7 +285,7 @@ class TransformContext {
     }
 
     strings[strings.length - 1] += ">";
-    this.serializeChildrenToTemplate(children, strings, dynamics, true);
+    this.serializeChildrenToTemplate(children, strings, dynamics);
     strings[strings.length - 1] += `</${tagName}>`;
   }
 
@@ -340,15 +340,10 @@ class TransformContext {
     children: NodeLike[],
     strings: string[],
     dynamics: string[],
-    isParentSerializable: boolean,
   ): void {
-    for (const [index, child] of children.entries()) {
+    for (const child of children) {
       if (child.type === "JSXText") {
-        const text = jsxTextToString(
-          String(child.value ?? ""),
-          true,
-          isParentSerializable && index === children.length - 1,
-        );
+        const text = jsxTextToString(String(child.value ?? ""), true);
         strings[strings.length - 1] += text;
         continue;
       }
@@ -375,7 +370,7 @@ class TransformContext {
       }
 
       if (child.type === "JSXFragment") {
-        this.serializeChildrenToTemplate(getNodeArray(child.children), strings, dynamics, false);
+        this.serializeChildrenToTemplate(getNodeArray(child.children), strings, dynamics);
       }
     }
   }
@@ -425,13 +420,9 @@ class TransformContext {
   private serializeChildrenToExpression(children: NodeLike[]): string | null {
     const values: string[] = [];
 
-    for (const [index, child] of children.entries()) {
+    for (const child of children) {
       if (child.type === "JSXText") {
-        const text = jsxTextToString(
-          String(child.value ?? ""),
-          false,
-          index === children.length - 1,
-        );
+        const text = jsxTextToString(String(child.value ?? ""), false);
         if (text !== "") values.push(JSON.stringify(text));
         continue;
       }
@@ -605,13 +596,13 @@ function objectPropertyKey(name: string): string {
   return IDENTIFIER_NAME.test(name) ? name : JSON.stringify(name);
 }
 
-function jsxTextToString(value: string, escape: boolean, trimLastChild: boolean): string {
+function jsxTextToString(value: string, escape: boolean): string {
   let text = "";
   const lines = value.split(/\r\n|\r|\n/);
 
   for (const [index, originalLine] of lines.entries()) {
     let line = index === 0 ? originalLine : originalLine.trimStart();
-    if (index < lines.length - 1 || trimLastChild) line = line.trimEnd();
+    if (index < lines.length - 1) line = line.trimEnd();
     if (line === "") continue;
     if (index > 0 && text !== "") text += " ";
     text += line;

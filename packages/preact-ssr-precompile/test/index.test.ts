@@ -385,6 +385,23 @@ export function view(props) {
     });
   });
 
+  it("keeps trailing whitespace on the last text child", async () => {
+    const source = `
+export function view(props) {
+  return (
+    <p>
+      <span>{props.label} </span>
+      {props.value}
+    </p>
+  );
+}
+`;
+
+    await expectPrecompiledRenderMatches(source, [{ label: "Phone", value: "123" }], {
+      expectedHtml: ["<p><span>Phone </span>123</p>"],
+    });
+  });
+
   it("honors upstream skip element and dynamic prop options", async () => {
     const source = `
 export function view(props) {
