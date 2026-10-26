@@ -660,8 +660,13 @@ function assertKnownMetaKeys(meta: object, allowed: string[], context: string): 
 function validateAgentsConfig(agents: PrachtAgentsConfig | undefined): void {
   // Only reachable when the manifest carries an `agents` config, which is
   // exactly what `__PRACHT_AGENT_SURFACE__: false` proves absent — so the
-  // validator leaves the bundle of an app that configures no agents.
-  if (typeof __PRACHT_AGENT_SURFACE__ === "undefined" || __PRACHT_AGENT_SURFACE__) {
+  // validator leaves the bundle of an app that configures no agents. The
+  // browser copy of the manifest never carries one, so it leaves every client
+  // bundle too.
+  if (
+    VALIDATE_META_KEYS &&
+    (typeof __PRACHT_AGENT_SURFACE__ === "undefined" || __PRACHT_AGENT_SURFACE__)
+  ) {
     validateAgentsConfigShared(agents, {
       label: (path) => `defineApp({ ${path} })`,
       resolvePublicEndpoint: (endpoint) => withBase(endpoint),

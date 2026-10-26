@@ -100,7 +100,7 @@ import {
   withAdditionalExtensions,
 } from "./route-extensions.ts";
 import type { PrachtAdapter } from "./plugin-adapter.ts";
-import { getAnalysisSession } from "./analysis.ts";
+import { getAnalysisSession, stripServerOnlyAppKeys } from "./analysis.ts";
 import { stringifyLazyModuleRefs } from "./lazy-module-refs.ts";
 import { toPosixPath } from "./module-id.ts";
 import type { RouteHints } from "./route-loader-hints.ts";
@@ -656,7 +656,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       return null;
     },
 
-    transform(code, id) {
+    transform(code, id, transformOptions) {
       // Transform () => import("./path") to "./path" in the files that declare
       // module refs. This lets users write import() for IDE click-to-navigate
       // while keeping the framework's string-based file resolution intact —
@@ -682,8 +682,14 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       // Only the app manifest is narrowed to `@pracht/core/manifest`; the config
       // file and the manifest's own imports are ordinary application code and
       // may import whatever they need.
+      // The browser copy of the manifest drops `agents` and `constraints`,
+      // which only the server reads, as the pages router's client manifest does.
       const transformed = isAppFile
-        ? rewriteManifestCoreImports(withStringModuleRefs)
+        ? rewriteManifestCoreImports(
+            transformOptions?.ssr
+              ? withStringModuleRefs
+              : stripServerOnlyAppKeys(withStringModuleRefs, id),
+          )
         : withStringModuleRefs;
       if (transformed === code) return null;
       return { code: transformed, map: null };
