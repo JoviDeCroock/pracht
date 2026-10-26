@@ -6,6 +6,7 @@
  * supported `@pracht/capabilities/server` API.
  */
 export * from "./server/index.ts";
+export { decodeBody, MAX_CAPABILITY_BODY_BYTES, readBoundedBody } from "./server/body.ts";
 export {
   createRequestBudget,
   holdingWaitUntil,

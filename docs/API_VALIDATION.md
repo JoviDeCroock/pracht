@@ -117,12 +117,20 @@ Invalid requests never reach the handler. The route answers with a
 standardized JSON body:
 
 ```json
-// HTTP 422 (schema rejected) or 400 (unparseable body)
+// HTTP 422 (schema rejected), 400 (unparseable body), or 413 (body too large)
 {
   "error": "validation",
   "issues": [{ "in": "body", "path": ["name"], "message": "Required" }]
 }
 ```
+
+The body is read through the bounded reader the capability transports use
+(`readBoundedBody` from `@pracht/capabilities/server/internal`), capped at
+`defineApi({ maxBodySize })` bytes (default 1 MiB): a declared
+`Content-Length` over the cap is refused unread, and a stream is counted as it
+arrives. Node and `pracht dev` already cap bodies before the runtime, but edge
+adapters pass the stream through unbounded, so this is the only cap there. The
+ISG revalidation webhook reads its JSON body the same way, at the default cap.
 
 `in` is `"body"`, `"query"`, or `"params"`. Query and params issues from the
 same request are reported together. `isApiValidationErrorBody(value)` type
