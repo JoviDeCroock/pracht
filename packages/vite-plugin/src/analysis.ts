@@ -675,6 +675,56 @@ function readAppRoot(
   };
 }
 
+/** `defineApp()` keys only the server reads; the pages router's client manifest omits them too. */
+const SERVER_ONLY_APP_KEYS = new Set(["agents", "constraints"]);
+
+/**
+ * The browser copy of the app manifest: `code` without the `defineApp({ … })`
+ * keys only the server reads, so trust config and MCP metadata — and any import
+ * used only by them — stay out of client bundles. The object is found as
+ * `root` is; a spread or computed key is left as written, and so is code that
+ * does not parse, since the removal only saves bytes.
+ */
+export function stripServerOnlyAppKeys(code: string, id: string): string {
+  if (!/\b(?:agents|constraints)\b/.test(code)) return code;
+  let program: StaticNode;
+  try {
+    program = parseAst(code, { lang: getRolldownLang(id) }) as unknown as StaticNode;
+  } catch {
+    return code;
+  }
+  const app = findAppObject(program);
+  if (!app) return code;
+
+  const properties = (Array.isArray(app.properties) ? app.properties : []).map(asStaticNode);
+  const removals: [number, number][] = [];
+  properties.forEach((node, index) => {
+    if (
+      (node?.type !== "Property" && node?.type !== "ObjectProperty") ||
+      node.computed === true ||
+      !SERVER_ONLY_APP_KEYS.has(getStaticName(asStaticNode(node.key)) ?? "")
+    ) {
+      return;
+    }
+    const start = node.start as number;
+    const next = properties[index + 1];
+    if (next) {
+      removals.push([start, next.start as number]);
+      return;
+    }
+    // The last property takes its trailing comma with it, if it has one.
+    let end = node.end as number;
+    while (/\s/.test(code[end] ?? "")) end += 1;
+    removals.push([start, code[end] === "," ? end + 1 : (node.end as number)]);
+  });
+
+  let result = code;
+  for (const [start, end] of removals.reverse()) {
+    result = result.slice(0, start) + result.slice(end);
+  }
+  return result;
+}
+
 function findAppObject(program: StaticNode): StaticNode | null {
   const statements = (Array.isArray(program.body) ? program.body : [])
     .map(asStaticNode)

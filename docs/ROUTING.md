@@ -796,6 +796,16 @@ stays out of `dist/client` — as does a shared module kept under `src/routes/`,
 which is still imported by the route that uses it rather than becoming an entry
 of its own.
 
+The manifest itself is imported by the client entry, so its browser copy drops
+the two `defineApp()` keys only the server reads, `agents` and `constraints`,
+as the pages router's client manifest does (`stripServerOnlyAppKeys()` in
+`analysis.ts`, applied by the non-SSR transform of the app file). It finds the
+`defineApp({ … })` object the way `root` is found; a spread or computed key is
+left as written.
+An import used only by a removed key is then tree-shaken, and the agents
+validator in `resolveApp()` is compiled out of client bundles because it can
+never see a config there.
+
 Refs are read out of the manifest file and the local modules it imports
 (followed up to 64 modules; every ref resolves against the manifest's
 directory, wherever it is written). When one could live somewhere the scan does
