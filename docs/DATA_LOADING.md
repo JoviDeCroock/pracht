@@ -674,6 +674,26 @@ runs (lifecycle callbacks are read once, at definition), and appends
 only runs once the parser has finished the element before it, so the original
 callback, and its frame-delayed swap, starts with the island complete.
 
+The renderer cannot be trusted with shell errors. It renders the children of
+a class error boundary without its streaming state, so a `<Suspense>` under an
+`<ErrorBoundary>` throws its promise to the top. And a shell that throws after
+one boundary suspended errors the renderer's stream while that boundary is
+pending; when it settles the renderer writes into the errored stream from a
+promise nobody observes, which ends a Node process. `streamed-shell.ts`
+therefore catches errors itself while the shell renders (synchronously, inside
+`renderToReadableStream()`), through Preact's `options.__e` hook, which the
+renderer calls for every component that throws. During that render an
+`ErrorBoundary` instance drops its `componentDidCatch` and renders its children
+into a catch slot followed by a fallback slot. The hook rethrows an error up to
+the nearest slot and records it there, and the fallback slot renders the
+boundary's fallback. The shell root is a slot too, which also catches a promise
+thrown outside every `<Suspense>`. A root error is thrown from
+`streamingHtmlResponse()` so the caller renders the normal error document, and
+the renderer's stream is drained in the background so boundaries that already
+suspended write into an open stream. Deferred values collected by
+`serializeDeferred()` are observed as they are created, because the stream
+subscribes to them only after the first flush.
+
 Streaming is rejected at manifest-resolution time for any other combination:
 `ssg` and `isg` write files, and a `hydration` other than `"full"` ships no
 client runtime to resume a boundary with.

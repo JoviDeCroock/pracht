@@ -3,6 +3,7 @@ import { Component, h } from "preact";
 import { describe, expect, it } from "vitest";
 
 import {
+  ErrorBoundary,
   Script,
   Suspense,
   defer,
@@ -54,6 +55,25 @@ function streamingRoute(delayMs = 10) {
   });
 }
 
+function Boom(): never {
+  throw new Error("boom");
+}
+
+/** Run `fn` and return every rejection Node saw go unhandled meanwhile. */
+async function collectUnhandled(fn: () => Promise<void>): Promise<unknown[]> {
+  const unhandled: unknown[] = [];
+  const record = (reason: unknown) => unhandled.push(reason);
+  process.on("unhandledRejection", record);
+  try {
+    await fn();
+    // Let every boundary and deferred value pending at the failure settle.
+    await later(null, 40);
+  } finally {
+    process.off("unhandledRejection", record);
+  }
+  return unhandled;
+}
+
 function nextFrame(window: Window): Promise<void> {
   return new Promise((resolve) => window.requestAnimationFrame(() => resolve()));
 }
@@ -94,6 +114,147 @@ describe("streaming SSR documents", () => {
 
     expect(response.status).toBe(500);
     await expect(response.text()).resolves.toBe("Internal Server Error");
+  });
+
+  it("does not leave a deferred rejection unhandled when the shell fails", async () => {
+    const unhandled = await collectUnhandled(async () => {
+      const response = await handlePrachtRequest({
+        app: streamingApp(),
+        registry: {
+          routeModules: {
+            "./routes/product.tsx": async () => ({
+              loader: async () => ({
+                reviews: defer(async () => {
+                  await later(null, 5);
+                  throw new Error("reviews failed");
+                }),
+              }),
+              Component: Boom,
+            }),
+          },
+        },
+        request: new Request("http://localhost/product"),
+      });
+      expect(response.status).toBe(500);
+    });
+    expect(unhandled).toEqual([]);
+  });
+
+  it("answers with an error document when the shell fails after a boundary suspended", async () => {
+    const unhandled = await collectUnhandled(async () => {
+      const route_ = streamingRoute();
+      const response = await handlePrachtRequest({
+        app: streamingApp(),
+        registry: {
+          routeModules: {
+            "./routes/product.tsx": async () => {
+              const { loader, Component: Page } = await route_();
+              return {
+                loader,
+                Component: (props: Parameters<typeof Page>[0]) =>
+                  h("div", null, h(Page, props), h(Boom, null)),
+              };
+            },
+          },
+        },
+        request: new Request("http://localhost/product"),
+      });
+      expect(response.status).toBe(500);
+      await expect(response.text()).resolves.toBe("Internal Server Error");
+    });
+    expect(unhandled).toEqual([]);
+  });
+
+  it("names a component that suspends outside every <Suspense>", async () => {
+    const errors: unknown[] = [];
+    const response = await handlePrachtRequest({
+      app: streamingApp(),
+      registry: {
+        routeModules: {
+          "./routes/product.tsx": async () => ({
+            loader: async () => ({ reviews: defer(later<Review[]>([{ id: 7 }])) }),
+            Component: ({ data }: { data: { reviews: Review[] } }) =>
+              h(ErrorBoundary, { fallback: "failed" }, h(ReviewList, { reviews: data.reviews })),
+          }),
+        },
+      },
+      request: new Request("http://localhost/product"),
+      onRouteError: (error) => errors.push(error),
+    });
+
+    expect(response.status).toBe(500);
+    expect(String(errors[0])).toContain("suspended outside a <Suspense> boundary");
+  });
+
+  it("streams a <Suspense> boundary inside an <ErrorBoundary>", async () => {
+    const response = await handlePrachtRequest({
+      app: streamingApp(),
+      registry: {
+        routeModules: {
+          "./routes/product.tsx": async () => ({
+            loader: async () => ({ reviews: defer(later<Review[]>([{ id: 7 }])) }),
+            Component: ({ data }: { data: { reviews: Review[] } }) =>
+              h(
+                ErrorBoundary,
+                { fallback: "failed" },
+                h(
+                  Suspense as never,
+                  { fallback: h("p", null, "loading") },
+                  h(ReviewList, { reviews: data.reviews }),
+                ),
+              ),
+          }),
+        },
+      },
+      request: new Request("http://localhost/product"),
+    });
+
+    expect(response.status).toBe(200);
+    const [, shell, ...rest] = await readChunks(response);
+    expect(shell).toContain("<p>loading</p>");
+    expect(rest.join("")).toContain("review-7");
+  });
+
+  it("renders an <ErrorBoundary> fallback for an error after a boundary inside it suspended", async () => {
+    const caught: string[] = [];
+    const unhandled = await collectUnhandled(async () => {
+      const response = await handlePrachtRequest({
+        app: streamingApp(),
+        registry: {
+          routeModules: {
+            "./routes/product.tsx": async () => ({
+              loader: async () => ({ reviews: defer(later<Review[]>([{ id: 7 }])) }),
+              Component: ({ data }: { data: { reviews: Review[] } }) =>
+                h(
+                  "main",
+                  null,
+                  h(
+                    ErrorBoundary,
+                    {
+                      fallback: (error: Error) => h("p", null, `failed: ${error.message}`),
+                      onError: (error: Error) => caught.push(error.message),
+                    },
+                    h(
+                      Suspense as never,
+                      { fallback: h("p", null, "loading") },
+                      h(ReviewList, { reviews: data.reviews }),
+                    ),
+                    h(Boom, null),
+                  ),
+                  h("p", null, "after"),
+                ),
+            }),
+          },
+        },
+        request: new Request("http://localhost/product"),
+      });
+      expect(response.status).toBe(200);
+      expect(await response.text()).toContain(
+        '<div id="pracht-root"><main><p>failed: boom</p><p>after</p></main></div>',
+      );
+    });
+    expect(caught).toEqual(["boom"]);
+    expect(unhandled).toEqual([]);
   });
 
   it("flushes the head and shell before the deferred value settles", async () => {

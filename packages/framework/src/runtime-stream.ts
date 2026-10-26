@@ -34,6 +34,7 @@ import { applyHeaders, applySecurityAndRouteHeaders, ownResponse } from "./runti
 import { normalizeRouteError } from "./runtime-errors.ts";
 import { encodeRouteData } from "./route-data-codec.ts";
 import { getRenderToReadableStream } from "./runtime-response.ts";
+import { renderStreamedShell } from "./streamed-shell.ts";
 
 // `client.richData` (see route-data-codec.ts). Declared in this module rather
 // than imported: Rolldown folds the condition only within a module, so an
@@ -147,6 +148,18 @@ function prepareRendererChunk(
   return chunk;
 }
 
+/** Read `reader` to its end, discarding every chunk. */
+async function drain(reader: ReadableStreamDefaultReader<Uint8Array>): Promise<void> {
+  try {
+    for (;;) {
+      const { done } = await reader.read();
+      if (done) break;
+    }
+  } catch {
+    // Nothing is left to deliver the failure to.
+  }
+}
+
 /** Whether a response body was created by Pracht's streaming document renderer. */
 export function isStreamingHtmlResponse(response: Response): boolean {
   return response.body !== null && streamingResponseBodies.has(response.body);
@@ -180,17 +193,22 @@ export async function streamingHtmlResponse(
   const renderToReadableStream = await getRenderToReadableStream();
   const encoder = new TextEncoder();
 
-  // Produce the shell before constructing the outer response. The renderer
-  // reports even synchronous component failures through its Web stream, so
-  // awaiting the first read is the actual pre-flush error boundary: failures
-  // still reach handlePrachtRequest's normal error-document path.
-  const rendered = renderToReadableStream(tree);
-  // `preact-render-to-string` exposes the same failure through `allReady` as
+  // Produce the shell before constructing the outer response. A shell error
+  // throws from here, so it still reaches handlePrachtRequest's normal
+  // error-document path.
+  const shell = renderStreamedShell(tree, renderToReadableStream);
+  const rendered = shell.result;
+  // `preact-render-to-string` exposes a stream failure through `allReady` as
   // well as the body stream. The body remains authoritative below; observing
-  // this second promise prevents an uncaught render from becoming an unhandled
-  // rejection in Node.
+  // this second promise prevents it from becoming an unhandled rejection.
   void rendered.allReady.catch(() => {});
   const reader = rendered.getReader();
+  if (shell.failed) {
+    // Boundaries that suspended before the error still write when they
+    // settle, so the renderer's stream has to stay open until they have.
+    void drain(reader);
+    throw shell.error;
+  }
   let firstRead: ReadableStreamReadResult<Uint8Array>;
   try {
     firstRead = await reader.read();
@@ -334,10 +352,7 @@ export async function streamingHtmlResponse(
             // The Web renderer exposes no abort hook. Keep consuming its stream
             // after request-scoped work is aborted so its controller never queues
             // unbounded chunks or writes into a canceled stream.
-            for (;;) {
-              const { done } = await reader.read();
-              if (done) break;
-            }
+            await drain(reader);
             return;
           }
 

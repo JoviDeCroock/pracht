@@ -26,6 +26,19 @@ interface ErrorBoundaryState {
 }
 
 /**
+ * Installed on `globalThis` while a streamed document's shell renders (see
+ * `streamed-shell.ts`). A global rather than a module export so the boundary
+ * and the server runtime agree even when they load from different entries.
+ */
+export const STREAMED_SHELL_BOUNDARY = Symbol.for("pracht.streamedShellBoundary");
+
+/** @internal Renders a boundary's children during a streamed shell. */
+export type StreamedShellBoundary = (
+  children: ComponentChildren,
+  renderFallback: (error: unknown) => ComponentChildren,
+) => VNode;
+
+/**
  * Catch render errors in a subtree without taking down the page.
  *
  * A route or shell that wants to handle *its own* failures exports
@@ -58,7 +71,23 @@ export class ErrorBoundary extends Component<ErrorBoundaryComponentProps, ErrorB
   }
 
   render(props: ErrorBoundaryComponentProps, state: ErrorBoundaryState): VNode {
-    if (state.error === null) return h(Fragment, null, props.children);
+    if (state.error === null) {
+      const streamed = (globalThis as { [STREAMED_SHELL_BOUNDARY]?: StreamedShellBoundary })[
+        STREAMED_SHELL_BOUNDARY
+      ];
+      if (streamed) {
+        // The streaming renderer drops its Suspense support under a class
+        // boundary, so this instance stops being one and the shell renderer
+        // catches for it instead.
+        (this as { componentDidCatch?: unknown }).componentDidCatch = undefined;
+        return streamed(props.children, (error) => {
+          const normalizedError = normalizeCaughtError(error);
+          props.onError?.(normalizedError);
+          return this.render(props, { error: normalizedError });
+        });
+      }
+      return h(Fragment, null, props.children);
+    }
     const { fallback } = props;
     return h(
       Fragment,

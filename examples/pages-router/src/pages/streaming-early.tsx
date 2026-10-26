@@ -1,4 +1,4 @@
-import { defer, Suspense, use, useIsHydrated } from "@pracht/core";
+import { defer, ErrorBoundary, Suspense, use, useIsHydrated } from "@pracht/core";
 import type { Deferred, LoaderArgs, RouteComponentProps } from "@pracht/core";
 import { useState } from "preact/hooks";
 
@@ -43,9 +43,11 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
       <Suspense fallback={<p id="fast-fallback">Loading fast</p>}>
         <Message id="fast" value={data.fast} />
       </Suspense>
-      <Suspense fallback={<p id="slow-fallback">Loading slow</p>}>
-        <Message id="slow" value={data.slow} />
-      </Suspense>
+      <ErrorBoundary fallback={<p id="slow-failed">Slow failed</p>}>
+        <Suspense fallback={<p id="slow-fallback">Loading slow</p>}>
+          <Message id="slow" value={data.slow} />
+        </Suspense>
+      </ErrorBoundary>
     </section>
   );
 }

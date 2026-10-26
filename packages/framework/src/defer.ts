@@ -402,11 +402,12 @@ export function serializeDeferred(data: unknown): SerializedDeferred {
     if (isDeferred(value)) {
       const label = path.length === 0 ? "root" : path.map(String).join(".");
       const id = `${pending.length}:${label}`;
-      pending.push({
-        id,
-        path: [...path],
-        promise: resolveDeferredData(value),
-      });
+      const promise = resolveDeferredData(value);
+      // The stream subscribes only after the shell's first chunk. A shell that
+      // fails before then answers with an error document and never reads
+      // this value, so its rejection must not become an unhandled one.
+      promise.catch(() => {});
+      pending.push({ id, path: [...path], promise });
       return null;
     }
     if (typeof value !== "object" || value === null) return value;
