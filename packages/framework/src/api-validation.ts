@@ -1,3 +1,8 @@
+import {
+  decodeBody,
+  MAX_CAPABILITY_BODY_BYTES,
+  readBoundedBody,
+} from "@pracht/capabilities/server/internal";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 
 import type { SerializedRouteError } from "./runtime-errors.ts";
@@ -212,6 +217,11 @@ export interface DefineApiConfig<
   query?: TQuerySchema;
   /** Standard Schema for the route params (values are strings). */
   params?: TParamsSchema;
+  /**
+   * Largest request body `body` validation reads, in bytes; a larger one is
+   * answered with 413. Defaults to 1 MiB.
+   */
+  maxBodySize?: number;
   handler: (
     args: ValidatedApiArgs<
       InferSchemaOutput<TBodySchema>,
@@ -271,6 +281,11 @@ export function defineApi<
   ApiHandlerOutput<Awaited<ReturnType<THandler>>>,
   InferSchemaInput<TParamsSchema>
 > {
+  const maxBodySize = config.maxBodySize ?? MAX_CAPABILITY_BODY_BYTES;
+  if (!Number.isInteger(maxBodySize) || maxBodySize <= 0) {
+    throw new Error("defineApi({ maxBodySize }) expects a positive integer number of bytes.");
+  }
+
   const handler = async (args: ApiRouteArgs<TContext>): Promise<Response> => {
     const issues: ApiValidationIssue[] = [];
 
@@ -291,9 +306,9 @@ export function defineApi<
 
     let body: unknown;
     if (config.body) {
-      const parsed = await readRequestBody(args.request);
+      const parsed = await readRequestBody(args.request, maxBodySize);
       if (!parsed.ok) {
-        return apiValidationErrorResponse([parsed.issue], { status: 400 });
+        return apiValidationErrorResponse([parsed.issue], { status: parsed.status });
       }
       body = await runSchema(config.body, parsed.value, "body", issues);
     }
@@ -512,30 +527,52 @@ function groupEntriesByKey<TValue>(
   return record;
 }
 
-type ParsedBody = { ok: true; value: unknown } | { ok: false; issue: ApiValidationIssue };
+type ParsedBody =
+  | { ok: true; value: unknown }
+  | { ok: false; status: 400 | 413; issue: ApiValidationIssue };
 
-async function readRequestBody(request: Request): Promise<ParsedBody> {
+async function readRequestBody(request: Request, maxBodySize: number): Promise<ParsedBody> {
   if (request.method === "GET" || request.method === "HEAD") {
     return { ok: true, value: undefined };
   }
 
-  const contentType = (request.headers.get("content-type") ?? "").toLowerCase();
+  // Edge adapters hand the body stream through unbounded, so the cap is
+  // enforced here rather than trusted to the platform.
+  const bytes = await readBoundedBody(request, maxBodySize);
+  if (bytes === null) {
+    return {
+      ok: false,
+      status: 413,
+      issue: {
+        in: "body",
+        message: `Request body exceeds ${maxBodySize} bytes; raise defineApi({ maxBodySize }) to accept it.`,
+      },
+    };
+  }
+
+  const rawContentType = request.headers.get("content-type") ?? "";
+  const contentType = rawContentType.toLowerCase();
 
   if (
     contentType.includes("application/x-www-form-urlencoded") ||
     contentType.includes("multipart/form-data")
   ) {
     try {
-      return { ok: true, value: formDataToRecord(await request.formData()) };
+      // The multipart boundary is case-sensitive, so the header is passed as sent.
+      const formData = await new Response(bytes, {
+        headers: { "content-type": rawContentType },
+      }).formData();
+      return { ok: true, value: formDataToRecord(formData) };
     } catch {
       return {
         ok: false,
+        status: 400,
         issue: { in: "body", message: "Malformed form body" },
       };
     }
   }
 
-  const text = await request.text();
+  const text = decodeBody(bytes);
   if (text === "") {
     return { ok: true, value: undefined };
   }
@@ -548,6 +585,7 @@ async function readRequestBody(request: Request): Promise<ParsedBody> {
     } catch {
       return {
         ok: false,
+        status: 400,
         issue: { in: "body", message: "Malformed JSON body" },
       };
     }

@@ -168,6 +168,81 @@ describe("defineApi", () => {
     await expect(response.json()).resolves.toEqual({ name: "pracht" });
   });
 
+  it("answers a body over maxBodySize with 413 without buffering it", async () => {
+    let called = false;
+    const handler = defineApi({
+      body: objectSchema({ name: "string" }),
+      maxBodySize: 16,
+      handler: () => {
+        called = true;
+        return { ok: true };
+      },
+    });
+    let pulls = 0;
+    // No Content-Length, as on an edge runtime: the stream is counted as it arrives.
+    const endless = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulls += 1;
+        controller.enqueue(new TextEncoder().encode('{"name":"aaaaaaaa'));
+      },
+    });
+
+    const response = await handler(
+      apiArgs(
+        new Request("http://localhost/api/items", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: endless,
+          duplex: "half",
+        } as RequestInit),
+      ),
+    );
+
+    expect(response.status).toBe(413);
+    await expect(response.json()).resolves.toEqual({
+      error: "validation",
+      issues: [
+        {
+          in: "body",
+          message: "Request body exceeds 16 bytes; raise defineApi({ maxBodySize }) to accept it.",
+        },
+      ],
+    });
+    expect(called).toBe(false);
+    expect(pulls).toBeLessThan(3);
+  });
+
+  it("caps form bodies at 1 MiB by default and reads larger ones under a raised limit", async () => {
+    const upload = () => {
+      const formData = new FormData();
+      formData.set("name", "pracht");
+      formData.set("file", new Blob([new Uint8Array(1024 * 1024)]), "big.bin");
+      return new Request("http://localhost/api/items", { method: "POST", body: formData });
+    };
+    const capped = defineApi({
+      body: objectSchema({ name: "string" }),
+      handler: ({ body }) => ({ name: body.name }),
+    });
+    const raised = defineApi({
+      body: objectSchema({ name: "string" }),
+      maxBodySize: 2 * 1024 * 1024,
+      handler: ({ body }) => ({ name: body.name }),
+    });
+
+    expect((await capped(apiArgs(upload()))).status).toBe(413);
+    const response = await raised(apiArgs(upload()));
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ name: "pracht" });
+  });
+
+  it("rejects a maxBodySize that is not a positive integer", () => {
+    for (const maxBodySize of [0, -1, 1.5, Number.NaN]) {
+      expect(() => defineApi({ maxBodySize, handler: () => ({}) })).toThrow(
+        "defineApi({ maxBodySize }) expects a positive integer number of bytes.",
+      );
+    }
+  });
+
   it("validates the query string, collecting repeated keys into arrays", async () => {
     let seenQuery: unknown;
     const handler = defineApi({

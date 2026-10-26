@@ -117,6 +117,25 @@ describe("revalidation endpoint auth", () => {
     }
   });
 
+  it("answers an oversized body with 413", async () => {
+    const parsed = await readRevalidationRequest(
+      new Request("https://app.example/__pracht/revalidate", {
+        body: JSON.stringify({ paths: ["/pricing"], padding: "x".repeat(1024 * 1024) }),
+        headers: { authorization: "Bearer secret" },
+        method: "POST",
+      }),
+      "secret",
+    );
+
+    expect(parsed.ok).toBe(false);
+    if (!parsed.ok) {
+      expect(parsed.response.status).toBe(413);
+      await expect(parsed.response.json()).resolves.toEqual({
+        error: "Request body is too large.",
+      });
+    }
+  });
+
   it("rejects traversal segments and backslashes in paths", async () => {
     const invalidPaths = [
       "/../secret",

@@ -1,3 +1,5 @@
+import { decodeBody, readBoundedBody } from "@pracht/capabilities/server/internal";
+
 import { applyTrailingSlash } from "./base.ts";
 import { serverEnv } from "./env-server.ts";
 import { canonicalizePercentEscapes } from "./static-path.ts";
@@ -545,9 +547,18 @@ export async function readRevalidationRequest(
     };
   }
 
+  // Edge adapters do not cap request bodies, so the webhook reads its own
+  // through the bounded reader the capability transports use.
   let body: unknown;
   try {
-    body = await request.json();
+    const bytes = await readBoundedBody(request);
+    if (bytes === null) {
+      return {
+        ok: false,
+        response: jsonResponse({ error: "Request body is too large." }, 413),
+      };
+    }
+    body = JSON.parse(decodeBody(bytes));
   } catch {
     return {
       ok: false,

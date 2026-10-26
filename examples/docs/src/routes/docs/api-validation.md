@@ -37,6 +37,10 @@ Schemas can validate `body`, `query`, and route `params`; page routes validate t
 strings, so numeric inputs need coercion or a transform. Generated calls reject concrete query or
 params schema keys that cannot accept strings. Repeated query keys arrive as string arrays.
 
+A `body` schema reads at most 1 MiB on every adapter; a larger request gets a 413. Set
+`maxBodySize` (in bytes) on the handler that accepts uploads, and raise the Node adapter's
+[`maxBodySize`](/docs/adapters#origin-proxy-and-body-size-options) to match.
+
 When the validator also implements Standard JSON Schema (Zod 4 does), the same object can be a
 [capability](/docs/capabilities) `input` or `output`, so an existing validated API operation becomes
 an agent contract without a second schema.
