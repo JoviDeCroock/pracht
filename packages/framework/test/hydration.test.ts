@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { h, hydrate, render } from "preact";
+import { Fragment, h, hydrate, render } from "preact";
 // Import the framework re-export: it is what
 // installs the hydration suspension counter (see `hydration-suspense.ts`).
 import { Suspense } from "../src/suspense.ts";
@@ -262,6 +262,42 @@ describe("useIsHydrated", () => {
     // LazyChild's first render saw _hydrated=false, then useEffect flipped it
     expect(lazyValues[0]).toBe(false);
     expect(lazyValues[lazyValues.length - 1]).toBe(true);
+  });
+
+  it("keeps a later-resuming boundary unhydrated until it renders again", async () => {
+    // Both boundaries' promises settle together, but Preact resumes them in
+    // separate commits. The first commit must not flip _hydrated while the
+    // second boundary is still hydrating: its attributes are never patched.
+    scratch.innerHTML = "<span></span><button disabled>Ready</button>";
+    let resolve!: () => void;
+    let done = false;
+    const promise = new Promise<void>((r) => {
+      resolve = () => {
+        done = true;
+        r();
+      };
+    });
+    function First() {
+      if (!done) throw promise;
+      return h("span", null);
+    }
+    function Second() {
+      if (!done) throw promise;
+      return h("button", { disabled: !useIsHydrated() }, "Ready");
+    }
+
+    markHydrating();
+    hydrate(
+      h(Fragment, null, [
+        h(Suspense as any, { fallback: null }, h(First, null)),
+        h(Suspense as any, { fallback: null }, h(Second, null)),
+      ]),
+      scratch,
+    );
+    resolve();
+    await flush();
+
+    expect(scratch.querySelector("button")!.disabled).toBe(false);
   });
 
   it("does not count suspensions thrown from non-hydrating render() trees", async () => {

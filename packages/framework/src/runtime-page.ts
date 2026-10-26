@@ -11,7 +11,7 @@
  *
  * @internal Not part of the published API.
  */
-import { h } from "preact";
+import { Component as PreactComponent, h } from "preact";
 import { searchParamsToRecord } from "./api-validation.ts";
 import { streamingHtmlResponse } from "./runtime-stream.ts";
 import type { FunctionComponent } from "preact";
@@ -109,6 +109,13 @@ const RICH_ROUTE_DATA =
 declare const __PRACHT_ISLANDS_NAVIGATION__: boolean | undefined;
 const ISLANDS_NAVIGATION =
   typeof __PRACHT_ISLANDS_NAVIGATION__ !== "undefined" && __PRACHT_ISLANDS_NAVIGATION__ === true;
+
+// Preact 11 initializes a private component bitfield in its base constructor;
+// Preact 10 instances only own `props` and `context` (the same probe as
+// hydration-mismatch.ts). The server renders with the app's Preact, which is
+// the one the client hydrates with.
+const STREAMED_BOUNDARY_HYDRATION =
+  Object.keys(new (PreactComponent as unknown as new () => object)()).length > 2;
 
 /**
  * The policy fingerprint an islands navigation document states for headers
@@ -822,7 +829,12 @@ async function renderServerDocument<TContext>(
         ...(rootSnapshot === undefined ? {} : { root: rootSnapshot }),
       },
       clientEntryUrl: ctx.options.clientEntryUrl,
-      clientEntryAtEnd: true,
+      // Preact 11 resumes a suspended boundary from its stream markers, so the
+      // shell can hydrate while boundaries are still arriving. Preact 10 keeps
+      // references to the fallback nodes the renderer later replaces, so its
+      // hydration waits for the end of the document.
+      clientEntryAsync: STREAMED_BOUNDARY_HYDRATION,
+      clientEntryAtEnd: !STREAMED_BOUNDARY_HYDRATION,
       inlineBootstrapScript:
         pending.length > 0
           ? {
@@ -833,8 +845,8 @@ async function renderServerDocument<TContext>(
       cssAssets,
       // Buffered documents expose the client entry through their script
       // immediately, so the build manifest only lists its dependencies.
-      // This script lives at the end of a streamed document; preload the
-      // entry itself so deferred work does not also delay its download.
+      // A streamed document only reaches its entry script after the shell;
+      // preload the entry itself so its download starts with the head.
       modulePreloadUrls: ctx.options.clientEntryUrl
         ? [...new Set([ctx.options.clientEntryUrl, ...modulePreloadUrls])]
         : modulePreloadUrls,

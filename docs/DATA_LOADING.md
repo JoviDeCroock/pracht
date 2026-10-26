@@ -627,13 +627,52 @@ With it on, the response is written in this order:
    preload tags still reach the browser before deferred loader work completes.
 2. The hydration state and defer-channel bootstrap. Exact deferred locations
    travel as framework metadata beside the user-owned loader data, so no user
-   object shape or property name is reserved by the wire format.
+   object shape or property name is reserved by the wire format. On Preact 11
+   the client entry follows as `<script type="module" async>`, so the shell
+   hydrates while boundaries are still streaming.
 3. Each deferred value as it settles — the resolved markup from the renderer,
    plus a small script carrying the data (serialized like the hydration
    state) so the client has it too.
-4. The client entry, then `</body></html>`. The entry is preloaded with the
-   document assets, but hydration starts after the streamed content so even a
-   `beforeHydration` script inside a deferred subtree keeps its guarantee.
+4. `</body></html>`, preceded on Preact 10 by the client entry. The entry is
+   preloaded with the document assets either way.
+
+The entry's placement follows the Preact runtime the server renders with,
+probed from the shape of a `Component` instance. Preact 11 resumes a suspended
+boundary by re-scanning the DOM between its `$s` markers, so it can start
+before a boundary's markup has arrived. Preact 10 keeps references to the
+fallback nodes the renderer later replaces, so it must not start until every
+boundary has been swapped in.
+
+Early hydration still has to keep a boundary from resuming against its
+fallback: the renderer swaps a boundary's markup into place in an animation
+frame, and the value that unblocks it can arrive first.
+`streamed-document.ts` holds every resume until `DOMContentLoaded` plus one
+frame, by which time every swap has run. Streamed `r`/`e` deliveries wait on
+it in the defer registry (so `use()` cannot read a settled value
+synchronously either), and the hydration suspension handler hands Suspense a
+gated promise for lazy imports. Once the document is complete the gate is a
+no-op, which is why the Preact 10 placement is unaffected. The visible effect:
+the shell is interactive almost immediately, boundary markup appears as it
+streams, and boundaries become interactive when the document ends. A
+component's `useIsHydrated()` turns `true` after that component hydrates, so
+shell components report it early; `onHydrationComplete()` still waits for every
+boundary. Two boundaries often resume in separate commits after one gate, so
+`hydration-suspense.ts` ends a hydration suspension when its component renders
+again (or unmounts), not when its promise settles; otherwise the first commit
+flips the flag and the second boundary's `useIsHydrated()` starts `true`
+against server markup rendered `false`, an attribute hydration never patches.
+
+The renderer's `<preact-island>` element schedules its swap from
+`connectedCallback`, which fires at the start tag. Chromium can yield to a frame
+before parsing the island's children, and the swap then moves nothing: the
+markup is lost and hydration renders the boundary from scratch with a mismatch.
+A live page paints far more often during the stream, which made this common.
+`runtime-stream.ts` therefore writes a script before the renderer's bootstrap
+that replaces the element's `connectedCallback` while `customElements.define`
+runs (lifecycle callbacks are read once, at definition), and appends
+`__PRACHT_ISLAND__(document.currentScript)` after every island chunk. A script
+only runs once the parser has finished the element before it, so the original
+callback, and its frame-delayed swap, starts with the island complete.
 
 Streaming is rejected at manifest-resolution time for any other combination:
 `ssg` and `isg` write files, and a `hydration` other than `"full"` ships no
@@ -658,8 +697,10 @@ chunks without buffering them.
   sanitization as buffered route errors; `debugErrors` only exposes their
   details outside production.
 - **`<Script strategy="beforeHydration">` is emitted in place** rather than
-  hoisted into `<head>`, which has already been written. A body script in SSR
-  HTML still runs before hydration, so the guarantee holds.
+  hoisted into `<head>`, which has already been written. A script in the shell
+  is parsed before the entry; one inside a deferred subtree runs when that
+  subtree is parsed, and the subtree only hydrates once the document is
+  complete, so the guarantee holds for the subtree that renders it.
 - **`Server-Timing` render totals are less meaningful**, since the render is no
   longer over when the response is returned.
 - **The client must reach the end of the document** to receive every deferred
@@ -668,7 +709,8 @@ chunks without buffering them.
 ##### Content-Security-Policy
 
 A streamed document carries executable inline scripts: the defer shim, one
-script per settled deferred value, and the renderer's boundary-swap bootstrap.
+script per settled deferred value, the renderer's boundary-swap bootstrap with
+the island swap patch before it, and one swap trigger per boundary.
 All of them take `head.scriptNonce` (see [CSP.md](CSP.md)); the renderer's
 bootstrap gets it by rewriting its opening tag, since the renderer has no nonce
 option. Non-streaming routes emit none of these.

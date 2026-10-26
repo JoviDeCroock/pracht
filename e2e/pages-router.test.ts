@@ -479,6 +479,37 @@ test("Preact 11 hydrates streamed empty and multi-element boundaries", async ({ 
   expect(errors).toEqual([]);
 });
 
+test("a streamed page is interactive before its slow boundary arrives", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  const token = `early-${Date.now()}-${Math.random()}`;
+  await page.goto(`/streaming-early?token=${encodeURIComponent(token)}`, { waitUntil: "commit" });
+
+  // The shell hydrates while the slow boundary is still on its fallback.
+  await expect(async () => {
+    await page.locator("#shell-counter").click();
+    await expect(page.locator("#shell-counter")).not.toHaveText("Count 0", { timeout: 250 });
+  }).toPass();
+  await expect(page.locator("#slow-fallback")).toBeVisible();
+  expect(await page.evaluate(() => document.readyState)).toBe("loading");
+  const shellCount = await page.locator("#shell-counter").textContent();
+
+  await page.evaluate(
+    (value) => fetch(`/api/stream-release?token=${encodeURIComponent(value)}`, { method: "POST" }),
+    token,
+  );
+
+  // Both boundaries then hydrate against their streamed markup.
+  await expect(page.locator("#slow-hydrated")).toHaveText("hydrated");
+  await expect(page.locator("#fast-hydrated")).toHaveText("hydrated");
+  await expect(page.locator("#slow")).toHaveCount(1);
+  await page.locator("#slow-counter").click();
+  await expect(page.locator("#slow-counter")).toHaveText("Count 1");
+  await expect(page.locator("#shell-counter")).toHaveText(shellCount!);
+  await expect(page.locator("#__pracht_hydration_mismatch__")).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
 test("a streamed route resolves its deferred boundary under a strict nonce CSP", async ({
   page,
 }) => {

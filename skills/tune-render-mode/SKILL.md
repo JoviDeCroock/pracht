@@ -148,7 +148,9 @@ field (absent from the JSON), grep the manifest for `hydration:` (pages apps:
 An `ssr` route whose loader has one slow call and several fast ones is a
 candidate for `defer()` plus `streaming: true`. Flag it when the loader awaits
 more than one independent source and at least one is materially slower — the
-whole document currently waits on the slowest.
+whole document currently waits on the slowest. On Preact 11 the shell also
+becomes interactive before the slow data arrives; on Preact 10 it waits for the
+whole document.
 
 ```ts
 // before: TTFB waits on getReviews()
