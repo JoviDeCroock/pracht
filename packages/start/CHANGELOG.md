@@ -1,5 +1,31 @@
 # create-pracht
 
+## 0.8.0
+
+### Minor Changes
+
+- [#442](https://github.com/JoviDeCroock/pracht/pull/442) [`fdb0db2`](https://github.com/JoviDeCroock/pracht/commit/fdb0db2e7e15b213144c10e7038349b6e260f964) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - `pracht build` on Cloudflare now writes a deployable `dist/server/wrangler.json` that `wrangler deploy` and `wrangler dev` pick up, so `wrangler.jsonc` no longer needs `main`, `no_bundle`, module `rules`, or `assets.directory`. Existing configs that point `main` at `dist/server/worker.js` keep working, and apps with named Wrangler environments select one at build time with `CLOUDFLARE_ENV=<name>`.
+
+- [#440](https://github.com/JoviDeCroock/pracht/pull/440) [`c9e8b7a`](https://github.com/JoviDeCroock/pracht/commit/c9e8b7ad3f2ec4e62f1cbeab4d251596dd4e98fc) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - New Cloudflare apps type `context.env` from their `wrangler.jsonc` bindings through a `cf-typegen` script (`wrangler types`, also run by `typecheck`) and serve content-hashed `/assets/*` files without invoking the Worker.
+
+- [#488](https://github.com/JoviDeCroock/pracht/pull/488) [`f3f7ad6`](https://github.com/JoviDeCroock/pracht/commit/f3f7ad6b195ad4568948d8a4e6bbd8b4ad646e4a) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - New apps no longer enable `llmsTxt` in `vite.config.ts` or seed the `add-capabilities` skill. Add `llmsTxt: {}` to `pracht()` or run `pracht skills add add-capabilities` when an app needs them.
+
+- [#451](https://github.com/JoviDeCroock/pracht/pull/451) [`7a1884a`](https://github.com/JoviDeCroock/pracht/commit/7a1884a4e3c8ad2f9ac7a7b66fc1ca809d812aff) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - New projects now install Preact 11 (`^11.0.1`), the version pracht is developed and benchmarked on; Preact 10 stays supported.
+
+### Patch Changes
+
+- [#513](https://github.com/JoviDeCroock/pracht/pull/513) [`bb20a06`](https://github.com/JoviDeCroock/pracht/commit/bb20a066a5480f25d641de595352280006f73374) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - The Netlify starter now installs with pnpm 11, which stopped on the Netlify CLI's undecided dependency build scripts.
+
+- [#475](https://github.com/JoviDeCroock/pracht/pull/475) [`fc225c2`](https://github.com/JoviDeCroock/pracht/commit/fc225c2a14b67738006bc9fdbec38d1de04c3cd3) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - The bundled adapter docs and `configure-isg` skill now state that Node ISG pages live on each server, so webhook revalidation reaches only the replica that receives it.
+
+- [#503](https://github.com/JoviDeCroock/pracht/pull/503) [`f301b3c`](https://github.com/JoviDeCroock/pracht/commit/f301b3c302e69852e8a2af74bcb5b9e7ee1139ba) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - The bundled `audit-a11y` skill now checks focus and announcement after client navigations.
+
+- [#485](https://github.com/JoviDeCroock/pracht/pull/485) [`aef4ef6`](https://github.com/JoviDeCroock/pracht/commit/aef4ef6cb9f70df2f2b2a51122e4fe7e66dfc88e) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - `@pracht/vite-plugin`, the adapters, `@pracht/session`, `@pracht/i18n`, `@pracht/query`, and `@pracht/test` now take `@pracht/core` as a peer dependency, so upgrading core no longer installs a second copy under them.
+
+- [#504](https://github.com/JoviDeCroock/pracht/pull/504) [`fa620a6`](https://github.com/JoviDeCroock/pracht/commit/fa620a6e8cb5ae4adec1b49177f7777ab943219f) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - The bundled agent skills now link to pages on pracht.resynapse.dev instead of repository files that do not exist in an installed skill.
+
+- [#447](https://github.com/JoviDeCroock/pracht/pull/447) [`7c1ab1f`](https://github.com/JoviDeCroock/pracht/commit/7c1ab1f7fe23667eb76cfec3df4e0eba78bfd0fb) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - The bundled `upgrade-pracht` skill now says that `@pracht/core`, `@pracht/capabilities` and `@pracht/vite-plugin` release together at one version.
+
 ## 0.7.3
 
 ### Patch Changes

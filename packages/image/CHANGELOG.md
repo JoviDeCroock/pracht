@@ -1,5 +1,15 @@
 # @pracht/image
 
+## 0.6.0
+
+### Minor Changes
+
+- [#479](https://github.com/JoviDeCroock/pracht/pull/479) [`60a3e78`](https://github.com/JoviDeCroock/pracht/commit/60a3e7849d1046ad7af40e5f9b777b631a390c7d) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - The image endpoint now drops the query string from local image files (`/hero.png?v=2` is fetched as `/hero.png`), keeps recent results in memory for no longer than your `cacheControl` allows (`cache`), and optimizes at most four images at once (`maxConcurrency`), answering `503` when too many are waiting. If a local image source relies on a query parameter, such as a cache-busting version or a signature, list it in `createImageHandler({ sourceQueryParams: ["v"] })`.
+
+### Patch Changes
+
+- [#513](https://github.com/JoviDeCroock/pracht/pull/513) [`2671f7c`](https://github.com/JoviDeCroock/pracht/commit/2671f7c2d58574ac2e38230721268fdaa790d6d8) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - The published JavaScript no longer carries doc comments, which shrinks an app's server bundle by about a third.
+
 ## 0.5.0
 
 ### Minor Changes
