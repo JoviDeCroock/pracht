@@ -17,7 +17,7 @@ on:
 jobs:
   preact-10:
     name: Unit + E2E (basic) on Preact 10
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       PREACT_10_VERSION: 10.29.8
     steps:
