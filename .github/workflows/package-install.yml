@@ -23,7 +23,7 @@ concurrency:
 jobs:
   pack-smoke:
     name: Install from tarballs
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -51,7 +51,7 @@ jobs:
 
   pack-upgrade:
     name: Upgrade from published
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
       - name: Checkout
