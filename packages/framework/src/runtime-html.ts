@@ -376,6 +376,92 @@ export function buildHtmlDocument(options: HtmlDocumentOptions): string {
   return `${prefix}${options.body}${afterShell}${suffix}`;
 }
 
+/**
+ * Longest `Link` header value a document carries. Many reverse proxies hold
+ * all response headers in one small buffer (nginx's `proxy_buffer_size` is a
+ * single 4 KB or 8 KB page) and answer 502 when they overflow it, so the hints
+ * stop here. Whatever is cut is still preloaded by the document's own `<head>`.
+ */
+export const MAX_PRELOAD_LINK_HEADER_LENGTH = 2048;
+
+/**
+ * A URL that can sit between `<` and `>` in a `Link` header as is: visible
+ * ASCII only, which also keeps CR/LF and non-Latin-1 out of the header value.
+ */
+const LINK_HEADER_TARGET_RE = /^[\x21-\x3b\x3d\x3f-\x7e]+$/;
+
+/**
+ * `Link` header entries for a document's preloads: its linked stylesheets and
+ * `defineFont()` preloads first, because they block rendering, then the client
+ * entry and its module preloads. Inlined stylesheets have no URL and are
+ * skipped, and entries stop once their joined length would pass
+ * `MAX_PRELOAD_LINK_HEADER_LENGTH`.
+ */
+export function documentPreloadLinks(
+  options: Pick<HtmlDocumentOptions, "head" | "cssAssets" | "cssUrls"> & {
+    clientEntryUrl?: string;
+    modulePreloadUrls?: readonly string[];
+  },
+): string[] {
+  const links: string[] = [];
+  const seen = new Set<string>();
+  let length = 0;
+  let full = false;
+  const add = (href: unknown, params: string): void => {
+    if (full || typeof href !== "string" || !LINK_HEADER_TARGET_RE.test(href) || seen.has(href)) {
+      return;
+    }
+    const link = `<${href}>; ${params}`;
+    const nextLength = length + (links.length > 0 ? 2 : 0) + link.length;
+    // Stop at the first entry that does not fit, so a shorter, lower-priority
+    // one is never hinted ahead of what the document needs first.
+    if (nextLength > MAX_PRELOAD_LINK_HEADER_LENGTH) {
+      full = true;
+      return;
+    }
+    seen.add(href);
+    links.push(link);
+    length = nextLength;
+  };
+
+  const stylesheets = options.cssAssets
+    ? options.cssAssets.filter((asset) => asset.content === undefined).map((asset) => asset.href)
+    : (options.cssUrls ?? []);
+  for (const href of stylesheets) add(href, "rel=preload; as=style");
+
+  const fonts = options.head.fonts?.length ? collectFontHeadFragments(options.head.fonts) : null;
+  for (const font of fonts?.preloadLinks ?? []) {
+    const type = typeof font.type === "string" && /^[\w.+/-]+$/.test(font.type) ? font.type : "";
+    add(font.href, `rel=preload; as=font${type ? `; type="${type}"` : ""}; crossorigin`);
+  }
+
+  for (const href of [options.clientEntryUrl, ...(options.modulePreloadUrls ?? [])]) {
+    add(href, "rel=modulepreload");
+  }
+  return links;
+}
+
+/**
+ * Append the document's render-blocking preloads — stylesheets and fonts — to
+ * its `Link` header, after any `Link` the route set through `headers()`. A CDN
+ * with Early Hints (Cloudflare) replays these as a `103` ahead of later
+ * requests; it ignores `modulepreload`, and the browser already has the
+ * document's own module preload tags, so scripts are left to the in-process
+ * `onEarlyHints` path rather than added to every response.
+ */
+export function withDocumentPreloadLinks(
+  headers: Headers,
+  options: Pick<HtmlDocumentOptions, "head" | "cssAssets" | "cssUrls">,
+): Headers {
+  const links = documentPreloadLinks({
+    head: options.head,
+    cssAssets: options.cssAssets,
+    cssUrls: options.cssUrls,
+  });
+  if (links.length > 0) headers.append("link", links.join(", "));
+  return headers;
+}
+
 function joinDocumentLines(parts: string[], indent: string): string {
   return parts
     .filter((part) => part !== "")

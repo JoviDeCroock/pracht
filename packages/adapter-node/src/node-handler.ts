@@ -159,6 +159,14 @@ export interface NodeAdapterOptions<TContext = unknown> {
    * proxy or CDN in front of the server already compresses responses.
    */
   compression?: boolean;
+  /**
+   * Send a `103 Early Hints` response with the page's stylesheet and module
+   * preloads once route middleware has passed, before the loaders run
+   * (default: `false`). Enable it only when every proxy in front of the
+   * server forwards informational responses; some treat a `103` as the final
+   * response. The page's `Link` header carries the same preloads either way.
+   */
+  earlyHints?: boolean;
 }
 
 /**
@@ -204,6 +212,7 @@ export function createNodeRequestHandler<TContext = unknown>(
   const canonicalOrigin = options.canonicalOrigin;
   const maxBodySize = options.maxBodySize;
   const compressionEnabled = options.compression !== false;
+  const earlyHintsEnabled = options.earlyHints === true;
   const compressedAssetCache = new CompressedAssetCache();
   const isgWriteGuard = createISGSnapshotWriteGuard();
   // A Node process outlives its responses, so registered work finishes on its
@@ -407,6 +416,7 @@ export function createNodeRequestHandler<TContext = unknown>(
         cssContentManifest: options.cssContentManifest,
         jsManifest: options.jsManifest,
         waitUntil,
+        onEarlyHints: earlyHintsEnabled ? (links) => writeEarlyHints(req, res, links) : undefined,
       } satisfies HandlePrachtRequestOptions<TContext>);
 
       const isIsgDocument =
@@ -553,6 +563,17 @@ export function createNodeRequestHandler<TContext = unknown>(
     },
     pending: { get: () => backgroundWork.pending },
   }) as NodeRequestHandler;
+}
+
+/**
+ * HTTP/1.0 clients cannot receive informational responses, and a response
+ * that has started cannot be preceded by one.
+ */
+function writeEarlyHints(req: IncomingMessage, res: ServerResponse, links: string[]): void {
+  const supportsInformational =
+    req.httpVersionMajor > 1 || (req.httpVersionMajor === 1 && req.httpVersionMinor >= 1);
+  if (!supportsInformational || res.headersSent || res.destroyed) return;
+  res.writeEarlyHints({ link: links });
 }
 
 /** Wait for `promise`, but no later than `deadline` (epoch ms). */

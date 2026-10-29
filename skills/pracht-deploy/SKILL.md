@@ -76,6 +76,8 @@ step (`--port <n>`, `--skip-build` to reuse a build).
   `Accept-Encoding`, streaming for dynamic bodies, an in-memory LRU for static
   assets). Behind a proxy or CDN that already compresses, set
   `nodeAdapter({ compression: false })` to avoid doing it twice.
+- `nodeAdapter({ earlyHints: true })` sends a `103` before loaders run. Only
+  useful behind an HTTP/2 proxy that forwards `103`; off by default.
 - The generated server drains on `SIGTERM`/`SIGINT`: it stops accepting
   connections and waits for in-flight requests and `args.waitUntil()` work up
   to `nodeAdapter({ shutdownTimeoutMs })` (default 10s). Keep it below the

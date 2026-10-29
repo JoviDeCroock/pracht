@@ -252,6 +252,43 @@ With a nonce-based CSP, return `styleNonce` from the active shell or route
 `head()` and include the same nonce in `style-src`. Static SSG/ISG output cannot
 safely reuse a request nonce; prefer linked CSS or a stable hash there.
 
+## `Link` preload header and Early Hints
+
+Every document the runtime renders (SSR, SPA shell, streamed, islands, `none`,
+and SSG/ISG prerenders) gets a `Link` header from `withDocumentPreloadLinks()`
+in `runtime-html.ts`, built from the same `HtmlDocumentOptions` as the
+`<head>`: linked stylesheets, then `defineFont()` preloads. Inlined stylesheets
+have no URL and are left out. A route's own `headers()` `Link` stays first;
+error documents and route-state JSON get none.
+
+Scripts are deliberately not in that header. Cloudflare's Early Hints caches
+only `preload`/`preconnect` entries, the browser already has the document's own
+`modulepreload` tags, and a per-route chunk list would cost up to 2 KB on every
+response and make prerendered header sets (the shared headers manifest, Vercel
+routes) diverge per route file instead of per stylesheet set.
+
+Prerendered headers flow through the headers manifest, so Node, Cloudflare,
+Vercel, and Netlify replay the header on static and ISG HTML. The `.md` copies
+take their headers from the Markdown replay, which never adds it.
+
+`documentPreloadLinks()` caps its output at `MAX_PRELOAD_LINK_HEADER_LENGTH`
+(2,048 characters), stopping at the first entry that does not fit so priority
+order holds. The cap bounds only the framework's part; a route `Link`, CSP, and
+cookies share nginx's single `proxy_buffer_size` page (4–8 KB). Entries whose
+URL is not plain visible ASCII, or contains `<`/`>`, are skipped rather than
+encoded.
+
+The `onEarlyHints` request option is the in-process path (see
+[ADAPTERS.md](ADAPTERS.md) § Early Hints). Its entries add the client entry and
+module preloads on full-hydration and SPA routes; islands and `none` pages hint
+only CSS, because their islands are known only after the render. It fires after
+middleware, so a redirect or 401 from middleware sends no `103`, and before
+loaders, where server think time lives. That ordering is about the in-process
+`103` only: a loader that redirects still follows its `103`, and a CDN replays
+the cached `Link` of a URL to every visitor before the origin runs. Build asset
+URLs are public, so neither discloses anything; a `head()` that picks fonts per
+visitor would have its font URLs replayed to others on Cloudflare.
+
 ## `pracht build --analyze`
 
 After a successful production build, `--analyze` prints a per-route report of
