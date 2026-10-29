@@ -167,6 +167,15 @@ export interface HandlePrachtRequestOptions<TContext = unknown> {
    * the console when neither is set. Omitted, registered work runs detached.
    */
   waitUntil?: (promise: Promise<unknown>) => void;
+  /**
+   * Called at most once per page document request, after route middleware
+   * and before the loaders run, with the `Link` header entries for the
+   * route's stylesheets and modules (`</assets/app.css>; rel=preload; as=style`).
+   * An adapter that can send an informational response writes them as a
+   * `103 Early Hints`. The final response's `Link` header carries only the
+   * stylesheet and font entries, with or without this.
+   */
+  onEarlyHints?: (links: string[]) => void;
 }
 
 /**

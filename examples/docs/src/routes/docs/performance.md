@@ -213,6 +213,35 @@ policy covers the inline block.
 
 ---
 
+## Early Hints
+
+A rendered page whose `<head>` links stylesheets or preloads
+[fonts](/docs/fonts) answers with a `Link` header listing them. Prerendered SSG
+and ISG pages carry the same header on the Node, Cloudflare, Vercel, and
+Netlify adapters. Stylesheets inlined with `inlineCss` are not listed.
+
+```http
+Link: </assets/app-D1x9.css>; rel=preload; as=style
+```
+
+On Cloudflare, turn on **Early Hints** under *Speed › Settings › Content
+Optimization*. The CDN caches the header and sends it as a `103 Early Hints`
+response ahead of later requests for the page, so the browser downloads the
+stylesheets and fonts while your loader is still running.
+
+The Node adapter can send the `103` itself, with the page's scripts as well,
+once route middleware has passed and before the loaders run:
+
+```ts [vite.config.ts]
+nodeAdapter({ earlyHints: true });
+```
+
+Browsers act on a `103` only over HTTP/2 or HTTP/3, so this helps when an
+HTTP/2 proxy in front of the server forwards it to the browser. It is off by
+default because some proxies mistake a `103` for the final response.
+
+---
+
 ## Real-User Web Vitals
 
 Mount a small component in a shared shell to receive CLS, FCP, INP, LCP, and
@@ -264,5 +293,6 @@ None of these optimizations require configuration. A standard pracht app automat
 | Vendor extraction    | Preact is cached once, shared across routes                  |
 | Core runtime splitting | Server runtime and prefetch setup stay off the critical path |
 | Per-page CSS         | Only CSS for the matched route/shell is included             |
+| `Link` preload header | CDNs with Early Hints start stylesheet and font downloads before the HTML |
 | Intent prefetching   | Route data is fetched on hover/focus before click            |
 | Dev error overlay    | Framework-aware errors with auto-reload on fix               |

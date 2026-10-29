@@ -115,6 +115,7 @@ The adapter factory calls the entry module generator internally to create a virt
 | `basePathStripped` | `boolean`         | Declare that a trusted proxy removes Vite's deploy base before forwarding |
 | `maxBodySize`   | `number`             | Maximum request body size in bytes (default: 1 MiB)             |
 | `compression`   | `boolean`            | Brotli/gzip response compression via `Accept-Encoding` (default: `true`) |
+| `earlyHints`    | `boolean`            | Send a `103 Early Hints` with the page's preloads before loaders run (default: `false`) |
 
 ### Trusted proxy configuration
 
@@ -354,6 +355,22 @@ nodeAdapter({ compression: false });
 // or for custom entries:
 createNodeRequestHandler({ app, registry, staticDir, compression: false });
 ```
+
+### Early Hints
+
+`earlyHints: true` passes an `onEarlyHints` callback to `handlePrachtRequest()`.
+The runtime calls it once per page document request — after route middleware,
+before the shell and route loaders — with the `Link` entries for the route's
+stylesheets and, on full-hydration and SPA routes, the client entry and its
+module preloads. The handler answers with `res.writeEarlyHints({ link })`,
+skipping HTTP/1.0 clients and responses that already started. Static and ISG
+files served from disk get no `103`: they carry the build's `Link` header and
+have no server think time to hide.
+
+Browsers process a `103` only over HTTP/2 and HTTP/3, and the generated server
+speaks HTTP/1.1, so the option pays off only behind an HTTP/2 front end that
+forwards `103` to the client (nginx with `early_hints`, for one). It is opt-in
+because proxies that predate `103` support can treat it as the final response.
 
 ### WebSockets
 

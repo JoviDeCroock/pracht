@@ -29,6 +29,12 @@ export interface NodeServerEntryModuleOptions {
    */
   compression?: boolean;
   /**
+   * Send a `103 Early Hints` response with the page's stylesheet and module
+   * preloads before the loaders run (default: `false`). Enable it only when
+   * every proxy in front of the server forwards informational responses.
+   */
+  earlyHints?: boolean;
+  /**
    * How long a graceful shutdown (`SIGTERM` or `SIGINT`) waits for in-flight
    * requests and for work registered with `waitUntil()` before the process
    * exits, in milliseconds. Default `10000`.
@@ -123,6 +129,9 @@ export function createNodeServerEntryModule(
     "  createContext: createPrachtContext,",
     `  maxBodySize: ${JSON.stringify(options.maxBodySize ?? undefined)},`,
     `  compression: ${JSON.stringify(options.compression ?? undefined)},`,
+    ...(options.earlyHints === undefined
+      ? []
+      : [`  earlyHints: ${JSON.stringify(options.earlyHints)},`]),
     "});",
     "",
     "const entryHref = process.argv[1] ? pathToFileURL(process.argv[1]).href : null;",

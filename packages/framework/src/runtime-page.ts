@@ -31,9 +31,12 @@ import { ShellDataContext } from "./runtime-shell-data.ts";
 import {
   buildHtmlDocument,
   buildHtmlDocumentParts,
+  documentPreloadLinks,
   htmlResponse,
   htmlResponseHeaders,
   serializeJsonForHtml,
+  withDocumentPreloadLinks,
+  type HtmlDocumentOptions,
 } from "./runtime-html.ts";
 import { getAppSpeculationRules } from "./runtime-speculation.ts";
 import {
@@ -671,33 +674,34 @@ async function renderSpaDocument<TContext>(
   }
   const rootSnapshot = await dehydrateRoot(job.root);
 
+  const documentOptions: HtmlDocumentOptions = {
+    head: withCapturedScripts(head, spaScriptCapture),
+    body,
+    hydrationState: {
+      url: ctx.requestPath,
+      routeId: match.route.id ?? "",
+      data: null,
+      error: null,
+      pending: needsRouteState,
+      ...(rootSnapshot === undefined ? {} : { root: rootSnapshot }),
+    },
+    clientEntryUrl: ctx.options.clientEntryUrl,
+    cssAssets,
+    modulePreloadUrls,
+    // Routes with loader/middleware state preload it. Static exports
+    // point this at a serialized file; other adapters use `_data=1`.
+    routeStatePreloadUrl: needsRouteState
+      ? IS_STATIC_TARGET
+        ? buildStaticRouteStateUrl(ctx.requestPath)
+        : buildRouteStateUrl(ctx.requestPath)
+      : undefined,
+    speculationRules: getAppSpeculationRules(ctx.resolvedApp),
+    viewTransitions: ctx.resolvedApp.viewTransitions === true,
+  };
   return htmlResponse(
-    buildHtmlDocument({
-      head: withCapturedScripts(head, spaScriptCapture),
-      body,
-      hydrationState: {
-        url: ctx.requestPath,
-        routeId: match.route.id ?? "",
-        data: null,
-        error: null,
-        pending: needsRouteState,
-        ...(rootSnapshot === undefined ? {} : { root: rootSnapshot }),
-      },
-      clientEntryUrl: ctx.options.clientEntryUrl,
-      cssAssets,
-      modulePreloadUrls,
-      // Routes with loader/middleware state preload it. Static exports
-      // point this at a serialized file; other adapters use `_data=1`.
-      routeStatePreloadUrl: needsRouteState
-        ? IS_STATIC_TARGET
-          ? buildStaticRouteStateUrl(ctx.requestPath)
-          : buildRouteStateUrl(ctx.requestPath)
-        : undefined,
-      speculationRules: getAppSpeculationRules(ctx.resolvedApp),
-      viewTransitions: ctx.resolvedApp.viewTransitions === true,
-    }),
+    buildHtmlDocument(documentOptions),
     pageOptions.status,
-    documentHeaders,
+    withDocumentPreloadLinks(documentHeaders, documentOptions),
   );
 }
 
@@ -809,7 +813,7 @@ async function renderServerDocument<TContext>(
     // snapshot holds what the loader produced. Work that settles later in
     // the render is not in it.
     const rootSnapshot = await dehydrateRoot(job.root);
-    const { prefix, afterShell, suffix } = buildHtmlDocumentParts({
+    const documentOptions: HtmlDocumentOptions = {
       head: withCapturedScripts(head, scriptCapture),
       body: "",
       hydrationState: {
@@ -840,7 +844,9 @@ async function renderServerDocument<TContext>(
         : modulePreloadUrls,
       speculationRules: getAppSpeculationRules(ctx.resolvedApp),
       viewTransitions: ctx.resolvedApp.viewTransitions === true,
-    });
+    };
+    const { prefix, afterShell, suffix } = buildHtmlDocumentParts(documentOptions);
+    withDocumentPreloadLinks(documentHeaders, documentOptions);
 
     // The streamed body keeps rendering after this returns, so it holds the
     // request budget until it ends.
@@ -960,71 +966,117 @@ async function renderServerDocument<TContext>(
     // No hydration state, no client runtime: islands routes ship only the
     // islands bootstrap plus the islands present on the page, and
     // hydration: "none" routes ship no JavaScript at all.
+    const islandsDocumentOptions: HtmlDocumentOptions = {
+      head: withCapturedScripts(head, scriptCapture),
+      body: ssrContent,
+      clientEntryUrl: islandsEntryUrl,
+      serverIslandsEntryUrl,
+      cssAssets: withIslandCssAssets(
+        cssAssets,
+        ctx.options.cssManifest,
+        ctx.options.cssContentManifest,
+        islandFiles,
+      ),
+      modulePreloadUrls: mergeEntryPreloadUrls(
+        ctx.options.jsManifest,
+        serverIslandsEntryUrl ? SERVER_ISLANDS_ENTRY_MANIFEST_KEY : "",
+        islandsEntryUrl
+          ? mergeEntryPreloadUrls(ctx.options.jsManifest, ISLANDS_ENTRY_MANIFEST_KEY, [
+              ...islandPreloadUrls,
+            ])
+          : [...islandPreloadUrls],
+      ),
+      speculationRules: getAppSpeculationRules(ctx.resolvedApp),
+      viewTransitions: ctx.resolvedApp.viewTransitions === true,
+      webmcpCapabilities: hydration === "islands" ? match.route.capabilities : undefined,
+      // The policy is fingerprinted from the headers this response is about
+      // to carry; `renderPage()` corrects it for middleware that changes
+      // them, and anything later (a host, a proxy) makes the fetched
+      // response disagree, so the client falls back to a load.
+      islandsNavigation: ISLANDS_NAVIGATION
+        ? islandsNavigationData(job as PageRenderJob<unknown>, hydration, documentHeaders)
+        : undefined,
+    };
     return htmlResponse(
-      buildHtmlDocument({
-        head: withCapturedScripts(head, scriptCapture),
-        body: ssrContent,
-        clientEntryUrl: islandsEntryUrl,
-        serverIslandsEntryUrl,
-        cssAssets: withIslandCssAssets(
-          cssAssets,
-          ctx.options.cssManifest,
-          ctx.options.cssContentManifest,
-          islandFiles,
-        ),
-        modulePreloadUrls: mergeEntryPreloadUrls(
-          ctx.options.jsManifest,
-          serverIslandsEntryUrl ? SERVER_ISLANDS_ENTRY_MANIFEST_KEY : "",
-          islandsEntryUrl
-            ? mergeEntryPreloadUrls(ctx.options.jsManifest, ISLANDS_ENTRY_MANIFEST_KEY, [
-                ...islandPreloadUrls,
-              ])
-            : [...islandPreloadUrls],
-        ),
-        speculationRules: getAppSpeculationRules(ctx.resolvedApp),
-        viewTransitions: ctx.resolvedApp.viewTransitions === true,
-        webmcpCapabilities: hydration === "islands" ? match.route.capabilities : undefined,
-        // The policy is fingerprinted from the headers this response is about
-        // to carry; `renderPage()` corrects it for middleware that changes
-        // them, and anything later (a host, a proxy) makes the fetched
-        // response disagree, so the client falls back to a load.
-        islandsNavigation: ISLANDS_NAVIGATION
-          ? islandsNavigationData(job as PageRenderJob<unknown>, hydration, documentHeaders)
-          : undefined,
-      }),
+      buildHtmlDocument(islandsDocumentOptions),
       pageOptions.status,
-      documentHeaders,
+      withDocumentPreloadLinks(documentHeaders, islandsDocumentOptions),
     );
   }
 
   // After the render, so queries a component started while rendering are in
   // the snapshot too.
   const fullRootSnapshot = await dehydrateRoot(job.root);
+  const documentOptions: HtmlDocumentOptions = {
+    head: withCapturedScripts(head, scriptCapture),
+    body: ssrContent,
+    hydrationState: {
+      url: ctx.requestPath,
+      routeId: match.route.id ?? "",
+      data,
+      ...shellHydrationState,
+      error: null,
+      ...(fullRootSnapshot === undefined ? {} : { root: fullRootSnapshot }),
+    },
+    clientEntryUrl: ctx.options.clientEntryUrl,
+    cssAssets,
+    modulePreloadUrls,
+    speculationRules: getAppSpeculationRules(ctx.resolvedApp),
+    viewTransitions: ctx.resolvedApp.viewTransitions === true,
+  };
   return htmlResponse(
-    buildHtmlDocument({
-      head: withCapturedScripts(head, scriptCapture),
-      body: ssrContent,
-      hydrationState: {
-        url: ctx.requestPath,
-        routeId: match.route.id ?? "",
-        data,
-        ...shellHydrationState,
-        error: null,
-        ...(fullRootSnapshot === undefined ? {} : { root: fullRootSnapshot }),
-      },
-      clientEntryUrl: ctx.options.clientEntryUrl,
-      cssAssets,
-      modulePreloadUrls,
-      speculationRules: getAppSpeculationRules(ctx.resolvedApp),
-      viewTransitions: ctx.resolvedApp.viewTransitions === true,
-    }),
+    buildHtmlDocument(documentOptions),
     pageOptions.status,
-    documentHeaders,
+    withDocumentPreloadLinks(documentHeaders, documentOptions),
   );
+}
+
+/** Requests that already sent their early hints; browsers act on the first only. */
+const hintedRequests = new WeakSet<object>();
+
+/**
+ * Hand the adapter the document's stylesheets and modules before the loaders
+ * run, so a `103 Early Hints` can start their downloads while the server is
+ * still working. After middleware, so a request it redirects or rejects never
+ * learns which assets the page uses. Fonts come from `head()`, which needs the
+ * loader's data, so only the final `Link` header carries them.
+ */
+function sendEarlyHints<TContext>(job: PageRenderJob<TContext>): void {
+  const { ctx, match } = job;
+  const onEarlyHints = ctx.options.onEarlyHints;
+  if (
+    !onEarlyHints ||
+    ctx.isRouteStateRequest ||
+    ctx.request.method !== "GET" ||
+    prefersMarkdown(ctx.request.headers.get("accept")) ||
+    hintedRequests.has(ctx)
+  ) {
+    return;
+  }
+  hintedRequests.add(ctx);
+  const { cssAssets, modulePreloadUrls } = resolvePageAssets(job);
+  // Islands and `none` pages load neither the client router nor the route's
+  // own chunks; which islands they need is known only after the render.
+  const hydratesRoute =
+    match.route.render === "spa" || (match.route.hydration ?? "full") === "full";
+  const links = documentPreloadLinks({
+    head: {},
+    cssAssets,
+    clientEntryUrl: hydratesRoute ? ctx.options.clientEntryUrl : undefined,
+    modulePreloadUrls: hydratesRoute ? modulePreloadUrls : [],
+  });
+  if (links.length === 0) return;
+  try {
+    onEarlyHints(links);
+  } catch (error) {
+    // A hint is an optimization; failing to send one must not fail the page.
+    console.error("[pracht] onEarlyHints threw:", error);
+  }
 }
 
 /** Loader → representation. The terminal of the page middleware chain. */
 async function runPageTerminal<TContext>(job: PageRenderJob<TContext>): Promise<Response> {
+  sendEarlyHints(job);
   // The app root's state exists before any loader runs, so every loader of
   // this request reads the same `args.root`. After middleware, so a request
   // middleware answers itself never creates one.
