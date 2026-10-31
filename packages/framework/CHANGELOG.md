@@ -1,5 +1,25 @@
 # @pracht/core
 
+## 0.22.0
+
+### Minor Changes
+
+- [#522](https://github.com/JoviDeCroock/pracht/pull/522) [`d7c7242`](https://github.com/JoviDeCroock/pracht/commit/d7c72421a7fe30d9850f7d9b0a35f960caa93e07) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Server-rendered and prerendered pages now send a `Link` header listing their stylesheets and font preloads, so CDNs with Early Hints (such as Cloudflare) can start those downloads before the HTML arrives.
+
+- [#518](https://github.com/JoviDeCroock/pracht/pull/518) [`12e54fd`](https://github.com/JoviDeCroock/pracht/commit/12e54fd2dd8b32ea0d96ea58194b74ad76090eb8) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Streamed pages on Preact 11 hydrate as soon as the shell arrives, so they are interactive while slow `<Suspense>` boundaries are still streaming; each boundary hydrates once the document is complete.
+
+### Patch Changes
+
+- [#518](https://github.com/JoviDeCroock/pracht/pull/518) [`12e54fd`](https://github.com/JoviDeCroock/pracht/commit/12e54fd2dd8b32ea0d96ea58194b74ad76090eb8) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - `useIsHydrated()` no longer stays stuck at its server value inside a `<Suspense>` boundary that resumes hydration after another boundary has already finished.
+
+- [#518](https://github.com/JoviDeCroock/pracht/pull/518) [`fa59103`](https://github.com/JoviDeCroock/pracht/commit/fa591037277abfb5dc0f54a42812067506ca4a97) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - An `<ErrorBoundary>` around a `<Suspense>` boundary now streams on a streamed route instead of failing the page with a 500.
+
+- [#518](https://github.com/JoviDeCroock/pracht/pull/518) [`12e54fd`](https://github.com/JoviDeCroock/pracht/commit/12e54fd2dd8b32ea0d96ea58194b74ad76090eb8) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Streamed `<Suspense>` boundaries no longer lose their server-rendered markup when the browser paints before a boundary's HTML has finished parsing.
+
+- [#518](https://github.com/JoviDeCroock/pracht/pull/518) [`fa59103`](https://github.com/JoviDeCroock/pracht/commit/fa591037277abfb5dc0f54a42812067506ca4a97) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - A streamed route whose shell fails now answers with its error page without crashing the Node process when a deferred value or suspended boundary settles afterwards.
+- Updated dependencies []:
+  - @pracht/capabilities@0.22.0
+
 ## 0.21.0
 
 ### Minor Changes
