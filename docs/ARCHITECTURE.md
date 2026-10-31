@@ -900,7 +900,12 @@ in-flight suspensions so it knows when hydration is truly complete.
   `_hydrating` flag.
 - `options.__e` (\_catchError) intercepts thrown promises during hydration and,
   when the suspending vnode carries the `MODE_HYDRATE` flag, increments
-  `_suspensionCount`; settling decrements it. The `MODE_HYDRATE` check is
+  `_suspensionCount`. The count drops when the suspended component renders
+  again (`options.diffed`) or unmounts (`options.unmount`), not when the
+  promise settles: boundaries sharing a promise resume in separate commits, and
+  an early decrement lets the first commit flip `_hydrated` while the next
+  boundary is still hydrating. A component that suspends again on resume swaps
+  its pending decrement for the new suspension. The `MODE_HYDRATE` check is
   important: without it, an unrelated `render()` tree (portal, island, modal)
   that suspends while a hydrate is still in-flight would be mis-counted as a
   hydration suspension and pin `_hydrated` to `false`. This mirrors the same

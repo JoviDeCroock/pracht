@@ -1,7 +1,9 @@
-import { h } from "preact";
+import { JSDOM } from "jsdom";
+import { Component, h } from "preact";
 import { describe, expect, it } from "vitest";
 
 import {
+  ErrorBoundary,
   Script,
   Suspense,
   defer,
@@ -11,6 +13,10 @@ import {
   use,
 } from "../src/index.ts";
 import { isStreamingHtmlResponse } from "../src/runtime-stream.ts";
+
+// Early hydration is Preact 11 only (runtime-page.ts places the entry at the
+// end on Preact 10); the Preact 10 CI job runs this file too.
+const PREACT_11 = Object.keys(new (Component as unknown as new () => object)()).length > 2;
 
 interface Review {
   id: number;
@@ -49,6 +55,29 @@ function streamingRoute(delayMs = 10) {
   });
 }
 
+function Boom(): never {
+  throw new Error("boom");
+}
+
+/** Run `fn` and return every rejection Node saw go unhandled meanwhile. */
+async function collectUnhandled(fn: () => Promise<void>): Promise<unknown[]> {
+  const unhandled: unknown[] = [];
+  const record = (reason: unknown) => unhandled.push(reason);
+  process.on("unhandledRejection", record);
+  try {
+    await fn();
+    // Let every boundary and deferred value pending at the failure settle.
+    await later(null, 40);
+  } finally {
+    process.off("unhandledRejection", record);
+  }
+  return unhandled;
+}
+
+function nextFrame(window: Window): Promise<void> {
+  return new Promise((resolve) => window.requestAnimationFrame(() => resolve()));
+}
+
 async function readChunks(response: Response): Promise<string[]> {
   const reader = response.body!.getReader();
   const decoder = new TextDecoder();
@@ -85,6 +114,147 @@ describe("streaming SSR documents", () => {
 
     expect(response.status).toBe(500);
     await expect(response.text()).resolves.toBe("Internal Server Error");
+  });
+
+  it("does not leave a deferred rejection unhandled when the shell fails", async () => {
+    const unhandled = await collectUnhandled(async () => {
+      const response = await handlePrachtRequest({
+        app: streamingApp(),
+        registry: {
+          routeModules: {
+            "./routes/product.tsx": async () => ({
+              loader: async () => ({
+                reviews: defer(async () => {
+                  await later(null, 5);
+                  throw new Error("reviews failed");
+                }),
+              }),
+              Component: Boom,
+            }),
+          },
+        },
+        request: new Request("http://localhost/product"),
+      });
+      expect(response.status).toBe(500);
+    });
+    expect(unhandled).toEqual([]);
+  });
+
+  it("answers with an error document when the shell fails after a boundary suspended", async () => {
+    const unhandled = await collectUnhandled(async () => {
+      const route_ = streamingRoute();
+      const response = await handlePrachtRequest({
+        app: streamingApp(),
+        registry: {
+          routeModules: {
+            "./routes/product.tsx": async () => {
+              const { loader, Component: Page } = await route_();
+              return {
+                loader,
+                Component: (props: Parameters<typeof Page>[0]) =>
+                  h("div", null, h(Page, props), h(Boom, null)),
+              };
+            },
+          },
+        },
+        request: new Request("http://localhost/product"),
+      });
+      expect(response.status).toBe(500);
+      await expect(response.text()).resolves.toBe("Internal Server Error");
+    });
+    expect(unhandled).toEqual([]);
+  });
+
+  it("names a component that suspends outside every <Suspense>", async () => {
+    const errors: unknown[] = [];
+    const response = await handlePrachtRequest({
+      app: streamingApp(),
+      registry: {
+        routeModules: {
+          "./routes/product.tsx": async () => ({
+            loader: async () => ({ reviews: defer(later<Review[]>([{ id: 7 }])) }),
+            Component: ({ data }: { data: { reviews: Review[] } }) =>
+              h(ErrorBoundary, { fallback: "failed" }, h(ReviewList, { reviews: data.reviews })),
+          }),
+        },
+      },
+      request: new Request("http://localhost/product"),
+      onRouteError: (error) => errors.push(error),
+    });
+
+    expect(response.status).toBe(500);
+    expect(String(errors[0])).toContain("suspended outside a <Suspense> boundary");
+  });
+
+  it("streams a <Suspense> boundary inside an <ErrorBoundary>", async () => {
+    const response = await handlePrachtRequest({
+      app: streamingApp(),
+      registry: {
+        routeModules: {
+          "./routes/product.tsx": async () => ({
+            loader: async () => ({ reviews: defer(later<Review[]>([{ id: 7 }])) }),
+            Component: ({ data }: { data: { reviews: Review[] } }) =>
+              h(
+                ErrorBoundary,
+                { fallback: "failed" },
+                h(
+                  Suspense as never,
+                  { fallback: h("p", null, "loading") },
+                  h(ReviewList, { reviews: data.reviews }),
+                ),
+              ),
+          }),
+        },
+      },
+      request: new Request("http://localhost/product"),
+    });
+
+    expect(response.status).toBe(200);
+    const [, shell, ...rest] = await readChunks(response);
+    expect(shell).toContain("<p>loading</p>");
+    expect(rest.join("")).toContain("review-7");
+  });
+
+  it("renders an <ErrorBoundary> fallback for an error after a boundary inside it suspended", async () => {
+    const caught: string[] = [];
+    const unhandled = await collectUnhandled(async () => {
+      const response = await handlePrachtRequest({
+        app: streamingApp(),
+        registry: {
+          routeModules: {
+            "./routes/product.tsx": async () => ({
+              loader: async () => ({ reviews: defer(later<Review[]>([{ id: 7 }])) }),
+              Component: ({ data }: { data: { reviews: Review[] } }) =>
+                h(
+                  "main",
+                  null,
+                  h(
+                    ErrorBoundary,
+                    {
+                      fallback: (error: Error) => h("p", null, `failed: ${error.message}`),
+                      onError: (error: Error) => caught.push(error.message),
+                    },
+                    h(
+                      Suspense as never,
+                      { fallback: h("p", null, "loading") },
+                      h(ReviewList, { reviews: data.reviews }),
+                    ),
+                    h(Boom, null),
+                  ),
+                  h("p", null, "after"),
+                ),
+            }),
+          },
+        },
+        request: new Request("http://localhost/product"),
+      });
+      expect(response.status).toBe(200);
+      expect(await response.text()).toContain(
+        '<div id="pracht-root"><main><p>failed: boom</p><p>after</p></main></div>',
+      );
+    });
+    expect(caught).toEqual(["boom"]);
+    expect(unhandled).toEqual([]);
   });
 
   it("flushes the head and shell before the deferred value settles", async () => {
@@ -156,7 +326,7 @@ describe("streaming SSR documents", () => {
     expect(first).not.toContain("review-7");
   });
 
-  it("runs deferred beforeHydration scripts before starting the client", async () => {
+  it("emits deferred beforeHydration scripts in place, inside the streamed subtree", async () => {
     const response = await handlePrachtRequest({
       app: streamingApp(),
       clientEntryUrl: "/assets/client.js",
@@ -184,9 +354,11 @@ describe("streaming SSR documents", () => {
       request: new Request("http://localhost/product"),
     });
 
+    // The client starts after the shell; the subtree this script belongs to
+    // only hydrates once the document is complete (streamed-document.ts).
     const html = (await readChunks(response)).join("");
-    expect(html.indexOf('src="/flags.js"')).toBeGreaterThan(-1);
-    expect(html.indexOf('src="/flags.js"')).toBeLessThan(html.indexOf('src="/assets/client.js"'));
+    expect(html.indexOf('src="/flags.js"')).toBeGreaterThan(html.indexOf("<preact-island"));
+    expect(html.indexOf('src="/flags.js"')).toBeLessThan(html.indexOf("</body>"));
   });
 
   it("dedupes in-place scripts against head metadata", async () => {
@@ -286,36 +458,40 @@ describe("streaming SSR documents", () => {
     expect(html.indexOf('id="pracht-state"')).toBeLessThan(html.indexOf("review-7"));
   });
 
-  it("emits the defer shim before fast values and starts the client after the stream", async () => {
-    const response = await handlePrachtRequest({
-      app: streamingApp(),
-      clientEntryUrl: "/assets/client.js",
-      registry: {
-        routeModules: {
-          "./routes/product.tsx": async () => ({
-            loader: async () => ({ reviews: defer(Promise.resolve([{ id: 7 }])) }),
-            Component: ({ data }: { data: { reviews: Review[] } }) =>
-              h(
-                Suspense as never,
-                { fallback: h("p", null, "loading") },
-                h(ReviewList, { reviews: data.reviews }),
-              ),
-          }),
+  it.runIf(PREACT_11)(
+    "starts the client after the shell, between the defer shim and the deferred values",
+    async () => {
+      const response = await handlePrachtRequest({
+        app: streamingApp(),
+        clientEntryUrl: "/assets/client.js",
+        registry: {
+          routeModules: {
+            "./routes/product.tsx": async () => ({
+              loader: async () => ({ reviews: defer(Promise.resolve([{ id: 7 }])) }),
+              Component: ({ data }: { data: { reviews: Review[] } }) =>
+                h(
+                  Suspense as never,
+                  { fallback: h("p", null, "loading") },
+                  h(ReviewList, { reviews: data.reviews }),
+                ),
+            }),
+          },
         },
-      },
-      request: new Request("http://localhost/product"),
-    });
+        request: new Request("http://localhost/product"),
+      });
 
-    const html = (await readChunks(response)).join("");
-    const shimIndex = html.indexOf("window.__PRACHT_DEFER__=window.__PRACHT_DEFER__");
-    const valueIndex = html.indexOf('window.__PRACHT_DEFER__.r("0:reviews"');
-    expect(shimIndex).toBeGreaterThan(-1);
-    expect(valueIndex).toBeGreaterThan(shimIndex);
-    expect(valueIndex).toBeLessThan(html.indexOf('src="/assets/client.js"'));
-    expect(html).toContain('<link rel="modulepreload" href="/assets/client.js">');
-    expect(html.indexOf('rel="modulepreload" href="/assets/client.js"')).toBeLessThan(valueIndex);
-    expect(html).toContain('<script type="module" src="/assets/client.js"></script>');
-  });
+      const html = (await readChunks(response)).join("");
+      const shimIndex = html.indexOf("window.__PRACHT_DEFER__=window.__PRACHT_DEFER__");
+      const valueIndex = html.indexOf('window.__PRACHT_DEFER__.r("0:reviews"');
+      expect(shimIndex).toBeGreaterThan(-1);
+      const entryIndex = html.indexOf(
+        '<script type="module" async src="/assets/client.js"></script>',
+      );
+      expect(entryIndex).toBeGreaterThan(shimIndex);
+      expect(valueIndex).toBeGreaterThan(entryIndex);
+      expect(html.indexOf('rel="modulepreload" href="/assets/client.js"')).toBeLessThan(entryIndex);
+    },
+  );
 
   it("puts the head scriptNonce on every inline script in the stream", async () => {
     const productRoute = streamingRoute();
@@ -345,13 +521,66 @@ describe("streaming SSR documents", () => {
     const inlineScripts = [...html.matchAll(/<script\b([^>]*)>/g)]
       .map((match) => match[1])
       .filter((attrs) => !/\bsrc=/.test(attrs) && !/type="application\/json"/.test(attrs));
-    // Shim, renderer bootstrap, deferred value, speculation rules.
-    expect(inlineScripts).toHaveLength(4);
+    // Shim, island swap patch, renderer bootstrap, island swap trigger,
+    // deferred value, speculation rules.
+    expect(inlineScripts).toHaveLength(6);
     for (const attrs of inlineScripts) {
       expect(attrs).toContain('nonce="n0nce&quot;x"');
     }
     expect(html).toContain("review-7");
     expect(html).toContain("<preact-island");
+  });
+
+  it("swaps each streamed boundary into place exactly once", async () => {
+    const response = await handlePrachtRequest({
+      app: streamingApp(),
+      registry: { routeModules: { "./routes/product.tsx": streamingRoute() } },
+      request: new Request("http://localhost/product"),
+    });
+    const dom = new JSDOM((await readChunks(response)).join(""), {
+      pretendToBeVisual: true,
+      runScripts: "dangerously",
+    });
+    await nextFrame(dom.window);
+
+    const main = dom.window.document.querySelector("main")!;
+    expect(main.innerHTML).toMatch(/<!--\$s:[^>]+--><ul><li>review-7<\/li><\/ul><!--\/\$s:/);
+    expect(dom.window.document.querySelector("preact-island")).toBeNull();
+    dom.window.close();
+  });
+
+  it("keeps a boundary's markup when a frame runs before the island's children are parsed", async () => {
+    const response = await handlePrachtRequest({
+      app: streamingApp(),
+      registry: { routeModules: { "./routes/product.tsx": streamingRoute() } },
+      request: new Request("http://localhost/product"),
+    });
+    const html = (await readChunks(response)).join("");
+    const islandStart = html.indexOf("<preact-island");
+    const island = html.slice(islandStart, html.indexOf("</preact-island>") + 16);
+    const trigger = html.slice(islandStart + island.length).match(/^<script>([^<]*)<\/script>/)![1];
+    const dom = new JSDOM(html.slice(0, islandStart), {
+      pretendToBeVisual: true,
+      runScripts: "dangerously",
+    });
+    const { document } = dom.window;
+
+    // The parser connects the island at its start tag, yields for a frame,
+    // then appends the children and reaches the trigger script.
+    const element = document.createElement("preact-island");
+    element.setAttribute("hidden", "");
+    element.setAttribute("data-target", island.match(/data-target="([^"]+)"/)![1]);
+    document.querySelector("div[hidden]")!.append(element);
+    await nextFrame(dom.window);
+    element.innerHTML = island.slice(island.indexOf(">") + 1, -"</preact-island>".length);
+    const script = document.createElement("script");
+    script.textContent = trigger;
+    element.after(script);
+    await nextFrame(dom.window);
+
+    expect(document.querySelector("main")!.innerHTML).toContain("<ul><li>review-7</li></ul>");
+    expect(document.querySelector("main p")).toBeNull();
+    dom.window.close();
   });
 
   it("produces the same final markup as the buffered renderer", async () => {

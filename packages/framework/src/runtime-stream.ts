@@ -13,12 +13,13 @@
  * 2. the renderer's first chunk — the shell, i.e. the tree with every
  *    unresolved `<Suspense>` boundary rendered as its fallback.
  * 3. `afterShell` — closes the root div and writes the state and defer-channel
- *    bootstrap.
+ *    bootstrap. On Preact 11 it also carries the async client entry, so the
+ *    shell hydrates while boundaries are still arriving; their resumption
+ *    waits for the complete document (see streamed-document.ts).
  * 4. the renderer's remaining chunks — its bootstrap script and one
- *    `<template>`-swap per boundary as each resolves.
- * 5. `suffix` — the client entry followed by `</body></html>`. Starting
- *    hydration here guarantees that an in-place `beforeHydration` script from
- *    a deferred subtree has already executed.
+ *    `<preact-island>` swap per boundary as each resolves.
+ * 5. `suffix` — `</body></html>`, preceded by the client entry on Preact 10,
+ *    which cannot resume a boundary whose fallback the renderer replaced.
  *
  * Step 2 relies on `renderToReadableStream` enqueuing exactly once per internal
  * write, with the shell first. That is the documented shape of the chunked
@@ -33,6 +34,7 @@ import { applyHeaders, applySecurityAndRouteHeaders, ownResponse } from "./runti
 import { normalizeRouteError } from "./runtime-errors.ts";
 import { encodeRouteData } from "./route-data-codec.ts";
 import { getRenderToReadableStream } from "./runtime-response.ts";
+import { renderStreamedShell } from "./streamed-shell.ts";
 
 // `client.richData` (see route-data-codec.ts). Declared in this module rather
 // than imported: Rolldown folds the condition only within a module, so an
@@ -78,24 +80,84 @@ export interface StreamingHtmlResponseOptions {
 const streamingResponseBodies = new WeakSet<ReadableStream<Uint8Array>>();
 
 const RENDERER_SCRIPT_OPEN = new TextEncoder().encode("<script>");
+const RENDERER_ISLAND_OPEN = new TextEncoder().encode("<preact-island");
 
 /**
- * Give the renderer's inline boundary-swap bootstrap a CSP nonce.
+ * Written right before the renderer's bootstrap, ahead of any boundary.
+ *
+ * The renderer's `<preact-island>` schedules its swap from `connectedCallback`,
+ * which runs when the parser reaches the start tag. The parser may yield
+ * before the island's children, and a frame in that gap swaps an empty island:
+ * the boundary's markup is lost and hydration has to render it from scratch.
+ * The swap is started from a script after each island instead, which only
+ * runs once the parser has finished the element before it. The callback is
+ * replaced while the bootstrap defines the element, because `define()` reads
+ * lifecycle callbacks once.
+ */
+const ISLAND_SWAP_PATCH =
+  "(function(){var d=customElements.define,c;" +
+  'customElements.define=function(n,C,o){if(n=="preact-island"){customElements.define=d;' +
+  "c=C.prototype.connectedCallback;C.prototype.connectedCallback=function(){}}" +
+  "return d.call(this,n,C,o)};" +
+  'window.__PRACHT_ISLAND__=function(s){var e=s.previousSibling;if(c&&e&&e.localName=="preact-island")c.call(e)}})()';
+const ISLAND_SWAP_TRIGGER = "__PRACHT_ISLAND__(document.currentScript)</script>";
+
+function startsWith(chunk: Uint8Array, prefix: Uint8Array): boolean {
+  if (chunk.length < prefix.length) return false;
+  for (let i = 0; i < prefix.length; i++) {
+    if (chunk[i] !== prefix[i]) return false;
+  }
+  return true;
+}
+
+function concatBytes(...parts: Uint8Array[]): Uint8Array {
+  const out = new Uint8Array(parts.reduce((length, part) => length + part.length, 0));
+  let offset = 0;
+  for (const part of parts) {
+    out.set(part, offset);
+    offset += part.length;
+  }
+  return out;
+}
+
+/**
+ * Adjust a post-shell renderer chunk.
  *
  * `renderToReadableStream` has no nonce option. After the shell, its chunks
  * are the `<div hidden>` wrapper, one bootstrap `<script>`, and boundary
  * subtrees wrapped in `<preact-island>`, so the only post-shell chunk that
- * opens with a bare `<script>` is that bootstrap.
+ * opens with a bare `<script>` is that bootstrap. It gets the nonce and is
+ * preceded by the swap patch; each island is followed by its swap trigger.
  */
-function addRendererScriptNonce(chunk: Uint8Array, scriptOpen: Uint8Array): Uint8Array {
-  if (chunk.length < RENDERER_SCRIPT_OPEN.length) return chunk;
-  for (let i = 0; i < RENDERER_SCRIPT_OPEN.length; i++) {
-    if (chunk[i] !== RENDERER_SCRIPT_OPEN[i]) return chunk;
+function prepareRendererChunk(
+  chunk: Uint8Array,
+  scriptOpen: Uint8Array,
+  encoder: TextEncoder,
+): Uint8Array {
+  if (startsWith(chunk, RENDERER_ISLAND_OPEN)) {
+    return concatBytes(chunk, scriptOpen, encoder.encode(ISLAND_SWAP_TRIGGER));
   }
-  const out = new Uint8Array(scriptOpen.length + chunk.length - RENDERER_SCRIPT_OPEN.length);
-  out.set(scriptOpen);
-  out.set(chunk.subarray(RENDERER_SCRIPT_OPEN.length), scriptOpen.length);
-  return out;
+  if (startsWith(chunk, RENDERER_SCRIPT_OPEN)) {
+    return concatBytes(
+      scriptOpen,
+      encoder.encode(`${ISLAND_SWAP_PATCH}</script>`),
+      scriptOpen,
+      chunk.subarray(RENDERER_SCRIPT_OPEN.length),
+    );
+  }
+  return chunk;
+}
+
+/** Read `reader` to its end, discarding every chunk. */
+async function drain(reader: ReadableStreamDefaultReader<Uint8Array>): Promise<void> {
+  try {
+    for (;;) {
+      const { done } = await reader.read();
+      if (done) break;
+    }
+  } catch {
+    // Nothing is left to deliver the failure to.
+  }
 }
 
 /** Whether a response body was created by Pracht's streaming document renderer. */
@@ -131,17 +193,22 @@ export async function streamingHtmlResponse(
   const renderToReadableStream = await getRenderToReadableStream();
   const encoder = new TextEncoder();
 
-  // Produce the shell before constructing the outer response. The renderer
-  // reports even synchronous component failures through its Web stream, so
-  // awaiting the first read is the actual pre-flush error boundary: failures
-  // still reach handlePrachtRequest's normal error-document path.
-  const rendered = renderToReadableStream(tree);
-  // `preact-render-to-string` exposes the same failure through `allReady` as
+  // Produce the shell before constructing the outer response. A shell error
+  // throws from here, so it still reaches handlePrachtRequest's normal
+  // error-document path.
+  const shell = renderStreamedShell(tree, renderToReadableStream);
+  const rendered = shell.result;
+  // `preact-render-to-string` exposes a stream failure through `allReady` as
   // well as the body stream. The body remains authoritative below; observing
-  // this second promise prevents an uncaught render from becoming an unhandled
-  // rejection in Node.
+  // this second promise prevents it from becoming an unhandled rejection.
   void rendered.allReady.catch(() => {});
   const reader = rendered.getReader();
+  if (shell.failed) {
+    // Boundaries that suspended before the error still write when they
+    // settle, so the renderer's stream has to stay open until they have.
+    void drain(reader);
+    throw shell.error;
+  }
   let firstRead: ReadableStreamReadResult<Uint8Array>;
   try {
     firstRead = await reader.read();
@@ -209,7 +276,7 @@ export async function streamingHtmlResponse(
       }
 
       const scriptOpen = `<script${nonce ? ` nonce="${escapeHtml(nonce)}"` : ""}>`;
-      const nonceScriptOpen = nonce ? encoder.encode(scriptOpen) : undefined;
+      const scriptOpenBytes = encoder.encode(scriptOpen);
       const writeDeferred = async (script: () => string) => {
         await deferChannelReady;
         await write(script);
@@ -278,19 +345,14 @@ export async function streamingHtmlResponse(
             // A read already in flight when the consumer cancels still resolves
             // once; enqueuing it would throw on the closed controller.
             if (closed) break;
-            await writeChunk(() =>
-              nonceScriptOpen ? addRendererScriptNonce(value, nonceScriptOpen) : value,
-            );
+            await writeChunk(() => prepareRendererChunk(value, scriptOpenBytes, encoder));
           }
 
           if (closed) {
             // The Web renderer exposes no abort hook. Keep consuming its stream
             // after request-scoped work is aborted so its controller never queues
             // unbounded chunks or writes into a canceled stream.
-            for (;;) {
-              const { done } = await reader.read();
-              if (done) break;
-            }
+            await drain(reader);
             return;
           }
 

@@ -262,8 +262,9 @@ It also works as a group option. Pages routes use `export const STREAMING = true
 Your `defer()` and `use()` code stays the same either way.
 
 The browser first gets the page with each unresolved boundary showing its
-fallback; deferred values stream in as they settle, and hydration starts when
-the document is complete.
+fallback; deferred values stream in as they settle. On Preact 11 the page is
+interactive from that first part, and boundaries hydrate once the document is
+complete. Preact 10 hydrates only then.
 
 Streaming needs `render: "ssr"` with `hydration: "full"`; any other combination
 is rejected. It also needs `preact-render-to-string` 6.7 or newer.
@@ -275,7 +276,7 @@ What changes when a route streams:
   `<ErrorBoundary>` recovers just that subtree. Failures before the first flush
   still render a normal error page.
 - **`<Script strategy="beforeHydration">` is emitted in place** instead of in
-  `<head>`. It still runs before hydration.
+  `<head>`. It still runs before its subtree hydrates.
 - **The document carries inline scripts** that deliver deferred values and
   swap boundaries. Under a nonce-based CSP, return `scriptNonce` from `head()`
   and every one of them carries it. See [CSP](/docs/recipes/csp).

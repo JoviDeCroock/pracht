@@ -35,6 +35,7 @@ import {
   type SerializedRouteError,
 } from "./runtime-errors.ts";
 import { decodeRouteData } from "./route-data-codec.ts";
+import { whenDocumentStreamed } from "./streamed-document.ts";
 
 // `client.richData` (see route-data-codec.ts). Declared in this module rather
 // than imported: Rolldown folds the condition only within a module, so an
@@ -401,11 +402,12 @@ export function serializeDeferred(data: unknown): SerializedDeferred {
     if (isDeferred(value)) {
       const label = path.length === 0 ? "root" : path.map(String).join(".");
       const id = `${pending.length}:${label}`;
-      pending.push({
-        id,
-        path: [...path],
-        promise: resolveDeferredData(value),
-      });
+      const promise = resolveDeferredData(value);
+      // The stream subscribes only after the shell's first chunk. A shell that
+      // fails before then answers with an error document and never reads
+      // this value, so its rejection must not become an unhandled one.
+      promise.catch(() => {});
+      pending.push({ id, path: [...path], promise });
       return null;
     }
     if (typeof value !== "object" || value === null) return value;
@@ -522,10 +524,20 @@ export function installDeferRegistry(): void {
   const existing = (window as unknown as { __PRACHT_DEFER__?: DeferRegistry }).__PRACHT_DEFER__;
   const queued = existing?.q ?? [];
 
+  // A value that settles while the document is still streaming waits for the
+  // boundary markup that reads it (see streamed-document.ts). Until then it is
+  // not in `settled` either, so `use()` suspends instead of hydrating it
+  // against the fallback.
+  const settle = (fn: () => void) => {
+    const streamed = whenDocumentStreamed();
+    if (streamed) void streamed.then(fn);
+    else fn();
+  };
   const registry: DeferRegistry = {
     r(id, value) {
       // Streamed values use the same encoding as the hydration state.
-      getClientEntry(id).resolve(RICH_ROUTE_DATA ? decodeRouteData(value) : value);
+      const decoded = RICH_ROUTE_DATA ? decodeRouteData(value) : value;
+      settle(() => getClientEntry(id).resolve(decoded));
     },
     e(id, error) {
       const err = isSerializedRouteError(error)
@@ -535,7 +547,7 @@ export function installDeferRegistry(): void {
               ? String((error as { message: unknown }).message)
               : String(error),
           );
-      getClientEntry(id).reject(err);
+      settle(() => getClientEntry(id).reject(err));
     },
   };
   (window as unknown as { __PRACHT_DEFER__: DeferRegistry }).__PRACHT_DEFER__ = registry;

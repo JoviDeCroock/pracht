@@ -16,6 +16,7 @@
 import { options } from "preact";
 
 import { beginHydrationSuspension, isHydrationPending } from "./hydration.ts";
+import { whenDocumentStreamed } from "./streamed-document.ts";
 
 // Preact internal flag on vnode.__u. Set by the hydrate() diff path on every
 // vnode that is actually hydrating against existing DOM. Fresh mounts and
@@ -24,6 +25,9 @@ import { beginHydrationSuspension, isHydrationPending } from "./hydration.ts";
 const MODE_HYDRATE = 1 << 5;
 
 let installed = false;
+// Suspended components whose promise settled, keyed to their settle callback
+// until they render again or unmount.
+const awaitingResume = new Map<object, () => void>();
 
 /**
  * Install the hydration suspension counter and return `value` unchanged.
@@ -63,15 +67,53 @@ export function installHydrationSuspenseTracking(): void {
       const isHydratingVNode =
         !!(newVNode && newVNode.__u && newVNode.__u & MODE_HYDRATE) || !!(newVNode && newVNode.__h);
       if (isHydratingVNode) {
+        // A lazy import can load before its boundary's streamed markup has
+        // been swapped in; hand Suspense a promise that waits for it too.
+        const streamed = whenDocumentStreamed();
+        if (streamed) {
+          const wait = () => streamed;
+          err = err.then(wait, wait);
+        }
+        // A suspension ends when its component has rendered again, not when
+        // the promise settles: settling first lets an earlier boundary's
+        // commit flip `_hydrated` while this one is still hydrating, and its
+        // `useIsHydrated()` then starts `true` against server markup that was
+        // rendered `false`, an attribute hydration never patches.
+        const component = newVNode.__c;
+        // The resume attempt that threw this promise replaces the one before.
+        resumeOrUnmount(component);
         const settle = beginHydrationSuspension();
-        err.then(settle, settle);
+        const awaitResume = () => {
+          if (component) awaitingResume.set(component, settle);
+          else settle();
+        };
+        err.then(awaitResume, awaitResume);
       }
     }
     if (oldCatchError) oldCatchError(err, newVNode, oldVNode, errorInfo);
   };
+
+  const oldDiffed = options.diffed;
+  options.diffed = (vnode) => {
+    resumeOrUnmount((vnode as any).__c);
+    if (oldDiffed) oldDiffed(vnode);
+  };
+  const oldUnmount = options.unmount;
+  options.unmount = (vnode) => {
+    resumeOrUnmount((vnode as any).__c);
+    if (oldUnmount) oldUnmount(vnode);
+  };
+}
+
+function resumeOrUnmount(component: object | undefined): void {
+  const settle = component && awaitingResume.get(component);
+  if (!settle) return;
+  awaitingResume.delete(component);
+  settle();
 }
 
 /** @internal Allow tests to re-install against a fresh options chain. */
 export function _resetForTesting(): void {
   installed = false;
+  awaitingResume.clear();
 }
