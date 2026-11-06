@@ -5,9 +5,9 @@ lead: Render one part of a cached or prerendered page per request, with the visi
 
 ## Overview
 
-An `ssg` or `isg` page is rendered once and shared by every visitor, so it
-cannot say "Signed in as Ada" or show Ada's cart count. A server island renders
-that personal part per request while the rest of the page stays cached.
+An `ssg` or `isg` page is rendered once and shared by every visitor, so it cannot show "Signed in as Ada" or Ada's cart count. A server island renders that part per request while the rest of the page stays cached.
+
+Create the server island in `src/server-islands/`:
 
 ```tsx [src/server-islands/CartCount.tsx]
 import {
@@ -32,10 +32,10 @@ export default function CartCount({ label }: { label: string } & ServerIslandPro
 }
 ```
 
-Import it into any page or shell, list it in that module's `serverIslands`
-export, and use it as plain JSX with a `fallback`:
+Import it into a page or shell, list it in that module's `serverIslands` export, and render it with a `fallback`:
 
 ```tsx [src/shells/public.tsx]
+import type { ShellProps } from "@pracht/core";
 import CartCount from "../server-islands/CartCount.tsx";
 
 export const serverIslands = [CartCount];
@@ -52,40 +52,34 @@ export function Shell({ children }: ShellProps) {
 }
 ```
 
-Every route using that shell can stay `ssg` or `isg`. Their HTML is the same for
-every visitor, and each visitor sees their own cart count.
-
----
+Every route using that shell can stay `ssg` or `isg`. The HTML is the same for every visitor, and each visitor sees their own cart count.
 
 ## Authoring
 
-Every module in `src/server-islands/` (configurable with
-`pracht({ serverIslandsDir })`) is a server island, so keep helper modules
-elsewhere. The **default export** is the component. The optional **`loader`**
-receives the page's `request`, `url`, `params`, `signal`, the `context` your
-middleware built, the [app root](/docs/shells#the-app-root) state as `root`, and the server
-island's `props`. Read its return value with
-`useServerIslandData<typeof loader>()`.
+Every module in `src/server-islands/` is a server island (change it with `pracht({ serverIslandsDir })`), so keep helpers elsewhere.
 
-A route or shell lists every server island it renders in
-`export const serverIslands = [...]`, including ones rendered by components it
-uses. The shell's list covers every route under it. Rendering a server island
-the page does not list fails the render with an error naming the module to add
-it to; on an `spa` route, the dev console warns instead. A server island
-rendered inside another server island needs no listing.
+| Export | Role |
+| ------ | ---- |
+| `default` | The component. Read the loader's data with `useServerIslandData<typeof loader>()`. |
+| `loader` (optional) | Runs on the server per request. Receives the page's `request`, `url`, `params`, `signal`, the `context` your middleware built, the [app root](/docs/shells#the-app-root) state as `root`, and the server island's `props`. |
 
-`fallback` is what the page shows until the server island arrives. The page
-keeps it when the server island fails, or when middleware or the loader answers
-with a `Response` such as `redirect()`. It never reaches your component.
+Server islands take no children. Their props follow the rules for [island props](/docs/islands#props-and-children); the loader's return value can be anything, because it is only rendered on the server.
 
-Server islands take no children. Their props follow the rules for
-[island props](/docs/islands#props-and-children): strings, finite numbers,
-booleans, `null`, arrays, and plain objects. The loader's return value can be
-anything, because it is only rendered on the server.
+### List every server island the page renders
 
----
+A route or shell lists every server island it renders in `export const serverIslands = [...]`, including ones rendered by components it uses. A shell's list covers every route under it. A server island rendered inside another server island needs no listing.
 
-## What Visitors See
+Rendering one the page does not list fails the render (on an `spa` route, the dev console warns instead):
+
+```text
+Server island "CartCount" (src/server-islands/CartCount.tsx) is rendered by a page that does not list it. Add it to `export const serverIslands = [...]` in the route module, or in the shell module when the shell renders it.
+```
+
+### Fallback
+
+`fallback` is what the page shows until the server island arrives. The page keeps it when the server island fails, or when middleware or the loader answers with a `Response` such as `redirect()`. The component never receives it.
+
+## What visitors see
 
 | Page | The document contains | Then |
 | ---- | --------------------- | ---- |
@@ -94,55 +88,34 @@ anything, because it is only rendered on the server.
 | `ssr` with `streaming: true` | The fallback | The browser fetches the server island after load |
 | Client navigation (full hydration) | The fallback | The server island is fetched when it mounts |
 
-On an `ssr` page, the server island loaders run at the same time, and the
-response waits for all of them, so the slowest loader decides when the page
-arrives. With `streaming: true`, the page is sent without waiting and its server
-islands are fetched after load.
+On an `ssr` page, the server island loaders run in parallel and the response waits for all of them, so the slowest loader decides when the page arrives. With `streaming: true` the page is sent without waiting.
 
-On `hydration: "none"` and `"islands"` pages, a small script (about 1.3 KB
-gzip, no Preact) fills the server island, and only pages that render a pending
-server island load it. Islands inside a server island hydrate once its HTML is
-in place. A server island passed to an island as children is fetched when the
-island first shows those children. With
-[`islandsNavigation`](/docs/islands#client-side-navigation-between-islands-pages),
-a swapped-in page fills its server islands the same way, and an island that
-stays mounted across the swap keeps the server island HTML it already has.
+On `hydration: "none"` and `"islands"` pages, a script of about 1.3 KB gzip (no Preact) fills server islands; only pages with a pending server island load it.
 
-On `hydration: "full"` pages, the server island's markup is left alone by
-hydration and re-renders, so it cannot cause a hydration mismatch. It fetches
-fresh HTML after `useRevalidate()`, a successful `<Form>` submission, or a
-capability call that changes data, so a cart count follows the cart. Islands
-inside a server island stay static HTML on these pages.
+- Islands inside a server island hydrate once its HTML is in place.
+- A server island passed to an island as children is fetched when the island first shows them.
+- With [`islandsNavigation`](/docs/islands#client-side-navigation-between-islands-pages), a swapped-in page fills its server islands the same way, and an island that stays mounted keeps the server island HTML it has.
 
-A server island's code and its loader never reach the browser. Only the
-stylesheets it imports do.
+On `hydration: "full"` pages, hydration leaves the server island's markup alone, so it cannot cause a hydration mismatch. It fetches fresh HTML after `useRevalidate()`, a successful `<Form>` submission, or a capability call that changes data, so a cart count follows the cart. Islands inside a server island stay static HTML on these pages.
 
----
+A server island's code and loader never reach the browser; only the stylesheets it imports do.
 
 ## Security
 
-A server island runs with the middleware of the page that renders it, and the
-browser asks for it with the page path and props in a URL any caller can edit.
-**Server island props are untrusted input: authorize from `context` inside the
-loader**, as the `if (!context.user)` check above does.
+A server island runs under the middleware of the page that renders it. The browser requests it with the page path and props in a URL any caller can edit.
 
-A server island runs only for pages whose route or shell lists it, under that
-page's middleware, but the list is not an authorization check. Anyone who passes
-a page's middleware can request every server island that page lists, including
-one it renders only conditionally, such as `{isAdmin && <AdminStats />}`. A
-loader that returns private data checks `context` itself.
+**Server island props are untrusted input: authorize from `context` inside the loader**, as the `if (!context.user)` check above does.
 
-Server island responses are always `Cache-Control: private, no-store`, so the
-page around them stays cacheable.
+The `serverIslands` list is not an authorization check. Anyone who passes a page's middleware can request every server island that page lists, including one it renders only conditionally, such as `{isAdmin && <AdminStats />}`. A loader that returns private data checks `context` itself.
 
----
+Server island responses are always `Cache-Control: private, no-store`, so the page around them stays cacheable.
 
-## Errors and Deployment
+## Errors and deployment
 
-A failing server island never fails its page. The page shows the fallback, and
-the error goes to your `onRouteError` hook with the server island file named.
+A failing server island never fails its page. The page shows the fallback, and the error goes to your `onRouteError` hook with the server island file named.
 
-Server islands need a server, so they work on the Node, Cloudflare, Netlify,
-and Vercel adapters. With `@pracht/adapter-static`, a prerendered page that
-renders a server island fails the build. Load per-visitor content from an
-island there instead.
+Server islands need a server: they work on the Node, Cloudflare, Netlify, and Vercel adapters. With `@pracht/adapter-static`, a prerendered page that renders a server island fails the build with:
+
+```text
+Server island "CartCount" (src/server-islands/CartCount.tsx) was rendered on a prerendered page, but the static adapter deploys no server to answer server island requests. Render the content client-side from an island instead, or deploy with a server adapter.
+```

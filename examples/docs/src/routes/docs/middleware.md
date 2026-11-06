@@ -3,11 +3,9 @@ title: Middleware
 lead: Run code before loaders and API routes to authenticate, redirect, validate requests, and add values to the request context.
 ---
 
-## Defining Middleware
+## Define middleware
 
-Middleware wraps the rest of the request — loaders, API handlers, and any
-inner middleware — using a `next()` function. Modules live in
-`src/middleware/` and export a `middleware` function:
+Export a `middleware` function from a module in `src/middleware/`. Return early to stop the request, or call `next()` to continue:
 
 ```ts [src/middleware/auth.ts]
 import { redirect, type MiddlewareFn } from "@pracht/core";
@@ -17,26 +15,93 @@ import { sessions } from "../server/session.ts";
 export const middleware: MiddlewareFn = async ({ request }, next) => {
   const session = await sessions().getSession(request);
 
-  // Short-circuit: return without calling next()
+  // Stop here: the loader or handler never runs.
   if (!session.has("userId")) {
     return redirect("/login", { request });
   }
 
-  // Continue to the rest of the chain (and the loader/handler)
+  // Run the rest of the chain and return its response.
   return next();
 };
 ```
 
-[`@pracht/session`](/docs/recipes/auth) ships this as `requireSession(storage)`,
-along with the wrap-around half that commits the session cookie onto whatever
-response the chain produces.
+A signed-out visitor gets a redirect to `/login`; everyone else gets the page. [`@pracht/session`](/docs/recipes/auth) ships this gate as `requireSession(storage)`, and also commits the session cookie onto the response.
 
-Calling `await next()` runs the rest of the request and resolves to the final
-`Response`. That means middleware can wrap try/catch/finally around the whole
-request — useful for logging, tracing, and timing:
+Middleware receives the same `request`, `params`, `context`, `signal`, `url`, and `waitUntil` as a loader.
+
+## Apply middleware
+
+Register each module by name in `defineApp`, then list names on routes or groups:
+
+```ts [src/routes.ts]
+import { defineApp, group, route } from "@pracht/core";
+
+export const app = defineApp({
+  middleware: {
+    auth: "./middleware/auth.ts",
+    rateLimit: "./middleware/rate-limit.ts",
+  },
+  routes: [
+    route("/profile", "./routes/profile.tsx", { middleware: ["auth"] }),
+
+    // Every child inherits the group's middleware.
+    group({ middleware: ["auth"], shell: "app" }, [
+      route("/dashboard", "./routes/dashboard.tsx"),
+      route("/settings", "./routes/settings.tsx", { middleware: ["rateLimit"] }),
+    ]),
+  ],
+});
+```
+
+Group middleware runs first, then route middleware, then the loader. A request to `/settings` above runs `auth`, then `rateLimit`, then the loader.
+
+API routes use their own list, `defineApp({ api: { middleware } })`. See [API middleware](/docs/api-routes#api-middleware).
+
+## Return values
+
+Middleware always returns a `Response`:
+
+| Return | Effect |
+| ------ | ------ |
+| `return next()` | Runs the next middleware (or the loader/handler) and returns its response |
+| `return redirect(path, { request })` | Stops the chain with a redirect: 302 for `GET`/`HEAD`, 303 for unsafe methods |
+| `return new Response(...)` | Stops the chain with any response |
+
+## Add values to the context
+
+Assign to `context` before calling `next()`. Later middleware, the loader, and the API handler read the same object:
+
+```ts [src/middleware/user.ts]
+import type { MiddlewareFn } from "@pracht/core";
+
+import { getUser } from "../server/users.ts";
+
+export const middleware: MiddlewareFn = async ({ context, request }, next) => {
+  context.user = await getUser(request);
+  return next();
+};
+```
+
+Declare the shape once so loaders and handlers see `context.user` typed:
+
+```ts [src/env.d.ts]
+import type { User } from "./server/users.ts";
+
+declare module "@pracht/core" {
+  interface Register {
+    context: { user: User | null };
+  }
+}
+```
+
+## Wrap the whole request
+
+`await next()` resolves to the final `Response`, so `try`/`finally` around it covers the loader or handler too. Use this for logging, tracing, and timing:
 
 ```ts [src/middleware/trace.ts]
 import type { MiddlewareFn } from "@pracht/core";
+
+import { startSpan } from "../server/tracing.ts";
 
 export const middleware: MiddlewareFn = async ({ request }, next) => {
   const span = startSpan({ url: request.url, method: request.method });
@@ -53,90 +118,17 @@ export const middleware: MiddlewareFn = async ({ request }, next) => {
 };
 ```
 
----
+## Middleware on prerendered routes
 
-## Applying Middleware
+`ssg` and `isg` pages render at build or revalidation time on a sanitized request: `GET`, path only, no visitor cookies. Visitors then get the stored HTML without middleware running, and any headers middleware set are sent to everyone.
 
-Register middleware by name in `defineApp`, then reference them in routes or groups:
+Route-state requests for those pages do run middleware with the visitor's request, but the HTML is already public. Gate by cookie or session only on `ssr` and `spa` routes.
 
-```ts [src/routes.ts]
-export const app = defineApp({
-  middleware: {
-    auth: "./middleware/auth.ts",
-    rateLimit: "./middleware/rate-limit.ts",
-  },
-  routes: [
-    // Applied to a single route
-    route("/profile", "./routes/profile.tsx", { middleware: ["auth"] }),
+## Without a manifest (higher-order functions)
 
-    // Applied to a group — all children inherit
-    group({ middleware: ["auth"], shell: "app" }, [
-      route("/dashboard", "./routes/dashboard.tsx"),
-      route("/settings", "./routes/settings.tsx"),
-    ]),
-  ],
-});
-```
+With the pages router on a serverful adapter, a root-level [`_middleware.ts`](/docs/routing#middleware-via-middlewarets) applies the same `MiddlewareFn` to every page route. Static exports cannot run middleware.
 
----
-
-## Middleware Stacking
-
-Middleware from groups and routes is combined. A route inside a group with `["auth"]` that also declares `["rateLimit"]` runs both in order:
-
-1. `auth` (from group)
-2. `rateLimit` (from route)
-3. Loader / API route
-
----
-
-## Middleware Results
-
-Middleware always returns a `Response`:
-
-| Return                | Effect                                                                |
-| --------------------- | --------------------------------------------------------------------- |
-| `return next()`       | Continue to the next middleware (or loader/handler) and return its response |
-| `return redirect(...)` | Short-circuit with a redirect; pass `{ request }` for method-aware 302/303 defaults |
-| `return new Response(...)` | Short-circuit with any custom response                          |
-
-Returning without calling `next()` skips the rest of the chain and the
-loader/handler.
-
-### Mutating context
-
-Middleware can read and mutate `args.context` directly. Earlier middleware
-sets values, later middleware (and the loader/API handler) sees them:
-
-```ts
-export const middleware: MiddlewareFn = async ({ context, request }, next) => {
-  (context as { user?: User }).user = await getSession(request);
-  return next();
-};
-```
-
-The `context` object is shared by reference — there's no merge step.
-
----
-
-## Middleware on Prerendered Routes
-
-`ssg` and `isg` pages render at build or revalidation time on a sanitized
-request: `GET`, path only, no visitor cookies. Visitors then get the stored
-HTML without middleware running, and any headers middleware set are replayed
-to everyone.
-
-Client-side route-state requests for those pages do run middleware with the
-visitor's request, but that cannot protect HTML that is already public. Gate
-by cookie or session only on `ssr` and `spa` routes.
-
----
-
-## Without a Manifest (Higher-Order Functions)
-
-With the **pages router** on a serverful adapter, a root-level [`_middleware.ts`](/docs/routing#middleware-via-middlewarets) applies the same `MiddlewareFn` contract to every page route. Pure static exports cannot use middleware.
-
-API routes are not wrapped by it. To guard API handlers in pages mode, or per handler in any mode, wrap them in higher-order functions:
+`_middleware.ts` does not wrap API routes. To guard an API handler, in pages mode or per handler in any mode, wrap it in a function:
 
 ```ts [src/lib/with-auth.ts]
 import type { ApiRouteArgs, ApiRouteHandler } from "@pracht/core";
@@ -145,7 +137,6 @@ import { sessions } from "../server/session.ts";
 
 export function withAuth(handler: ApiRouteHandler): ApiRouteHandler {
   return async (args: ApiRouteArgs) => {
-    // The presence of a `session=` cookie proves nothing — it has to open.
     const session = await sessions().getSession(args.request);
     if (!session.has("userId")) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
@@ -156,11 +147,9 @@ export function withAuth(handler: ApiRouteHandler): ApiRouteHandler {
 ```
 
 ```ts [src/api/me.ts]
-import { withAuth } from "../lib/with-auth";
+import { withAuth } from "../lib/with-auth.ts";
 
-export const GET = withAuth(({ request }) => {
-  return Response.json({ user: "Alice" });
-});
+export const GET = withAuth(() => Response.json({ user: "Alice" }));
 ```
 
-Multiple wrappers compose naturally: `withAuth(withRateLimit(handler))`. See [API Routes](/docs/api-routes) for more detail and stacking examples.
+Wrappers compose: `withAuth(withRateLimit(handler))`.

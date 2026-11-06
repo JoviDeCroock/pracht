@@ -5,7 +5,7 @@ lead: Generate an OpenAPI 3.1 document, and optionally a Scalar or Swagger UI, f
 
 ## Install the companion package
 
-OpenAPI support is opt-in through `@pracht/openapi`. Add its Vite plugin after `pracht()`:
+Install `@pracht/openapi` and add its Vite plugin after `pracht()`:
 
 ```ts [vite.config.ts]
 import { defineConfig } from "vite";
@@ -27,11 +27,18 @@ export default defineConfig({
 });
 ```
 
-In development the plugin serves `/openapi.json`, and `ui: "scalar"` or `ui: "swagger"` adds a
-reference page at `/docs`. `pracht build` writes them as static files, `dist/client/openapi.json` and
-`dist/client/docs/index.html`.
+`pracht dev` serves the document at `/openapi.json` and, with `ui`, a reference page at `/docs`. `pracht build` writes them as static files: `dist/client/openapi.json` and `dist/client/docs/index.html`.
 
-Use custom paths when these defaults overlap with app routes:
+| Option | Default | Purpose |
+| ------ | ------- | ------- |
+| `info` | required | OpenAPI `info` object; `title` and `version` must be non-empty |
+| `documentPath` | `/openapi.json` | URL and output path of the document; must end in `.json` |
+| `ui` | `false` | `"scalar"`, `"swagger"`, or `{ provider, path, title, scriptUrl, styleUrl }` |
+| `document` | | `servers`, `tags`, `externalDocs`, `security`, and `components` |
+| `failOnWarnings` | `false` | Turn generation warnings into failed dev requests and builds |
+| `capabilities` | `false` | Also document capabilities with `expose.http` |
+
+Move the files when the defaults overlap with app routes:
 
 ```ts
 prachtOpenApi({
@@ -43,13 +50,13 @@ prachtOpenApi({
 
 ## Document response contracts
 
-Pracht discovers API paths, named HTTP methods, path parameters, and `defineApi()` request schemas.
-It cannot infer response statuses or payloads, so wrap the handler with `defineOpenApi()` to document
-them. Runtime behavior and `apiFetch()` types are unchanged:
+pracht discovers API paths, named HTTP methods, path parameters, and `defineApi()` request schemas. It cannot infer response statuses or payloads, so wrap the handler with `defineOpenApi()` to document them. Runtime behavior and `apiFetch()` types do not change:
 
 ```ts [src/api/items.ts]
 import { defineApi, json } from "@pracht/core";
 import { defineOpenApi } from "@pracht/openapi";
+
+import { createItem, createItemSchema, itemSchema } from "../server/items.ts";
 
 export const POST = defineOpenApi(
   defineApi({
@@ -67,15 +74,13 @@ export const POST = defineOpenApi(
 );
 ```
 
-Request schemas are documented by their input type and response schemas by their output type.
-Response bodies also accept raw JSON Schema objects. A request body is optional when its validator
-accepts `undefined`.
+The descriptor also accepts `description`, `deprecated`, and `security`. Each response takes a `description`, an optional `body` schema, and a `contentType` (default `application/json`).
 
-Pracht adds the `400` and `422` validation responses itself. A handler without a response descriptor
-gets an undocumented `default` response and a warning.
+Request schemas are documented by their input type and response schemas by their output type. A response `body` can also be a raw JSON Schema object. A request body is optional when its validator accepts `undefined`.
 
-Set `failOnWarnings: true` when documentation completeness should fail development requests and
-production builds:
+pracht adds the validation responses itself: `400` when a `body` schema is set, and `422` when any schema is. A handler without a descriptor gets an undocumented `default` response and an `undocumented_response` warning.
+
+To make missing documentation fail development requests and production builds:
 
 ```ts
 prachtOpenApi({
@@ -95,11 +100,12 @@ prachtOpenApi({
 });
 ```
 
-Each one becomes a `POST` operation at its HTTP path, with the capability name as `operationId`, its
-title and description, and its own input schema as the request body. The `200` response is the success
-envelope `{ ok: true, data }` with the output schema as `data`, and `default` is the error envelope.
-Destructive capabilities also list the optional `x-pracht-confirm` header. The `x-pracht-effect`
-extension carries the effect class. Capabilities without `expose.http` are left out.
+Each one becomes a `POST` operation at its HTTP path:
+
+- `operationId` is the capability name; summary and description come from its title and description.
+- The request body is its input schema.
+- The `200` response is the success envelope `{ ok: true, data }` with the output schema as `data`; `default` is the error envelope.
+- The `x-pracht-effect` extension carries the effect class, and destructive capabilities list the optional `x-pracht-confirm` header.
 
 ## Add servers and authentication
 
@@ -120,43 +126,37 @@ prachtOpenApi({
 });
 ```
 
-Global security applies to every operation. Set `security: []` in a `defineOpenApi()` descriptor to
-mark one operation public, or provide another named security requirement.
+Global `security` applies to every operation. Set `security: []` in a `defineOpenApi()` descriptor to mark one operation public, or give it another requirement.
+
+When Vite's `base` is not `/` and you set no `servers`, the document lists the base as its server.
 
 ## Choose and deploy a reference UI
 
-The UI is an optional static page that renders the JSON document:
+The UI is a static page that renders the JSON document:
 
 - `ui: "scalar"` loads a pinned Scalar bundle.
 - `ui: "swagger"` loads pinned Swagger UI assets, with deep links on and the remote validator off.
-- An options object can set `scriptUrl` for either provider and `styleUrl` for Swagger, to self-host
-  the assets from `public/`.
+- An options object can set `scriptUrl` (either provider) and `styleUrl` (Swagger only) to self-host the assets from `public/`.
 
-The default assets come from jsDelivr, and the page has a small inline script. Under a strict Content
-Security Policy, allow that origin and the script's hash, or serve your own UI page with a nonce.
+The default assets come from jsDelivr, and the page has a small inline script. Under a strict Content Security Policy, allow that origin and the script's hash, or serve your own UI page with a nonce.
 
-Treat emitted OpenAPI files as public unless the host protects them, and keep secrets out of
-descriptions and examples. “Try it out” sends real requests, subject to your API's normal
-authentication, CSRF, and rate limits.
+Treat emitted OpenAPI files as public unless the host protects them, and keep secrets out of descriptions and examples. "Try it out" sends real requests, subject to your API's authentication, CSRF protection, and rate limits.
 
 ## Generating the document yourself
 
-To serve the spec from your own API route, for example behind auth middleware,
-or to write it into a repository at build time, call the functions directly:
+To serve the document from your own API route, for example behind auth middleware, or to write it into a repository, call the functions directly:
 
 ```ts
-import { generateOpenApiDocument, createOpenApiUiHtml } from "@pracht/openapi";
+import { createOpenApiUiHtml, generateOpenApiDocument } from "@pracht/openapi";
 ```
 
-`generateOpenApiDocument()` builds the OpenAPI 3.1 document from the resolved
-app graph and resolves to `{ document, warnings }`, the warnings
-`failOnWarnings` acts on. `createOpenApiUiHtml({ provider, documentUrl, title?,
-scriptUrl?, styleUrl? })` returns the Scalar or Swagger page for it.
+`generateOpenApiDocument({ info, document, routes, loadModule, capabilities })` resolves to `{ document, warnings }`. `routes` lists API routes as `{ file, path }`, and `loadModule(file)` imports the module for one of them.
 
-## Current boundaries
+`createOpenApiUiHtml({ provider, documentUrl, title, scriptUrl, styleUrl })` returns the Scalar or Swagger page for a document URL.
 
-- Default-export API handlers are omitted because their supported methods cannot be inferred.
+## Limitations
+
+- Default-export API handlers are left out, because their methods cannot be inferred (`default_handler_omitted` warning).
 - Catch-all paths become a single `{path}` parameter and warn about slash encoding.
-- Request bodies currently default to `application/json`.
-- Capabilities are included only with `capabilities: true`.
-- There is no dedicated drift-diff command; use `failOnWarnings` and the deterministic build output.
+- Request bodies are documented as `application/json`.
+- There is no drift-diff command; use `failOnWarnings` and the deterministic build output.
