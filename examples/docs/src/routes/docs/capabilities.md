@@ -41,7 +41,7 @@ export const app = defineApp({
 
 `group({ capabilities: [...] }, routes)` adds tools to every child, and route-level names add to that set. `pracht verify` rejects an unknown name, a capability without `expose.webmcp`, and any tool on a `hydration: "none"` route.
 
-With the [pages router](/docs/routing#capabilities-via-srccapabilities), every module in `src/capabilities/` is registered automatically, and `agents` is configured in `src/pages/_app.config.ts`. Name a capability with `defineCapability({ name })` or let the filename provide it (`notes-search.ts` becomes `notes.search`). A page lists its tools in an inline `CAPABILITIES` export (not in `_app.tsx` or `404.tsx`):
+Both routers support capabilities. With the [pages router](/docs/routing#capabilities-via-srccapabilities), every module in `src/capabilities/` is registered automatically, and `agents` is configured in `src/pages/_app.config.ts`. Name a capability with `defineCapability({ name })` or let the filename provide it (`notes-search.ts` becomes `notes.search`). A page lists its tools in an inline `CAPABILITIES` export (not in `_app.tsx` or `404.tsx`):
 
 ```ts [src/pages/notes.tsx]
 export const CAPABILITIES = ["notes.search", "notes.create"];

@@ -85,7 +85,7 @@ const FIXTURE_PAGES = {
   "demo-comparison.md": "---\ntitle: A full pracht app, end to end\n---\n\n## Tour\n\nA tour.\n",
 };
 
-const FIXTURE_SHELL = `const NAV = [
+const FIXTURE_NAV = `export const NAV = [
   { label: "Getting Started", links: [{ href: "/docs/routing" }, { href: "/docs/demo-comparison" }] },
   { label: "Core", links: [{ href: "/docs/data-loading" }] },
   { label: "Recipes", links: [{ href: "/docs/recipes/auth" }, { href: "/docs/recipes/i18n" }] },
@@ -97,10 +97,10 @@ function writeFixtureBundle() {
   for (const [name, body] of Object.entries(FIXTURE_PAGES)) {
     writeFileSync(join(source, name), body);
   }
-  const shellFile = join(createTempDir("pracht-docs-shell-"), "docs.tsx");
-  writeFileSync(shellFile, FIXTURE_SHELL);
+  const navFile = join(createTempDir("pracht-docs-nav-"), "nav.ts");
+  writeFileSync(navFile, FIXTURE_NAV);
   const target = join(createTempDir("pracht-docs-out-"), "docs");
-  writeDocsBundle(buildDocsBundle({ sourceDir: source, shellFile }), target);
+  writeDocsBundle(buildDocsBundle({ sourceDir: source, navFile }), target);
   return target;
 }
 

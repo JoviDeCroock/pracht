@@ -141,7 +141,7 @@ Pass `createPrachtHandler({ createContext })` to shape the `context` loaders and
 
 `pracht preview` builds the Worker and runs `wrangler dev`. Bindings come from a gitignored `.dev.vars` file, not from your shell environment (see [Environment variables](/docs/env#local-environment-files)).
 
-With a custom-domain route in `wrangler.jsonc`, `request.url` carries that domain even on localhost. To preview without the route, run Wrangler with a config that also has the `--env` keys listed under [Build output](#build-output); `pracht preview` does not forward `--config`:
+A custom-domain route in `wrangler.jsonc` puts that domain in `request.url` on localhost too, changing redirects and the signed `@authority`. To preview without it, run Wrangler with a config holding the [Build output](#build-output) `--env` keys; `pracht preview` ignores `--config`:
 
 ```sh
 pracht build

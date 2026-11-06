@@ -19,7 +19,9 @@ Other frameworks render your app for humans and leave agents to scrape it. Prach
 npm create pracht@latest my-app
 ```
 
-**[Documentation](https://pracht.resynapse.dev/docs)** · [Why pracht](https://pracht.resynapse.dev/docs/why-pracht) · [Getting started](https://pracht.resynapse.dev/docs/getting-started) · [Compare to other frameworks](https://pracht.resynapse.dev/docs/demo-comparison)
+**[Documentation](https://pracht.resynapse.dev/docs)** · [Quick start](https://pracht.resynapse.dev/docs/getting-started) · [Why pracht](https://pracht.resynapse.dev/docs/why-pracht) · [Example app tour](https://pracht.resynapse.dev/docs/demo-comparison) · [llms.txt](https://pracht.resynapse.dev/llms.txt)
+
+Connect your coding agent to the docs: `claude mcp add --transport http pracht-docs https://pracht.resynapse.dev/mcp`
 
 ## Why pracht
 
@@ -92,7 +94,7 @@ modules in `src/capabilities/` plus `agents` / `constraints` from
 `src/pages/_app.config.ts` provide the same agent surface as a manifest app.
 Eject when you need per-route shell or middleware assignment, explicit route
 ids, path-prefix groups, or webhook ISG policies. See
-[docs/ROUTING.md](docs/ROUTING.md#pages-router-auto-discovery).
+[Routing: pages router](https://pracht.resynapse.dev/docs/routing#pages-router-auto-discovery).
 
 ## Create an app
 
@@ -119,13 +121,13 @@ The starter gives you:
 
 Pracht is built to be operated by coding agents as much as by humans — and for the humans reviewing what agents produce:
 
-- **Provable changes** — a committed app-graph snapshot (`.pracht/app-graph.json`) plus `pracht plan` gives reviewers an intent-level diff of routes, render modes, shells, middleware, and API endpoints; `pracht report` turns it into the factual half of a PR description. See [docs/AGENT_WORKFLOW.md](docs/AGENT_WORKFLOW.md).
+- **Provable changes** — a committed app-graph snapshot (`.pracht/app-graph.json`) plus `pracht plan` gives reviewers an intent-level diff of routes, render modes, shells, middleware, and API endpoints; `pracht report` turns it into the factual half of a PR description. See [Coding agents](https://pracht.resynapse.dev/docs/coding-agents#the-route-graph-lockfile).
 - **Machine-enforced invariants** — `defineApp({ constraints })` declares rules like `requireMiddleware("/app/**", "auth")` that `pracht verify` enforces deterministically, so no author (human or LLM) can merge a violation.
-- **MCP server** — `pracht dev-mcp` starts a stdio [Model Context Protocol](https://modelcontextprotocol.io) server so agents can natively inspect the resolved app graph, run doctor/verify diagnostics, diff and snapshot the graph (plan/report), read the authoring guide (get_docs), and scaffold routes, shells, middleware, and API handlers. See [docs/MCP.md](docs/MCP.md) for registration and the tool reference.
+- **MCP server** — `pracht dev-mcp` starts a stdio [Model Context Protocol](https://modelcontextprotocol.io) server so agents can natively inspect the resolved app graph, run doctor/verify diagnostics, diff and snapshot the graph (plan/report), read the authoring guide (get_docs), and scaffold routes, shells, middleware, and API handlers. See [the authoring MCP server](https://pracht.resynapse.dev/docs/coding-agents#the-authoring-mcp-server) for registration and tools.
 - **Authoring guide for agents** — `pracht llms --write` drops the framework's conventions into `llms.txt` so any coding agent picks them up.
-- **Capabilities, WebMCP & remote MCP** — `@pracht/capabilities` lets you define a typed application operation once (JSON Schema contract, effect class, middleware) and project it to server code, a generated HTTP endpoint, a WebMCP page tool for in-browser agents, an MCP tool at your app's own `/mcp` endpoint for agents that never open a browser, and the human UI via `<Form capability>` — private by default, with `pracht verify` enforcing the security defaults and effect-driven revalidation keeping the page consistent after mutations. The same pipeline can be mounted in non-Pracht applications with `createCapabilityHost()`. See [docs/CAPABILITIES.md](docs/CAPABILITIES.md) and [docs/REMOTE_MCP.md](docs/REMOTE_MCP.md).
-- **Agent trust layer** — Web Bot Auth (RFC 9421) verified agent identity on the request context with observe/require policies, a prepare/commit confirmation flow for destructive capabilities, capability audit events, and `pracht eval` for scripted agent-task checks in CI — over the capability HTTP projection or, with `"transport": "mcp"`, over the app's own remote MCP endpoint. See [docs/AGENT_TRUST.md](docs/AGENT_TRUST.md).
-- **llms.txt** — the opt-in `llmsTxt` plugin option emits an [llms.txt](https://llmstxt.org) index of your pages, API routes, and HTTP-exposed capabilities at build time and serves it live in dev. See [docs/LLMS_TXT.md](docs/LLMS_TXT.md).
+- **Capabilities, WebMCP & remote MCP** — `@pracht/capabilities` lets you define a typed application operation once (JSON Schema contract, effect class, middleware) and project it to server code, a generated HTTP endpoint, a WebMCP page tool for in-browser agents, an MCP tool at your app's own `/mcp` endpoint for agents that never open a browser, and the human UI via `<Form capability>` — private by default, with `pracht verify` enforcing the security defaults and effect-driven revalidation keeping the page consistent after mutations. The same pipeline can be mounted in non-Pracht applications with `createCapabilityHost()`. See [Capabilities](https://pracht.resynapse.dev/docs/capabilities).
+- **Agent trust layer** — Web Bot Auth (RFC 9421) verified agent identity on the request context with observe/require policies, a prepare/commit confirmation flow for destructive capabilities, capability audit events, and `pracht eval` for scripted agent-task checks in CI — over the capability HTTP projection or, with `"transport": "mcp"`, over the app's own remote MCP endpoint. See [Agent trust](https://pracht.resynapse.dev/docs/agent-trust).
+- **llms.txt** — the opt-in `llmsTxt` plugin option emits an [llms.txt](https://llmstxt.org) index of your pages, API routes, and HTTP-exposed capabilities at build time and serves it live in dev. See [Agents overview](https://pracht.resynapse.dev/docs/agents).
 - **Claude Code skills** — 33 skills for scaffolding, auditing, testing, debugging, and deploying pracht apps live in [skills/](skills/README.md). See the [agent skills](#agent-skills) section below.
 
 ## Agent skills

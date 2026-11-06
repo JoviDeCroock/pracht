@@ -3,7 +3,7 @@ title: Agent trust
 lead: Verify agent identity with Web Bot Auth, confirm destructive operations, record audit events, and test agent flows with `pracht eval`.
 ---
 
-Configure everything on this page with `defineApp({ agents })`, or export the same object as `agents` from `src/pages/_app.config.ts` in a [pages-router](/docs/routing#app-config-via-appconfigts) app. It is all opt-in: without capabilities or `agents` config, none of it reaches the server bundle.
+Both routers support everything on this page. Configure it with `defineApp({ agents })`, or export the same object as `agents` from `src/pages/_app.config.ts` in a [pages-router](/docs/routing#app-config-via-appconfigts) app. It is all opt-in: without capabilities or `agents` config, none of it reaches the server bundle.
 
 | To | Use |
 | --- | --- |
