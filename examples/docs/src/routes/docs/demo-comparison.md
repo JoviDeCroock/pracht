@@ -3,25 +3,32 @@ title: Example app tour
 lead: A tour of Launchpad, a SaaS example that mixes render modes, two shells, auth middleware, and Markdown content negotiation.
 ---
 
-Launchpad is a fictional product-management SaaS that shows pracht's pieces composed in one app. It has marketing pages, a blog, pricing, an authenticated dashboard, project pages, settings, and a Markdown briefing for agents, and each picks the render mode that fits.
+Launchpad is the pracht showcase app: a fictional product-management SaaS with
+marketing pages, a blog, pricing, an authenticated dashboard, project pages,
+settings, and a Markdown briefing for agents. Each route picks its own render
+mode.
 
-The showcase is deployed at [showcase-ten-eosin.vercel.app](https://showcase-ten-eosin.vercel.app/); open it alongside this page. The code lives in `examples/showcase`; the manifest below leaves out its capabilities, agent config, and a few routes.
+Open the deployed app at
+[showcase-ten-eosin.vercel.app](https://showcase-ten-eosin.vercel.app/) while
+you read. The source is in `examples/showcase` in the pracht repository.
 
-## What Launchpad covers
+## Routes and render modes
 
-| Route | Render mode | Why this mode |
-| --- | --- | --- |
-| `/` | SSG | Landing page should be instant and CDN-cheap. |
-| `/blog/:slug` | SSG | SEO content is generated at build time with `getStaticPaths()`. |
-| `/pricing` | SSG | Plans are hard-coded, so there is nothing to revalidate. |
-| `/agents` | SSG + Markdown | Humans see a polished page; agents request the same URL with `Accept: text/markdown`. |
-| `/app` | SSR + auth | Personalized dashboard needs request-time data. |
-| `/app/projects/:projectId` | SSR + auth | Project detail needs fresh, protected data per request. |
-| `/app/settings` | SPA + auth shell | Heavily interactive, no SEO requirement, paints inside the app shell. |
+| Route                      | Render mode      | Reason                                                                    |
+| -------------------------- | ---------------- | ------------------------------------------------------------------------- |
+| `/`                        | SSG              | Landing page served from the CDN                                          |
+| `/blog/:slug`              | SSG              | Posts generated at build time with `getStaticPaths()`                     |
+| `/pricing`                 | SSG              | Plans are hard-coded, so there is nothing to revalidate                   |
+| `/agents`                  | SSG + Markdown   | Browsers get HTML; `Accept: text/markdown` gets Markdown from the same URL |
+| `/app`                     | SSR + auth       | Personalized dashboard needs request-time data                            |
+| `/app/projects/:projectId` | SSR + auth       | Project detail needs fresh, protected data per request                    |
+| `/app/settings`            | SPA + auth shell | Interactive, no SEO requirement, renders inside the app shell             |
 
-Most apps land somewhere on this matrix, without splitting into multiple projects.
+## The route manifest
 
-## The whole app in one file
+This is Launchpad's `src/routes.ts`, trimmed to the routes above. The full file
+also declares capabilities, `agents` trust config, `constraints`, and the
+`/playground`, `/app/approvals`, and `/app/audit` routes.
 
 ```ts [examples/showcase/src/routes.ts]
 import { defineApp, group, route } from "@pracht/core";
@@ -50,28 +57,34 @@ export const app = defineApp({
 });
 ```
 
-Things to notice:
+What the manifest shows:
 
-- **Render mode is right next to the route.** You can read off which pages are static, which need a server, and which are client-only.
-- **Shells are reusable layouts.** Marketing pages share one chrome; the authenticated app shares another. Switching a route between them is a one-word change.
-- **Middleware is opt-in per group.** Auth applies to the `/app/*` block and nowhere else. There's no implicit inheritance to trace through.
-- **No file-system magic.** The URL → component mapping is in the manifest, not in folder names.
+- **Render mode sits on the route.** You can read which pages are static, which
+  need a server, and which are client-only.
+- **Shells are named layouts.** Marketing pages share one; the authenticated
+  app shares another. Moving a route between them changes one word.
+- **Middleware applies per group.** `auth` runs for the `/app` group and
+  nowhere else.
+- **URLs map to files in one place.** The manifest, not the folder layout,
+  decides which component handles a path.
 
-If you'd rather work with file conventions, the [pages router](/docs/routing#pages-router-auto-discovery) gives you that on top of the same primitives.
+To use file conventions instead, see the
+[pages router](/docs/routing#pages-router-auto-discovery).
 
-## Serving Markdown to tools from the same URL
+## Serve Markdown from the same URL
 
-The `/agents` route is a regular page in a browser. It's also a Markdown document for anything that asks for one:
+Request `/agents` with and without an `Accept: text/markdown` header:
 
 ```sh
-# Browser-style request
+# HTML
 curl https://showcase-ten-eosin.vercel.app/agents
 
-# Anything that prefers Markdown
+# Markdown
 curl -H "Accept: text/markdown" https://showcase-ten-eosin.vercel.app/agents
 ```
 
-The route exports `markdown` next to its component:
+The second request returns the route's `markdown` export instead of the HTML
+document:
 
 ```tsx [examples/showcase/src/routes/agents.tsx]
 export const markdown = `# Launchpad
@@ -88,45 +101,50 @@ export default function Agents() {
 }
 ```
 
-Crawlers, search indexers, and internal scripts can consume the same URL without scraping HTML.
+Crawlers, indexers, and scripts read the Markdown without scraping HTML. See
+[The agentic web](/docs/agents#discovery-markdown-and-llmstxt).
 
-## Things to try in the example
+## Run it locally
 
-If you've cloned the showcase locally:
+From a clone of the pracht repository:
 
 ```sh
+pnpm install
+pnpm build
 cd examples/showcase
-pnpm pracht dev
+pnpm dev
 ```
 
-Some exercises:
+Then try these changes:
 
-1. **Add a public `/security` page.** Use the marketing shell, render mode `"ssg"`, and export `markdown` so it's available to tools. It's a single entry in the manifest.
-2. **Make pricing revalidate.** Switch `/pricing` to `render: "isg"` with `revalidate: timeRevalidate(3600)` (import `timeRevalidate` from `@pracht/core`). No folder migration, no second build target.
-3. **Inspect the app graph from the CLI.** `pnpm pracht inspect routes --json` prints the resolved manifest. Useful for codemods, audits, or just answering "which routes are auth-protected?".
-4. **Move `/app/settings` from SPA to SSR.** As long as its loader is server-safe, it's a one-word change.
+1. **Add a public `/security` page.** Add one `route()` in the marketing group
+   with `render: "ssg"`, and export `markdown` from the route file.
+2. **Make pricing revalidate.** Set `/pricing` to `render: "isg"` with
+   `revalidate: timeRevalidate(3600)`, imported from `@pracht/core`.
+3. **List the routes from the CLI.** Run `pnpm pracht inspect routes --json` to
+   print each route with its render mode, shell, and middleware.
+4. **Move `/app/settings` from SPA to SSR.** Change `render: "spa"` to
+   `render: "ssr"`; its loader must be server-safe.
 
-## How this compares to convention-heavy frameworks
+## Questions the manifest answers
 
-Launchpad makes a few framework trade-offs concrete. These questions come up in code review all the time:
+| Question                                 | Where to look                                                          |
+| ---------------------------------------- | ---------------------------------------------------------------------- |
+| What renders at build time?              | Routes with `render: "ssg"` or `render: "isg"`                         |
+| What is behind auth?                     | Routes inside `group({ middleware: ["auth"] })`                        |
+| Can this page become static?             | Change its render mode, if its loader does not need the request        |
+| Can a tool read this page as data?       | Request `Accept: text/markdown` when the route exports `markdown`      |
+| Can we deploy somewhere else?            | Swap the [adapter](/docs/adapters); app code stays the same            |
 
-| Question | Convention-heavy answer | pracht answer |
-| --- | --- | --- |
-| What renders at build time? | Inspect files, exports, route segment config, and build settings. | Read `render: "ssg"` and `render: "isg"` in the manifest. |
-| What is behind auth? | Trace nested layouts, middleware files, or loader redirects. | Read `group({ middleware: ["auth"] })`. |
-| Can this page become static? | Maybe, depending on framework rules and surrounding files. | Change the route's render mode if its loader supports it. |
-| Can a tool consume this page as data? | Usually scrape HTML or maintain a parallel docs site. | Request Markdown from the same URL when the route exports `markdown`. |
-| Can we deploy somewhere else? | Often coupled to the framework's host. | Swap the [adapter](/docs/adapters); app code stays portable. |
+## When this layout fits
 
-## When this shape fits your app
+Use Launchpad as a template for products that have:
 
-The Launchpad layout is a good template for products that have:
+- a public, SEO-driven surface (marketing, blog, docs, pricing);
+- an authenticated app with both server-rendered and client-only views;
+- structured content for tools, crawlers, or agents;
+- a deployment target that may change.
 
-- A public, SEO-driven surface (marketing, blog, docs, pricing).
-- An authenticated app behind it with both server-rendered and client-only views.
-- A need to expose structured content to tools, crawlers, or agents.
-- A deployment target that may change (Node today, Workers or Vercel later).
-
-If your app only does one of these, such as a pure content site or an SPA with no marketing surface, pracht still works, but the multi-mode story matters less. [Why Pracht?](/docs/why-pracht) covers those trade-offs.
-
-When you're ready to build, [Routing](/docs/routing) goes through the manifest in detail.
+For a pure content site or an SPA with no marketing pages, the per-route mix
+matters less; [Why pracht](/docs/why-pracht) covers those trade-offs.
+[Routing](/docs/routing) covers the manifest in detail.

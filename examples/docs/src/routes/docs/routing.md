@@ -3,7 +3,7 @@ title: Routing
 lead: Declare routes, shells, middleware, and render modes in one `src/routes.ts` manifest, or let the pages router discover them from files.
 ---
 
-## Route Manifest
+## Route manifest
 
 Define the manifest in `src/routes.ts` with `defineApp`, `route`, and `group`:
 
@@ -34,77 +34,61 @@ export const app = defineApp({
 });
 ```
 
-### Why explicit over file-based?
+URLs do not depend on file layout. Route modules live in `src/routes/` by
+convention, but any path works, and shells and middleware are named references
+that any route or group can use.
 
-File-based routing couples URLs to directories, which forces awkward nesting for layouts and makes middleware assignment implicit. In pracht:
+The string paths tell the build which modules exist. A file the manifest never
+names, such as a draft, stays out of the client bundle.
 
-- Route modules live in `src/routes/` by convention
-- Route _wiring_ is explicit and type-checked in `src/routes.ts`
-- Shells and middleware are named, reusable references
-- URL structure is independent of file layout
-
-String-literal refs tell the build where modules live: a route module can sit outside `src/routes/`, and a file the manifest never names, such as a draft, stays out of the client bundle.
-
----
-
-## API Reference
+## API reference
 
 ### defineApp(config)
 
-`shells` and `middleware` map names to module paths, and `routes` is the route tree. The [config reference](/docs/reference/config) lists every `defineApp` field.
+`shells` and `middleware` map names to module paths, and `routes` is the route
+tree. The [config reference](/docs/reference/config) lists every `defineApp`
+field.
 
 ### route(path, file, meta?)
 
-`path` is a URL pattern such as `/blog/:slug`, `file` is the route module's path relative to `src/routes.ts`, even from an imported module, and `meta` is an optional `RouteMeta`:
+`path` is a URL pattern such as `/blog/:slug`. `file` is the route module's
+path relative to `src/routes.ts`, even when `route()` is called from an
+imported module. `meta` is an optional `RouteMeta`:
 
-| Field         | Type                                     | Description                                                                                        |
-| ------------- | ---------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `id`          | string                                   | Stable route id for typed routes and `<Link route>`. Generated from the path when omitted           |
-| `capabilities` | string[]                                | Registered [WebMCP page tools](/docs/capabilities#webmcp-tools-for-in-browser-agents) active while this route is current |
-| `render`      | `"ssr" \| "ssg" \| "isg" \| "spa"`       | [Render mode](/docs/rendering). Defaults to `"ssr"`                                                |
-| `hydration`   | `"full" \| "islands" \| "none"`          | How much of the page hydrates. See [Islands](/docs/islands)                                        |
-| `shell`       | string                                   | Named shell that wraps this route                                                                  |
-| `middleware`  | string[]                                 | Named middleware to run before the loader                                                          |
-| `prefetch`    | `"intent" \| "viewport" \| "hover" \| "none"` | JS [prefetch strategy](/docs/prefetching). Defaults to `"intent"`                             |
-| `speculation` | `"prefetch" \| "prerender" \| { mode, eagerness }` | Browser [speculation rules](/docs/prefetching#speculation-rules) opt-in                  |
-| `revalidate`  | RouteRevalidate                          | `timeRevalidate()` / `webhookRevalidate()` for ISG routes                                           |
-| `loaderCache` | LoaderCache                              | Cache-Control policy for this route's [loader response](/docs/data-loading)                        |
-| `streaming`   | boolean                                  | Stream deferred values on full-hydration SSR routes. See [Data Loading](/docs/data-loading#streaming-the-document) |
-| `markdown`    | boolean                                  | Declare that middleware negotiates a Markdown representation for this route                        |
+| Field          | Type                                               | Description                                                                                                         |
+| -------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `id`           | string                                             | Stable route id for typed routes and `<Link route>`. Generated from the path when omitted                           |
+| `capabilities` | string[]                                           | [WebMCP page tools](/docs/capabilities#webmcp-tools-for-in-browser-agents) active while this route is current       |
+| `render`       | `"ssr" \| "ssg" \| "isg" \| "spa"`                 | [Render mode](/docs/rendering). Defaults to `"ssr"`                                                                 |
+| `hydration`    | `"full" \| "islands" \| "none"`                    | How much of the page hydrates. See [Islands](/docs/islands)                                                         |
+| `shell`        | string                                             | Named shell that wraps this route                                                                                   |
+| `middleware`   | string[]                                           | Named middleware to run before the loader                                                                           |
+| `prefetch`     | `"intent" \| "viewport" \| "hover" \| "none"`      | JS [prefetch strategy](/docs/prefetching). Defaults to `"intent"`                                                   |
+| `speculation`  | `"prefetch" \| "prerender" \| { mode, eagerness }` | Browser [speculation rules](/docs/prefetching#speculation-rules) opt-in                                             |
+| `revalidate`   | RouteRevalidate                                    | `timeRevalidate()` / `webhookRevalidate()` for ISG routes                                                           |
+| `loaderCache`  | LoaderCache                                        | Cache-Control policy for this route's [loader response](/docs/data-loading)                                         |
+| `streaming`    | boolean                                            | Stream deferred values on full-hydration SSR routes. See [Data loading](/docs/data-loading#streaming-the-document) |
+| `markdown`     | boolean                                            | Declare that middleware negotiates a Markdown representation for this route                                         |
 
 ### group(meta, routes)
 
-Groups routes with shared meta — shell, middleware, render and hydration modes, capabilities, `loaderCache`, speculation, streaming — plus an optional [`pathPrefix`](#path-prefix-groups). Children inherit it: a route's own scalar settings win, while `middleware` and `capabilities` add to the group's.
+`group()` applies shared meta to its children: `shell`, `middleware`, `render`,
+`hydration`, `capabilities`, `loaderCache`, `speculation`, `streaming`, and an
+optional [`pathPrefix`](#path-prefix-groups).
 
----
+A route's own scalar settings override the group's. `middleware` and
+`capabilities` add to the group's lists instead, so a route keeps its group's
+page tools and adds its own. Navigation swaps in the destination route's tools,
+and `hydration: "none"` routes cannot activate page tools.
 
-## Path Patterns
-
-### Static paths
-
-```ts
-route("/about", "./routes/about.tsx");
-// Matches /about exactly
-```
-
-### Dynamic segments
+## Path patterns
 
 ```ts
-route("/blog/:slug", "./routes/blog-post.tsx");
-// /blog/hello-world → params.slug = "hello-world"
-
-route("/users/:userId/posts/:postId", "./routes/user-post.tsx");
-// Multiple dynamic segments
-```
-
-### Catch-all segments
-
-```ts
-route("/docs/*", "./routes/docs.tsx");
-// Matches /docs/a/b/c — catch-all available in params as "*"
-
-route("/files/:path*", "./routes/files.tsx");
-// Same match, captured under params.path instead
+route("/about", "./routes/about.tsx"); // /about only
+route("/blog/:slug", "./routes/blog-post.tsx"); // /blog/hello-world → params.slug
+route("/users/:userId/posts/:postId", "./routes/user-post.tsx"); // two params
+route("/docs/*", "./routes/docs.tsx"); // /docs/a/b/c → params["*"] = "a/b/c"
+route("/files/:path*", "./routes/files.tsx"); // same match, captured as params.path
 ```
 
 ### Match order
@@ -117,12 +101,11 @@ route("/blog/:slug", "./routes/blog-post.tsx"),
 ```
 
 The dev server warns when an earlier route matches every URL a later one does,
-or two routes share an id.
+or when two routes share an id.
 
 ### Reading params
 
-Server-side, matched params arrive on the loader, middleware, and API route
-args:
+Loaders, middleware, and API routes receive matched params as `params`:
 
 ```ts [src/routes/blog-post.tsx]
 export async function loader({ params }: LoaderArgs) {
@@ -130,7 +113,9 @@ export async function loader({ params }: LoaderArgs) {
 }
 ```
 
-In a component, `useParams()` reads them from the active route:
+In a component, `useParams()` reads them from the active route, and returns
+`{}` when no route is active. Fetch data with the loader's `params`, not
+`useParams()`.
 
 ```tsx
 import { useParams } from "@pracht/core";
@@ -141,20 +126,16 @@ export default function BlogPost() {
 }
 ```
 
-It returns `{}` when no route is active. To fetch data, use the loader's
-`params`.
-
 A catch-all segment is exposed under the key `"*"`:
 
 ```tsx
 const { "*": rest } = useParams(); // /docs/a/b/c → "a/b/c"
 ```
 
----
+## Not-found page
 
-## Not-Found Page
-
-`notFound` declares the page rendered — with a 404 status — when a request matches no route:
+Set `notFound` to render a page with status 404 when a request matches no
+route:
 
 ```ts [src/routes.ts]
 export const app = defineApp({
@@ -167,17 +148,22 @@ export const app = defineApp({
 });
 ```
 
-`create-pracht` generates this entry and `src/routes/not-found.tsx` (`src/pages/404.tsx` in pages mode).
+`create-pracht` generates this entry and `src/routes/not-found.tsx`
+(`src/pages/404.tsx` with the pages router). The shorthand
+`notFound: () => import("./routes/not-found.tsx")` takes the route module
+directly; the full form also accepts `loader`, `middleware`, and `hydration`.
 
-The shorthand `notFound: () => import("./routes/not-found.tsx")` takes the route module directly; the full form also accepts `loader`, `middleware`, and `hydration`.
+Use `notFound` instead of a trailing `route("/*", ...)`. A catch-all route
+shadows static assets and later routes, and appears in typed routes,
+prefetching, and SSG paths; `notFound` runs only after routes and static assets
+both miss.
 
-Prefer `notFound` over a trailing `route("/*", ...)`, which shadows static assets and later routes and appears in typed routes, prefetching, and SSG paths. `notFound` runs only after routes and static assets both miss.
+The page also renders when a loader or middleware throws
+[`notFound()`](/docs/data-loading#custom-404-page), unless the route exports its
+own `ErrorBoundary`. Route-state and non-GET requests get a plain 404, as do
+apps without `notFound`.
 
-It also renders when a loader or middleware throws [`notFound()`](/docs/data-loading#custom-404-page), unless the route exports its own `ErrorBoundary`. Route-state and non-GET requests keep their usual 404; apps without `notFound` get a plain-text 404.
-
----
-
-## Search Params
+## Search params
 
 Export a `search` schema from a route module to validate its query string. Any
 [Standard Schema](https://standardschema.dev) validator works, the same contract
@@ -211,7 +197,7 @@ The loader, `head()`, and `headers()` receive the parsed value as `args.search`,
 and components read it with `useSearch()`. After [typegen](#typed-routes-and-links),
 `useSearch("products")` returns the schema's output, and `<Link search>`,
 `navigate()`, and `href()` accept only the keys its input declares. Routes
-without a schema get the raw query from both. `useSearchParams()` is unchanged.
+without a schema get the raw query. `useSearchParams()` is unaffected.
 
 The schema receives one string per key, or an array when a key repeats
 (`?tag=a&tag=b`). Coerce numbers and booleans (`z.coerce.number()`), and give
@@ -224,22 +210,17 @@ tag: z.array(z.string()).or(z.string().transform((tag) => [tag])).default([]),
 
 A rejected query never reaches the loader. The route's `ErrorBoundary` renders
 instead, with `error.status` 400 and the validation issues on `error.issues`,
-on the first request and on client navigation alike.
+on the first request and on client navigation.
 
 ### On prerendered routes
 
 SSG and ISG pages are built without a query, so their loader and `head()` see
-the schema's defaults; a schema that rejects an empty query fails to prerender.
-After hydration `useSearch()` reads the visitor's query while loader data stays
-build-time, and a rejected query swaps in the `ErrorBoundary` on a page served
-with 200. Keep query-dependent data on SSR or SPA routes.
+the schema's defaults, and a schema that rejects an empty query fails to
+prerender. After hydration, `useSearch()` reads the visitor's query while
+loader data stays build-time, and a rejected query swaps in the `ErrorBoundary`
+on a page served with 200. Keep query-dependent data on SSR or SPA routes.
 
-The schema ships with the route module; an app without `search` exports ships
-none of this.
-
----
-
-## Typed Routes and Links
+## Typed routes and links
 
 Run `pracht typegen` to generate a type-safe route map:
 
@@ -247,7 +228,8 @@ Run `pracht typegen` to generate a type-safe route map:
 pracht typegen
 ```
 
-This writes `src/pracht.d.ts` for route id and param types plus `src/pracht-routes.ts` for an adapter-agnostic `href()` helper.
+It writes `src/pracht.d.ts` (route ids and param types) and
+`src/pracht-routes.ts` (an adapter-agnostic `href()` helper):
 
 ```tsx
 import { Link, useNavigate } from "@pracht/core";
@@ -272,25 +254,25 @@ export function ProductActions({ id }: { id: string }) {
 }
 ```
 
-Run `pracht typegen --check` in CI to catch stale generated files.
-
-A route with a [`search` schema](#search-params) gets its `search` option typed from the schema's input, required when the schema has a required key.
+Run `pracht typegen --check` in CI to catch stale generated files. A route with
+a [`search` schema](#search-params) gets its `search` option typed from the
+schema's input, required when the schema has a required key.
 
 ### `<Link>` props
 
-`<Link>` accepts every anchor attribute — `target`, `rel`, `download`, `ping`,
-`referrerpolicy`, `hreflang`, `class`, event handlers — plus:
+`<Link>` accepts every anchor attribute (`target`, `rel`, `download`, `ping`,
+`referrerpolicy`, `hreflang`, `class`, event handlers) plus:
 
-| Prop             | Type                                            | Description                                                                              |
-| ---------------- | ----------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `route`          | RouteId                                         | **Required.** The route id to navigate to                                                |
-| `params`         | Record\<string, unknown\>                       | Values for the route's dynamic segments                                                  |
-| `search`         | object \| string                                | Query string to append, typed by the route's [`search` schema](#search-params)           |
-| `hash`           | string                                          | Fragment to append                                                                       |
-| `prefetch`       | `"intent" \| "viewport" \| "render" \| "none"`  | Override the route's [prefetch strategy](/docs/prefetching) for this link                 |
-| `speculate`      | boolean                                         | Opt this link out of / back into [speculation rules](/docs/prefetching#excluding-individual-links) |
-| `preserveScroll` | boolean                                         | Keep the current scroll position and focus instead of starting over at the top           |
-| `viewTransition` | boolean                                         | Wrap this navigation in `document.startViewTransition()` where supported                 |
+| Prop             | Type                                                     | Description                                                                                        |
+| ---------------- | -------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `route`          | RouteId                                                  | **Required.** The route id to navigate to                                                          |
+| `params`         | Record\<string, unknown\>                                | Values for the route's dynamic segments                                                            |
+| `search`         | object \| string                                         | Query string to append, typed by the route's [`search` schema](#search-params)                     |
+| `hash`           | string                                                   | Fragment to append                                                                                 |
+| `prefetch`       | `"intent" \| "hover" \| "viewport" \| "render" \| "none"` | Override the route's [prefetch strategy](/docs/prefetching) for this link                          |
+| `speculate`      | boolean                                                  | Opt this link out of or back into [speculation rules](/docs/prefetching#excluding-individual-links) |
+| `preserveScroll` | boolean                                                  | Keep the current scroll position and focus instead of starting at the top                          |
+| `viewTransition` | boolean                                                  | Wrap this navigation in `document.startViewTransition()` where supported                           |
 
 ### `href` is not a `<Link>` prop
 
@@ -315,13 +297,13 @@ function ButtonLink({ route, ...rest }: ButtonLinkProps) {
 }
 ```
 
----
-
 ## Shells
 
-Shells are layout components that wrap route content, **decoupled from URL structure**: `/settings` can use the `app` shell without living under `/app`.
+A shell is a layout component that wraps route content. Shells are independent
+of URL structure: `/settings` can use the `app` shell without living under
+`/app`.
 
-```ts [src/shells/app.tsx]
+```tsx [src/shells/app.tsx]
 import type { ShellProps } from "@pracht/core";
 
 export function Shell({ children }: ShellProps) {
@@ -334,14 +316,13 @@ export function Shell({ children }: ShellProps) {
 }
 ```
 
-See [Shells](/docs/shells) for [shell data](/docs/shells#shell-data), `head()`, `headers()`, and error boundaries.
-
----
+See [Shells](/docs/shells) for [shell data](/docs/shells#shell-data), `head()`,
+`headers()`, and error boundaries.
 
 ## Middleware
 
-Middleware wraps the request through `next()` and can redirect, mutate
-context, or short-circuit.
+Middleware wraps the request through `next()` and can redirect, add to the
+context, or return its own response:
 
 ```ts [src/middleware/auth.ts]
 import { redirect, type MiddlewareFn } from "@pracht/core";
@@ -353,13 +334,12 @@ export const middleware: MiddlewareFn = async ({ request }, next) => {
 };
 ```
 
-Group and route middleware stack in order; see [Middleware](/docs/middleware).
+Group middleware runs first, then route middleware, then the loader; see
+[Middleware](/docs/middleware).
 
----
+## Path prefix groups
 
-## Path Prefix Groups
-
-Groups can add a URL prefix to every child route:
+Set `pathPrefix` on a group to prefix every child path:
 
 ```ts
 group({ pathPrefix: "/admin", shell: "admin", middleware: ["auth"] }, [
@@ -369,11 +349,9 @@ group({ pathPrefix: "/admin", shell: "admin", middleware: ["auth"] }, [
 ]);
 ```
 
-`capabilities` is additive: a route keeps its group's page tools and adds its own. Navigation swaps in the destination route's tools. `hydration: "none"` routes cannot activate page tools.
+## Trailing slashes
 
-## Trailing Slashes
-
-By default a page answers at both `/about` and `/about/`, and every URL pracht generates uses `/about`. To make one spelling the only one, set `trailingSlash` on the Vite plugin:
+Set `trailingSlash` on the Vite plugin to make one spelling canonical:
 
 ```ts [vite.config.ts]
 export default defineConfig({
@@ -381,41 +359,29 @@ export default defineConfig({
 });
 ```
 
-With `"always"`, `GET /about?ref=mail` answers `308` with `Location: /about/?ref=mail`, and `/about/` renders the page. `"never"` does the reverse. `<Link route>`, `href()`, `useNavigate()`, `redirect()`, `llms.txt`, and the speculation rules all use the canonical spelling. A hand-written `<a href="/about">` or `navigate("/about")` lands on `/about/` through the client router without an extra request.
+| Setting            | `/about`                      | `/about/`                    |
+| ------------------ | ----------------------------- | ---------------------------- |
+| unset (default)    | Renders the page              | Renders the page             |
+| `"always"`         | `308` to `/about/`            | Renders the page             |
+| `"never"`          | Renders the page              | `308` to `/about`            |
 
-The root (`/`, or `/my-project/` under a [deploy base](/docs/deployment#sub-path-deploys)) always keeps its slash. A path whose last segment contains a dot, such as `/feed.xml`, never gets one. API routes, static files, route-state fetches, and `Accept: text/markdown` requests answer either spelling without a redirect. Route paths in the manifest stay slashless, while `useLocation()` reports the URL as the visitor sees it.
+Redirects keep the query string. Links, `href()`, `redirect()`, `llms.txt`, and
+speculation rules emit the canonical spelling (`/about` when unset).
 
-Every adapter applies the policy, prerendered and ISG pages included. On Cloudflare, set the assets binding's `html_handling` to match ([Adapters](/docs/adapters#cloudflare-workers)). A static export writes `about/index.html`, which most hosts serve at `/about/`, so pair it with `"always"`.
+The root (`/`, or the [deploy base](/docs/deployment#sub-path-deploys)) always
+keeps its slash, and a last segment with a dot, such as `/feed.xml`, never gets
+one. API routes, static files, and Markdown requests answer either spelling.
 
----
+Every adapter applies the policy, including to prerendered pages. On
+Cloudflare, set the assets binding's `html_handling` to match
+([Adapters](/docs/adapters#cloudflare-workers)). A static export writes
+`about/index.html`, which most hosts serve at `/about/`, so pair it with
+`"always"`.
 
-## Pages Router (Auto-Discovery)
+## Pages router (auto-discovery)
 
-For file-system routing, especially when migrating from Next.js, set `pagesDir` instead of writing a manifest.
-
-### What the pages router supports and how
-
-The plugin generates a `defineApp()` manifest from your files, so both routers share one runtime:
-
-| Feature | Pages router |
-| --- | --- |
-| Render and hydration modes, route-scoped WebMCP tools, dynamic/catch-all routes, `getStaticPaths`, API routes | `RENDER_MODE` / `HYDRATION` / `REVALIDATE` / `CAPABILITIES` exports on the page file |
-| Shells | `_app.tsx` per directory — [`pages`, `pages:blog`, …](#directory-scoped-shells). The nearest one wins and replaces its parent |
-| [Route middleware](/docs/middleware) | one root [`_middleware.ts`](#middleware-via-middlewarets) on serverful adapters, applied to every page route |
-| [Capabilities](/docs/capabilities) | every module in [`src/capabilities/`](#capabilities-via-srccapabilities) — HTTP endpoints, [WebMCP page tools](/docs/agents), [remote MCP](/docs/capabilities#remote-mcp-tools-for-agents-without-a-browser), `<Form capability>`, typed clients, and `pracht eval` all work |
-| [`agents`](/docs/agent-trust) (Web Bot Auth, confirmation, MCP) and [`constraints`](/docs/coding-agents#constraints) | named exports from [`src/pages/_app.config.ts`](#app-config-via-appconfigts) |
-
-What still requires an explicit manifest:
-
-- **Per-route middleware assignment.** `_middleware.ts` runs on every page route. To gate only `/app/**`, [eject](#ejecting-to-explicit-manifest), or branch on `stripBase(url.pathname)` inside the file.
-- **Per-route shell overrides.** A shell is chosen by directory.
-- **Named middleware beyond the one file**, and capabilities outside `src/capabilities/`.
-- **Path prefixes and explicit route ids** (`group({ pathPrefix })`, `route(..., { id })`).
-- **Webhook and combined ISG policies.** Pages ISG is time-based only.
-
-Ejecting is a one-time codegen, so starting with the pages router closes none of these off.
-
-### Setup
+Set `pagesDir` instead of writing a manifest, and pracht derives routes from
+files:
 
 ```ts [vite.config.ts]
 import { defineConfig } from "vite";
@@ -426,207 +392,138 @@ export default defineConfig({
 });
 ```
 
-When `pagesDir` is set, the `appFile` option is ignored.
+The plugin generates a `defineApp()` manifest from your files, so both routers
+share one runtime. `appFile` is ignored while `pagesDir` is set.
 
-### File Conventions
+### What the pages router supports and how
 
-| File                    | Route                                       |
-| ----------------------- | ------------------------------------------- |
-| `pages/index.tsx`       | `/`                                         |
-| `pages/about.tsx`       | `/about`                                    |
-| `pages/blog/index.tsx`  | `/blog`                                     |
-| `pages/blog/[slug].tsx` | `/blog/:slug`                               |
-| `pages/[...path].tsx`   | `/*`                                        |
-| `pages/_app.tsx`        | _(shell, not a route)_                      |
-| `pages/blog/_app.tsx`   | _(shell for `/blog/**`, not a route)_       |
-| `pages/_middleware.ts`  | _(middleware, not a route)_                 |
-| `pages/_app.config.ts`  | _(app config, not a route)_                 |
-| `pages/_root.tsx`       | _([app root](/docs/shells#the-app-root), not a route)_ |
-| `pages/_anything.tsx`   | _(ignored — underscore prefix is reserved)_ |
-| `pages/_components/button.tsx` | _(ignored — the whole directory is reserved)_ |
-| `pages/about.test.tsx`  | _(ignored — test files are never routes)_    |
+| Feature                                                                   | Where it comes from                                                       |
+| ------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| Routes, dynamic and catch-all segments, `getStaticPaths`                  | [File names](#file-conventions)                                           |
+| Render mode, hydration, ISG, route-scoped WebMCP tools                    | [Page exports](#page-exports)                                             |
+| Shells                                                                    | [`_app.tsx`](#shells-via-apptsx) per directory                            |
+| Middleware                                                                | One root [`_middleware.ts`](#middleware-via-middlewarets)                 |
+| Capabilities: HTTP, remote MCP, `<Form capability>`, `pracht eval`        | Modules in [`src/capabilities/`](#capabilities-via-srccapabilities)       |
+| `agents` and `constraints`                                                | [`_app.config.ts`](#app-config-via-appconfigts)                           |
+| API routes                                                                | `src/api/`, as with the manifest router                                   |
 
-A leading underscore reserves a file or directory for helpers. `_app` works in any directory; `_middleware`, `_app.config`, and `_root` only at the pages root.
+What still requires an explicit manifest:
 
-### Shell via `_app.tsx`
+- **Per-route middleware assignment.** `_middleware.ts` runs on every page
+  route.
+- **Per-route shell overrides.** The directory chooses the shell.
+- **Named middleware** beyond the one file, and capabilities outside
+  `src/capabilities/`.
+- **Path prefixes and explicit route ids.**
+- **Webhook and combined ISG policies.** Pages ISG is time-based only.
 
-`pages/_app.tsx` is registered as a shell named `"pages"` that wraps every route without a closer `_app`:
+To get these, [eject](#ejecting-to-explicit-manifest) to a manifest at any
+time.
 
-```tsx [src/pages/_app.tsx]
-import type { ShellProps } from "@pracht/core";
+### File conventions
 
-export function Shell({ children }: ShellProps) {
-  return (
-    <div class="app-layout">
-      <nav>...</nav>
-      <main>{children}</main>
-    </div>
-  );
+| File                                  | Result                                                       |
+| ------------------------------------- | ------------------------------------------------------------ |
+| `pages/index.tsx`                     | `/`                                                          |
+| `pages/about.tsx`                     | `/about`                                                     |
+| `pages/blog/index.tsx`                | `/blog`                                                      |
+| `pages/blog/[slug].tsx`               | `/blog/:slug`                                                |
+| `pages/[...path].tsx`                 | `/*`                                                         |
+| `pages/404.tsx`                       | [Not-found page](#not-found-page), with no URL of its own    |
+| `pages/_app.tsx`, `pages/blog/_app.tsx` | Shells                                                     |
+| `pages/_middleware.ts`                | Middleware (pages root only)                                 |
+| `pages/_app.config.ts`                | App config (pages root only)                                 |
+| `pages/_root.tsx`                     | [App root](/docs/shells#the-app-root) (pages root only)      |
+| `pages/_lib.ts`, `pages/_components/` | Ignored; use underscore names for helpers                    |
+| `pages/about.test.tsx`                | Ignored                                                      |
+
+Static routes match before dynamic ones, and dynamic before catch-all.
+
+### Page exports
+
+```tsx [src/pages/pricing.tsx]
+export const RENDER_MODE = "isg";
+export const REVALIDATE = 3600;
+export const CAPABILITIES = ["notes.search"];
+
+export default function Pricing() {
+  return <div>Pricing</div>;
 }
-
-export function headers() {
-  return { "content-security-policy": "default-src 'self'" };
-}
 ```
 
-An `_app` can also export a `loader` for [shell data](/docs/shells#shell-data), read with `useShellData()` from the shell and every page it wraps.
+| Export         | Values                                          | Default                                     |
+| -------------- | ----------------------------------------------- | ------------------------------------------- |
+| `RENDER_MODE`  | `"ssr"`, `"ssg"`, `"isg"`, `"spa"`              | `"ssr"`, or the `pagesDefaultRender` option |
+| `HYDRATION`    | `"full"`, `"islands"`, `"none"`                 | `"full"`                                    |
+| `REVALIDATE`   | Seconds, a positive integer; required for ISG   | None                                        |
+| `CAPABILITIES` | Capability names to expose as WebMCP page tools | None                                        |
+| `STREAMING`    | `true` to [stream the document](/docs/data-loading#streaming-the-document) | `false`          |
 
-#### Directory-scoped shells
+Write each value as a literal. `CAPABILITIES` is not allowed on `_app.tsx`,
+`404.tsx`, or a `HYDRATION = "none"` page.
 
-An `_app` in a subdirectory owns that subtree. `pages/blog/_app.tsx` is registered as `"pages:blog"`:
+### Shells via `_app.tsx`
 
-```
-src/pages/
-  _app.tsx           → shell "pages"      wraps /, /about
-  index.tsx
-  about.tsx
-  blog/
-    _app.tsx         → shell "pages:blog" wraps /blog, /blog/:slug
-    index.tsx
-    [slug].tsx
-```
+`pages/_app.tsx` exports a `Shell` and becomes the shell `"pages"`. An
+`_app.tsx` in a subdirectory owns that subtree: `pages/blog/_app.tsx` becomes
+`"pages:blog"` and wraps `/blog` and `/blog/:slug`.
 
-**Shells replace, they do not nest.** The nearest `_app` is a route's only shell, so a directory shell must supply its own chrome, `head()`, and `headers()`. `pracht inspect routes` prints each route's shell.
-
-### Additional Route Extensions
-
-Custom route and shell formats opt into discovery, in either router, with
-`additionalExtensions`:
-
-```ts [vite.config.ts]
-pracht({
-  pagesDir: "/src/pages",
-  additionalExtensions: [".vue"],
-});
-```
-
-Register the format's Vite plugin and, if needed, an ambient module
-declaration yourself. Keep the array inline or in a `const` so `pracht verify`
-can read it; formats Vite cannot scan need their own `optimizeDeps`. `.tsrx`
-needs no option.
+The nearest `_app` is a route's only shell; shells do not nest, so a directory
+shell supplies its own chrome, `head()`, and `headers()`. An `_app` can export a
+[shell `loader`](/docs/shells#shell-data).
 
 ### Middleware via `_middleware.ts`
 
-On a serverful adapter, a root-level `pages/_middleware.ts` exports a [`MiddlewareFn`](/docs/middleware) that runs on every page route. Scaffold it with `pracht generate middleware --name _middleware`:
+On a serverful adapter, `pages/_middleware.ts` exports a
+[`MiddlewareFn`](/docs/middleware) that runs on every page route. Scaffold it
+with `pracht generate middleware --name _middleware`:
 
 ```ts [src/pages/_middleware.ts]
 import { redirect, stripBase, type MiddlewareFn } from "@pracht/core";
 
 export const middleware: MiddlewareFn = async ({ request, url }, next) => {
   if (stripBase(url.pathname) === "/legacy") return redirect("/about", { request });
-  const response = await next();
-  response.headers.set("x-request-id", crypto.randomUUID());
-  return response;
+  return next();
 };
 ```
 
-Tooling such as `pracht inspect routes` shows it as the middleware named `"pages"`.
-
-- **Page routes only.** Guard API routes with [higher-order functions](/docs/middleware#without-a-manifest-higher-order-functions).
-- **Compare paths with `stripBase()`.** `url.pathname` includes Vite's `base`.
-- **One file, at the root.** A nested `_middleware` fails the build.
-- **Helpers can live in a reserved file** such as `pages/_server/auth.ts`. They stay server-only unless client code imports them.
-- **A missing `middleware` export fails the build.**
-- **Prerendered pages see a build-time request**, so gate by cookie or session only on `ssr`/`spa` pages. See [Middleware](/docs/middleware#middleware-on-prerendered-routes).
-- The [404 page](#404-page) renders without middleware.
+- Compare paths with `stripBase()`; `url.pathname` includes Vite's `base`.
+- It does not run for API routes; guard those with
+  [higher-order functions](/docs/middleware#without-a-manifest-higher-order-functions).
+- Prerendered pages see a build-time request, so gate by session only on `ssr`
+  and `spa` pages.
 
 ### Capabilities via `src/capabilities/`
 
-Every module in `src/capabilities/` is registered as a [capability](/docs/capabilities):
+Every module in `src/capabilities/` is registered as a
+[capability](/docs/capabilities). Scaffold one with
+`pracht generate capability --name notes.search --expose http,mcp --description "Find notes."`.
 
-```ts [src/capabilities/notes-search.ts]
-import { defineCapability, type CapabilityRunArgs } from "@pracht/capabilities";
-
-export default defineCapability({
-  name: "notes.search",
-  title: "Search notes",
-  description: "Find notes whose title or body matches the query.",
-  effect: "read",
-  expose: { http: true, mcp: true },
-  input: {
-    type: "object",
-    properties: { query: { type: "string", minLength: 1 } },
-    required: ["query"],
-    additionalProperties: false,
-  },
-  output: { type: "object", properties: { notes: { type: "array", items: { type: "object" } } } },
-  async run({ input }: CapabilityRunArgs<{ query: string }>) {
-    return { notes: await searchNotes(input.query) };
-  },
-});
-```
-
-`pracht generate capability --name notes.search --expose http,mcp --description "Find notes whose title or body matches the query."` scaffolds this file.
-
-**Naming.** Without a `name`, the file stem is the name. A declared name must match its file with dots as hyphens: `notes.search` ↔ `notes-search.ts`. Mismatches fail the build.
-
-The HTTP endpoint, remote MCP, `pracht eval`, `<Form capability>`, and typed clients work as in a manifest app. WebMCP tools are route-scoped, so each page that exposes one exports an inline list:
-
-```ts [src/pages/notes.tsx]
-export const CAPABILITIES = ["notes.search"];
-```
-
-`CAPABILITIES` belongs on a page (not `_app.tsx` or `404.tsx`) and cannot be combined with `HYDRATION = "none"`. Capability modules never enter a client bundle.
+A capability's `name` must match its file name with dots as hyphens:
+`notes.search` lives in `notes-search.ts`. Without a `name`, the file stem is
+used. To expose one as a WebMCP tool, list it in a page's
+[`CAPABILITIES`](#page-exports) export.
 
 ### App config via `_app.config.ts`
 
-App-wide `agents` and `constraints` live in a root-level `src/pages/_app.config.ts`:
+Export `agents` and `constraints` from `src/pages/_app.config.ts`; the
+generated manifest passes them to `defineApp()` unchanged:
 
 ```ts [src/pages/_app.config.ts]
 import type { PrachtAgentsConfig } from "@pracht/core";
 
 export const agents: PrachtAgentsConfig = {
   webBotAuth: { policy: "observe", keys: [{ x: "…", agent: "acme-agent.example" }] },
-  confirmation: { ttlSeconds: 120 },
-  mcp: {
-    serverInfo: { name: "my-app", version: "1.0.0" },
-    instructions: "Search and create notes.",
-  },
+  mcp: { serverInfo: { name: "my-app", version: "1.0.0" } },
 };
 ```
 
-The generated manifest passes these to `defineApp()` verbatim, so [agent trust](/docs/agent-trust) works as in a manifest app.
+Only these two named exports are read, and the file never enters a client
+bundle.
 
-Only these two named exports are read. `export *`, or a file with neither named export (a default export alone counts as neither), fails the build; delete the file rather than leave it empty. It never enters a client bundle.
+### Ejecting to explicit manifest
 
-### Per-Route Render Mode
-
-A page file can export `RENDER_MODE`:
-
-```tsx [src/pages/about.tsx]
-export const RENDER_MODE = "ssg";
-
-export default function About() {
-  return <div>About us</div>;
-}
-```
-
-Valid values: `"ssr"` | `"ssg"` | `"isg"` | `"spa"`. The default is `"ssr"`, overridable globally via `pagesDefaultRender`:
-
-```ts [vite.config.ts]
-pracht({ pagesDir: "/src/pages", pagesDefaultRender: "ssg" });
-```
-
-ISG pages must also export a positive integer number of seconds:
-
-```tsx [src/pages/pricing.tsx]
-export const RENDER_MODE = "isg";
-export const REVALIDATE = 3600;
-```
-
-Write `REVALIDATE` as a literal on the page; a missing or invalid policy fails the build. If `pagesDefaultRender` is not an inline string or string `const`, also export `RENDER_MODE = "isg"` next to `REVALIDATE`.
-
-### Route Priority
-
-Static routes match first, then dynamic (`:param`), then catch-all (`*`), as in Next.js.
-
-### 404 page
-
-`pages/404.tsx` becomes the [not-found page](#not-found-page). Unlike in Next.js, `/404` is not a URL of its own.
-
-### Ejecting to Explicit Manifest
-
-To take full manifest control, eject with a one-time codegen:
+Generate `src/routes.ts` from the current pages once:
 
 ```ts
 import { generateRoutesFile } from "@pracht/vite-plugin/pages-router";
@@ -634,22 +531,21 @@ import { generateRoutesFile } from "@pracht/vite-plugin/pages-router";
 generateRoutesFile("src/pages", "src/routes.ts", {
   pagesDir: "src/pages",
   pagesDefaultRender: "ssr",
-  // Defaults to `<pagesDir>/../capabilities`; pass `null` to register none.
-  capabilitiesDir: "src/capabilities",
+  capabilitiesDir: "src/capabilities", // pass null to register none
 });
 ```
 
-The generated manifest carries everything auto-discovery registered. Remove `pagesDir` and point the discovery directories at the files it references:
+Then remove `pagesDir` and point discovery at the existing files:
 
-```ts
+```ts [vite.config.ts]
 pracht({
   appFile: "/src/routes.ts",
-  routesDir: "/src/pages", // route files stay in src/pages
-  shellsDir: "/src/pages", // _app.tsx
-  middlewareDir: "/src/pages", // _middleware.ts
+  routesDir: "/src/pages",
+  shellsDir: "/src/pages",
+  middlewareDir: "/src/pages",
 });
 ```
 
-Or move the files into `src/routes`, `src/shells`, and `src/middleware` and update the refs.
-
-Keep the exported `__PRACHT_EJECTED_PAGES_LAYOUT__ = true` marker while `_app` or `_middleware` files remain. Without it, underscore files count as route modules and the middleware source can reach the browser bundle; `pracht verify` warns when that happens.
+Keep the generated `__PRACHT_EJECTED_PAGES_LAYOUT__ = true` export while `_app`
+or `_middleware` files remain in `src/pages`; `pracht verify` warns if it is
+missing.
