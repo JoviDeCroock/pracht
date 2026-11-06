@@ -25,6 +25,11 @@ export default function DocsEnhancer(_props: IslandProps) {
     status.className = "sr-only";
     status.setAttribute("role", "status");
     document.body.append(status);
+    // Clear, then set on the next frame, so a second copy is announced again.
+    const announce = (message: string) => {
+      status.textContent = "";
+      requestAnimationFrame(() => (status.textContent = message));
+    };
 
     const onClick = async (event: MouseEvent) => {
       const button = (event.target as Element | null)?.closest<HTMLButtonElement>(".code-copy");
@@ -33,10 +38,10 @@ export default function DocsEnhancer(_props: IslandProps) {
       try {
         await navigator.clipboard.writeText(code.replace(/\n$/, ""));
         button.textContent = "Copied";
-        status.textContent = "Code copied";
+        announce("Code copied");
       } catch {
         button.textContent = "Failed";
-        status.textContent = "Copy failed";
+        announce("Copy failed");
       }
       setTimeout(() => (button.textContent = "Copy"), 1600);
     };

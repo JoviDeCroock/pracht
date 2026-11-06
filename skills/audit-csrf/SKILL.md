@@ -119,7 +119,7 @@ If Step 0 found `requireSameOrigin: false`, look for middleware that:
 - Compares against `url.origin` and an allowlist.
 - Rejects unsafe-method requests on mismatch.
 
-The canonical shape is in `recipes-auth.md` (the `origin-check.ts` example).
+The canonical shape is the `origin-check.ts` example in https://pracht.resynapse.dev/docs/recipes/auth.md.
 
 Verify the wiring: the middleware name must appear in
 `defineApp({ api: { middleware: [...] } })` — that single global list applies

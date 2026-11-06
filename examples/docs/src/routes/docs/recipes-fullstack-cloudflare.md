@@ -154,7 +154,7 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
       <ul>
         {data.posts.map((post) => (
           <li key={post.id}>
-            <a href={`/posts/${post.id}`}>{post.title}</a>
+            {post.title}
             <time>{post.created_at}</time>
           </li>
         ))}
@@ -181,11 +181,11 @@ export async function POST({ request, context }: ApiRouteArgs) {
     return Response.json({ error: "Title and body are required" }, { status: 400 });
   }
 
-  const result = await context.env.DB.prepare("INSERT INTO posts (title, body) VALUES (?, ?)")
+  await context.env.DB.prepare("INSERT INTO posts (title, body) VALUES (?, ?)")
     .bind(title, body)
     .run();
 
-  return redirect(`/posts/${result.meta.last_row_id}`, { request });
+  return redirect("/posts", { request });
 }
 ```
 
@@ -213,7 +213,7 @@ export function Component() {
 }
 ```
 
-Submitting creates the row and lands on `/posts/<new id>`.
+Submitting creates the row and lands back on `/posts`, with the new post first.
 
 ## 7. Cache in KV
 

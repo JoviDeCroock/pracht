@@ -20,7 +20,7 @@ allowed-tools:
 # Pracht Scaffold E2E
 
 Generate a Playwright suite that exercises the live app. Aligns with
-`recipes-testing.md`.
+https://pracht.resynapse.dev/docs/recipes/testing.md.
 
 ## Step 1: Decide which build the tests run against
 

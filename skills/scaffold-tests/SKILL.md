@@ -114,7 +114,7 @@ import "@testing-library/jest-dom/vitest";
 ```
 
 **Loader/middleware-only mode** (no components) — matches the minimal config
-in `recipes-testing.md`; no preset, no extra deps:
+in https://pracht.resynapse.dev/docs/recipes/testing.md; no preset, no extra deps:
 
 ```ts
 import { defineConfig } from "vitest/config";

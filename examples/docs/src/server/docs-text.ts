@@ -24,7 +24,8 @@ export const MIN_WORD_LENGTH = 3;
  */
 const SHORT_TERMS: ReadonlySet<string> = new Set("ai ci db kv og ui".split(" "));
 
-function searchable(lower: string): boolean {
+/** Whether a lower-case word is indexed and searched (the header search filters queries with it too). */
+export function searchable(lower: string): boolean {
   if (STOPWORDS.has(lower)) return false;
   if (lower.length >= MIN_WORD_LENGTH) return true;
   return lower.length === 2 && (SHORT_TERMS.has(lower) || /\d/.test(lower));

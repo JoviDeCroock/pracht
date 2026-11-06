@@ -1055,6 +1055,14 @@ code:not(.code-block code) {
   text-align: left;
 }
 
+.search-close {
+  display: inline-flex;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
 kbd {
   font-family: var(--font-mono);
   font-size: 11px;

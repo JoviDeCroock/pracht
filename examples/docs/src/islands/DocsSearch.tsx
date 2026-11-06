@@ -1,6 +1,8 @@
 import type { IslandProps } from "@pracht/core";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 
+import { searchable } from "../server/docs-text";
+
 /** Mirrors `SearchIndex` in `vite-plugin-search-index.ts`. */
 interface SearchIndex {
   pages: [string, string, string][];
@@ -27,13 +29,19 @@ function loadIndex(): Promise<SearchIndex> {
   return indexPromise;
 }
 
-/** Query words, lightly stemmed so "cache" also finds "caching" and "cached". */
+/**
+ * Query words without filler ("how do I …"), lightly stemmed so "cache" also
+ * finds "caching" and "cached".
+ */
 function terms(query: string): string[] {
-  return query
+  const words = query
     .toLowerCase()
     .split(/[^\p{L}\p{N}_$.-]+/u)
-    .filter(Boolean)
-    .map((word) => (word.length > 4 ? word.replace(/(?:ing|ed|es|s|e)$/, "") : word));
+    .filter(Boolean);
+  const meaningful = words.filter(searchable);
+  return (meaningful.length > 0 ? meaningful : words).map((word) =>
+    word.length > 4 ? word.replace(/(?:ing|ed|es|s|e)$/, "") : word,
+  );
 }
 
 /** True when `term` starts a word in `text` (both lower case). */
@@ -57,6 +65,12 @@ function snippet(text: string, words: string[]): string {
 function search(index: SearchIndex, query: string): Result[] {
   const words = terms(query);
   if (words.length === 0) return [];
+  // Sections matching every word first; when none do, sections matching most.
+  const strict = rank(index, words, words.length);
+  return strict.length > 0 ? strict : rank(index, words, Math.ceil(words.length / 2));
+}
+
+function rank(index: SearchIndex, words: string[], required: number): Result[] {
   const scored: { score: number; entry: SearchIndex["entries"][number] }[] = [];
   for (const entry of index.entries) {
     const [pageIndex, anchor, heading, text] = entry;
@@ -64,19 +78,18 @@ function search(index: SearchIndex, query: string): Result[] {
     const head = heading.toLowerCase();
     const body = text.toLowerCase();
     let score = 0;
-    let matched = true;
+    let matched = 0;
     for (const word of words) {
       const inHeading = startsWord(head, word);
       const inTitle = startsWord(title, word);
       const inBody = body.includes(word);
-      if (!inHeading && !inTitle && !inBody) {
-        matched = false;
-        break;
-      }
+      if (!inHeading && !inTitle && !inBody) continue;
+      matched++;
       score += (inHeading ? 8 : 0) + (inTitle ? 5 : 0) + (inBody ? 1 : 0);
       if (head === word || title === word) score += 6;
     }
-    if (!matched) continue;
+    if (matched < required) continue;
+    score += matched * 10;
     if (anchor === "") score += 2;
     scored.push({ score, entry });
   }
@@ -221,7 +234,14 @@ export default function DocsSearch(_props: IslandProps) {
               autoComplete="off"
               spellcheck={false}
             />
-            <kbd>Esc</kbd>
+            <button
+              type="button"
+              class="search-close"
+              aria-label="Close search"
+              onClick={() => dialog.current?.close()}
+            >
+              <kbd>Esc</kbd>
+            </button>
           </div>
           <ul id="search-results" class="search-results" role="listbox" aria-label="Results">
             {results.map((result, position) => (
