@@ -105,14 +105,13 @@ Answer a document post with a redirect. Enhanced submissions carry the `x-pracht
 
 ```ts [src/api/contact.ts]
 import { redirect, type ApiRouteArgs } from "@pracht/core";
-import { CAPABILITY_FORM_REQUEST_HEADER } from "@pracht/capabilities";
 
 export async function POST({ request }: ApiRouteArgs) {
   const form = await request.formData();
   const name = String(form.get("name") ?? "").trim();
   const email = String(form.get("email") ?? "").trim();
   const message = String(form.get("message") ?? "").trim();
-  const enhanced = request.headers.get(CAPABILITY_FORM_REQUEST_HEADER) !== null;
+  const enhanced = request.headers.get("x-pracht-capability-form") !== null;
 
   const errors: Record<string, string> = {};
   if (!name) errors.name = "Name is required";

@@ -41,7 +41,7 @@ Hyperdrive, use an HTTP/WebSocket driver (Neon, PlanetScale, Turso) or D1.
 | Cloudflare Hyperdrive (Postgres) | `drizzle-orm/postgres-js` or `node-postgres` | `postgres` / `pg` | Workers (Hyperdrive + `nodejs_compat`) |
 | PlanetScale                      | `drizzle-orm/planetscale-serverless`         | `@planetscale/database` | Node + edge |
 | Neon                             | `drizzle-orm/neon-serverless` or `neon-http` | `@neondatabase/serverless` | Node + edge |
-| Supabase Postgres                | `drizzle-orm/postgres-js`                    | `postgres` | Node + edge (HTTP) |
+| Supabase Postgres                | `drizzle-orm/postgres-js`                    | `postgres` | Node; Workers via Hyperdrive |
 | Turso (libSQL)                   | `drizzle-orm/libsql`                         | `@libsql/client` | Node + edge |
 | Vanilla Postgres                 | `drizzle-orm/node-postgres`                  | `pg` + `-D @types/pg` | Node only |
 | Vanilla MySQL                    | `drizzle-orm/mysql2`                         | `mysql2` | Node only |

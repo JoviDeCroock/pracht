@@ -237,13 +237,7 @@ export function head({ url }: { url: URL }) {
             name: "Docs",
             item: absoluteUrl("/docs"),
           },
-          {
-            "@type": "ListItem",
-            position: 2,
-            name: entry.section,
-            item: absoluteUrl(`/docs#${sectionId(entry.section)}`),
-          },
-          { "@type": "ListItem", position: 3, name: entry.title, item: canonical },
+          { "@type": "ListItem", position: 2, name: entry.title, item: canonical },
         ],
       }
     : null;

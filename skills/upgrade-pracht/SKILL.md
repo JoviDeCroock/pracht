@@ -140,7 +140,7 @@ serves the docs bundled with the newly installed CLI. A CLI without that
 command predates it; use https://pracht.resynapse.dev/llms.txt instead.
 
 Keep the whole upgrade, including fixes made during Step 6, in one dedicated
-commit when the user agrees to commits. Otherwise record it as a patch:
+commit when the user agrees to commits. Otherwise, once Step 6 passes, record it as a patch:
 `git add -A && git diff --cached --binary > ../pracht-upgrade.patch`.
 
 ## Step 6: Verification ladder

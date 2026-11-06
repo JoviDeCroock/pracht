@@ -252,7 +252,7 @@ export default function DocsSearch(_props: IslandProps) {
                 : query && results.length === 0
                   ? `No results for “${query}”.`
                   : query
-                    ? `${results.length} result${results.length === 1 ? "" : "s"}. ↑↓ to move, Enter to open.`
+                    ? `${results.length === MAX_RESULTS ? "Top " : ""}${results.length} result${results.length === 1 ? "" : "s"}. ↑↓ to move, Enter to open.`
                     : "Type to search pages and sections. ↑↓ to move, Enter to open."}
           </p>
         </div>

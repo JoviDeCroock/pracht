@@ -10,7 +10,7 @@ export const STOPWORDS: ReadonlySet<string> = new Set(
     "about all also and any are because been but can could did does doing done for from " +
     "had has have how into its just let like more most not now off one only onto " +
     "other our out over should some such than that the their them then there these they " +
-    "this those through use used uses using via was way what when where which while who " +
+    "this those through via was way what when where which while who " +
     "why will with within without would yet you your"
   ).split(" "),
 );
