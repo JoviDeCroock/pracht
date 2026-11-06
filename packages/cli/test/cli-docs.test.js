@@ -312,7 +312,7 @@ describe("pracht docs (installed bundle)", () => {
 
     const page = runCliStatus(["docs", "routing#route-manifest"], { cwd });
     expect(page.status).toBe(0);
-    expect(page.stdout).toMatch(/^## Route Manifest\n/);
+    expect(page.stdout).toMatch(/^## Route manifest\n/);
 
     const unknown = runCliStatus(["docs", "../../package"], { cwd });
     expect(unknown.status).toBe(1);
