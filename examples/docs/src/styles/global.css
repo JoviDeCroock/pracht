@@ -1780,3 +1780,59 @@ h4:hover > .heading-anchor,
     border-color: transparent;
   }
 }
+
+/* ── Docs home ──────────────────────────────────────────── */
+.docs-home-start {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  list-style: none;
+  padding: 0 !important;
+  margin-bottom: 40px !important;
+}
+
+.docs-home-start a {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  height: 100%;
+  padding: 16px 18px;
+  background: var(--bg-2);
+  border: 1px solid var(--border-l);
+  border-radius: var(--r-lg);
+  text-decoration: none !important;
+  transition: border-color 0.15s;
+}
+
+.docs-home-start a:hover {
+  border-color: rgba(139, 92, 246, 0.45);
+}
+
+.docs-home-start strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.docs-home-start span {
+  color: var(--text-3);
+  font-size: 13.5px;
+}
+
+.docs-home-section ul {
+  columns: 2;
+  column-gap: 32px;
+}
+
+.docs-home .doc-article h2 {
+  margin-top: 32px;
+  padding-top: 24px;
+}
+
+@media (max-width: 600px) {
+  .docs-home-start {
+    grid-template-columns: 1fr;
+  }
+  .docs-home-section ul {
+    columns: 1;
+  }
+}

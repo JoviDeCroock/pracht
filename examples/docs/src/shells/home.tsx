@@ -15,7 +15,7 @@ export function Shell({ children }: ShellProps) {
             pracht
           </a>
           <nav class="header-nav" aria-label="Site">
-            <a href="/docs/getting-started">Docs</a>
+            <a href="/docs">Docs</a>
           </nav>
           <div class="header-right">
             <a
@@ -35,7 +35,7 @@ export function Shell({ children }: ShellProps) {
         <div class="inner">
           <span class="footer-copy">pracht — one app graph, for browsers and for agents.</span>
           <div class="footer-links">
-            <a href="/docs/getting-started">Docs</a>
+            <a href="/docs">Docs</a>
             <a href="/docs/adapters">Adapters</a>
             <a href="https://github.com/JoviDeCroock/pracht" target="_blank" rel="noopener">
               GitHub

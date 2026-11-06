@@ -29,7 +29,7 @@ export const app = defineApp({
       route("/", () => import("./routes/home.tsx"), { id: "home", render: "ssg" }),
     ]),
     group({ shell: "docs", render: "ssg", hydration: "islands" }, [
-      route("/docs", () => import("./routes/docs/index.tsx"), { id: "docs-index", render: "ssr" }),
+      route("/docs", () => import("./routes/docs/index.tsx"), { id: "docs-index" }),
       route("/docs/getting-started", () => import("./routes/docs/getting-started.md"), {
         id: "getting-started",
       }),

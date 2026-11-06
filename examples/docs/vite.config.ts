@@ -23,8 +23,6 @@ export default defineConfig({
       routesFile,
       // Retired "Agents" pages kept alive as redirects — see src/routes.ts.
       excludePaths: [
-        // Redirects to the first docs page.
-        "/docs",
         "/docs/llms",
         "/docs/agent-workflow",
         "/docs/agent-skills",

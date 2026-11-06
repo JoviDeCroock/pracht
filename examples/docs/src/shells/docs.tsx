@@ -156,7 +156,7 @@ export function Shell({ children }: ShellProps) {
             pracht
           </a>
           <nav class="header-nav" aria-label="Site">
-            <a href="/docs/getting-started" class="active">
+            <a href="/docs" class="active">
               Docs
             </a>
           </nav>
@@ -177,7 +177,7 @@ export function Shell({ children }: ShellProps) {
           {entry ? (
             <div class="doc-toolbar">
               <nav class="breadcrumb" aria-label="Breadcrumb">
-                <a href="/docs/getting-started">Docs</a>
+                <a href="/docs">Docs</a>
                 <span class="breadcrumb-sep" aria-hidden="true">
                   /
                 </span>
@@ -240,7 +240,7 @@ export function head({ url }: { url: URL }) {
             "@type": "ListItem",
             position: 1,
             name: "Docs",
-            item: absoluteUrl("/docs/getting-started"),
+            item: absoluteUrl("/docs"),
           },
           {
             "@type": "ListItem",
