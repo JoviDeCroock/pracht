@@ -246,11 +246,11 @@ describe("docs_read", () => {
     );
     expect(direct.found).toBe(true);
     expect(viaUrl.markdown).toBe(direct.markdown);
-    expect(direct.markdown.startsWith("## Remote MCP: Tools for Agents Without a Browser")).toBe(
+    expect(direct.markdown.startsWith("## Remote MCP: tools for agents without a browser")).toBe(
       true,
     );
-    expect(direct.markdown).toContain("### Talking to It");
-    expect(direct.markdown).not.toContain("## Private by Default");
+    expect(direct.markdown).toContain("### Talking to it");
+    expect(direct.markdown).not.toContain("## Private by default");
     expect(direct.sections).toEqual([]);
   });
 

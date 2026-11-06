@@ -32,10 +32,7 @@ const MAX_PAGE_WORDS = 2_500;
 const MAX_LEAD_CHARS = 160;
 
 /** Pages allowed over `MAX_PAGE_WORDS`, capped at their current size. */
-const PAGE_WORD_CEILINGS: Record<string, number> = {
-  // Local and remote capabilities on one page: WebMCP, MCP, and OAuth.
-  "capabilities.md": 2_910,
-};
+const PAGE_WORD_CEILINGS: Record<string, number> = {};
 
 const pages = readdirSync(docsDir)
   .filter((file) => file.endsWith(".md"))

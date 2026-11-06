@@ -3,28 +3,24 @@ title: Capabilities
 lead: Define a typed operation once and call it from server code, over HTTP, as a WebMCP page tool, or as a remote MCP tool.
 ---
 
-> **Both routers.** Manifest apps register capabilities through `defineApp({ capabilities })`. [Pages-router](/docs/routing#capabilities-via-srccapabilities) apps auto-discover `src/capabilities/` and configure `agents` from `src/pages/_app.config.ts`. Everything on this page works the same in both.
+A capability is a typed application operation: JSON Schema input and output, an effect class (`read`, `write`, or `destructive`), optional named middleware, and a server-only `run()` function. From one definition pracht serves:
 
-## One Contract, Many Surfaces
+| Surface | Turn it on | Callers |
+| --- | --- | --- |
+| Direct server call | Always available | `invokeCapability()` in loaders, API routes, and middleware |
+| HTTP endpoint | `expose.http` | `POST /api/capabilities/<name>`, the generated browser client, `<Form capability>` |
+| WebMCP page tool | `expose.webmcp` (needs `expose.http`) and the route's `capabilities` list | An agent in the user's browser tab |
+| Remote MCP tool | `expose.mcp` and `defineApp({ agents: { mcp } })` | An agent without a browser. See [Remote MCP](#remote-mcp-tools-for-agents-without-a-browser) |
 
-A capability is a typed, protocol-neutral application operation: JSON Schema input and output, an effect class (`read`, `write`, or `destructive`), optional named middleware, and a server-only `run()` function. From that single contract pracht generates:
-
-- **Direct server invocation** — `invokeCapability()` from loaders, API routes, and middleware.
-- **An HTTP endpoint** — `POST /api/capabilities/<name>` when `expose.http` is set.
-- **A WebMCP page tool** — eligible for route-scoped browser registration when `expose.webmcp` is set.
-- **A remote MCP tool** — served at your app's own endpoint when `expose.mcp` is set, for agents that never open a browser. See [Remote MCP](#remote-mcp-tools-for-agents-without-a-browser).
-
-Every projection runs the same pipeline, so business rules never diverge between transports:
+Every surface runs the same pipeline:
 
 ```text
 input validation → middleware chain → run() → output validation → audit event
 ```
 
----
-
 ## Register capabilities
 
-Capabilities are registered in `defineApp()`, like shells and middleware. No API route or loader is ever inferred as one. `expose.webmcp` only makes a capability eligible to be a page tool. Each route lists the tools that exist on that page.
+Add each capability to `defineApp({ capabilities })`, like shells and middleware. Then list the page tools each route offers:
 
 ```ts [src/routes.ts]
 import { defineApp, route } from "@pracht/core";
@@ -45,7 +41,7 @@ export const app = defineApp({
 
 `group({ capabilities: [...] }, routes)` adds tools to every child, and route-level names add to that set. `pracht verify` rejects an unknown name, a capability without `expose.webmcp`, and any tool on a `hydration: "none"` route.
 
-With the pages router, every module in `src/capabilities/` is registered automatically. Name it with `defineCapability({ name })` or let the filename provide it (`notes-search.ts` becomes `notes.search`). A page opts into its tools with an inline `CAPABILITIES` array on the page itself, not `_app.tsx` or `404.tsx`. See [Pages Router](/docs/routing#capabilities-via-srccapabilities).
+With the [pages router](/docs/routing#capabilities-via-srccapabilities), every module in `src/capabilities/` is registered automatically, and `agents` is configured in `src/pages/_app.config.ts`. Name a capability with `defineCapability({ name })` or let the filename provide it (`notes-search.ts` becomes `notes.search`). A page lists its tools in an inline `CAPABILITIES` export (not in `_app.tsx` or `404.tsx`):
 
 ```ts [src/pages/notes.tsx]
 export const CAPABILITIES = ["notes.search", "notes.create"];
@@ -65,13 +61,9 @@ export default defineCapability({
 });
 ```
 
-A `hydration: "islands"` route that activates a page tool keeps the page bootstrap even when it renders no islands.
+Capability modules load on the first capability or MCP request, never for a page view.
 
-Capability modules load on the first capability or MCP request, never for a page view. A throwing module disables only that capability (`500` at its path, absent from `tools/list`); the rest keep serving. Failed imports retry; top-level throws persist until edit or restart.
-
----
-
-## Define the Contract
+## Define the contract
 
 ```ts [src/capabilities/notes-search.ts]
 import { defineCapability, type CapabilityRunArgs } from "@pracht/capabilities";
@@ -107,9 +99,11 @@ export default defineCapability({
 });
 ```
 
-Plain JSON Schema uses pracht's dependency-free subset validator. Unsupported keywords (`oneOf`, `$ref`, `pattern`, …) are rejected at definition time and by `pracht verify`.
+Plain JSON Schema runs through pracht's built-in subset validator. Unsupported keywords (`oneOf`, `$ref`, `pattern`, …) fail at definition time and in `pracht verify`.
 
-If your app already has a validator that implements Standard JSON Schema, reuse it directly. Zod 4 does:
+With plain JSON Schema, type `run()` with `CapabilityRunArgs<Input>` and let TypeScript infer the output, or write `defineCapability<Input, Output>`. `defineCapability<Input>` alone makes the output type `unknown`.
+
+A validator that implements Standard JSON Schema, such as Zod 4, can replace the plain schemas:
 
 ```ts [src/schemas/notes.ts]
 import * as z from "zod";
@@ -140,15 +134,13 @@ export default defineCapability({
 });
 ```
 
-Pracht derives draft-07 JSON Schemas for agent protocols and runs your original validator during dispatch, so async checks, transforms, and defaults work as usual.
+pracht derives draft-07 JSON Schemas for agent protocols and runs your validator during dispatch, so async checks, transforms, defaults, and `run()`'s input types come from it.
 
-Standard JSON Schema types `run()`'s input for you. With plain JSON Schema, annotate `run()` with `CapabilityRunArgs<Input>` and let TypeScript infer the output, or write `defineCapability<Input, Output>`. Don't pass only `defineCapability<Input>`: the output type then becomes `unknown`.
+## Call a capability
 
----
+### From server code
 
-## Call It from Anywhere
-
-Server-side — including private capabilities that have no `expose` at all:
+Call any capability, including a private one with no `expose`, with `invokeCapability()`:
 
 ```ts [src/routes/notes.tsx]
 import { invokeCapability } from "@pracht/core/server";
@@ -159,9 +151,11 @@ export async function loader({ request, context, signal }) {
 }
 ```
 
-`invokeCapability()` is trusted server composition. It runs the callee's validation, named middleware, `run()`, and output validation, but not app-level API middleware. A capability that composes others over HTTP or WebMCP must do its own transport-specific authorization; remote MCP adds [its own guards](/docs/agent-trust#remote-mcp-composition-is-guarded).
+`invokeCapability()` is trusted server composition: it runs the callee's validation, named middleware, `run()`, and output validation, but not app-level API middleware. A capability that calls others must do its own authorization for HTTP and WebMCP callers; remote MCP adds [its own guards](/docs/agent-trust#remote-mcp-composition-is-guarded).
 
-From the browser, `virtual:pracht/capabilities` holds only http-exposed names, endpoints, and effect classes. Capability modules never enter the client bundle:
+### From the browser
+
+Import the generated client from `virtual:pracht/capabilities`. It holds only HTTP-exposed names, endpoints, and effect classes:
 
 ```ts [src/islands/NoteForm.tsx]
 import { callCapability, capabilities } from "virtual:pracht/capabilities";
@@ -171,15 +165,15 @@ const result = await callCapability("notes.create", { title });
 const same = await capabilities.notes.create({ title });
 ```
 
-Both make the same call. The nested client suits hand-typed names: a typo gets `Did you mean 'search'?`, and hover shows the capability's description.
+Both make the same call; the nested client adds `Did you mean 'search'?` on typos and descriptions on hover. Importing a capability module itself from client code fails the build.
 
-TypeScript resolves the `virtual:pracht/*` declarations from `@pracht/vite-plugin/virtual`. New scaffolds include it; older apps add it next to `vite/client`:
+TypeScript resolves `virtual:pracht/*` from `@pracht/vite-plugin/virtual`. New scaffolds include it; older apps add it next to `vite/client`:
 
 ```json [tsconfig.json]
 { "compilerOptions": { "types": ["vite/client", "@pracht/vite-plugin/virtual"] } }
 ```
 
-For calls driven by interaction — a button, a search box, a picker — `useCapability()` owns the pending/error/result state:
+For calls driven by a button, search box, or picker, `useCapability()` tracks pending, error, and result state:
 
 ```tsx [src/routes/notes.tsx]
 import { useCapability } from "virtual:pracht/capabilities";
@@ -195,9 +189,11 @@ const search = useCapability("notes.search");
 
 Concurrent calls are last-one-wins, and `data` stays visible while a follow-up is pending. For data a page needs on load, call `invokeCapability()` in a `loader` instead.
 
-Importing a capability module from client code fails the build. HTTP-exposed capabilities must declare `effect` as an inline string literal, and a custom `expose.http.path` must be a same-origin pathname starting with `/`.
+After a successful non-`read` call from the browser, the active route's loader data revalidates. Pass `{ revalidate: false }` to skip it. The full call options are `{ headers, signal, prepare, confirm, revalidate }`.
 
-A `destructive` capability is confirmation-gated. Call it with `{ prepare: true }` to get a token without running it, then repeat the identical input with `{ confirm: token }` to commit:
+### Destructive calls
+
+Call a `destructive` capability with `{ prepare: true }` to get a confirmation token without running it, then repeat the identical input with `{ confirm: token }` to commit:
 
 ```ts [src/islands/PurgeButton.tsx]
 import { capabilities } from "virtual:pracht/capabilities";
@@ -214,9 +210,11 @@ if (confirmationToken) {
 }
 ```
 
-Full options: `{ headers, signal, prepare, confirm, revalidate }`. See [Agent Trust](/docs/agent-trust#destructive-capabilities-preparecommit) for what the server checks on each half.
+[Agent trust](/docs/agent-trust#destructive-capabilities-preparecommit) covers what the server checks on each half.
 
-`<Form>` can post straight to a capability, so the human form and the agent tool share one contract. Fields are coerced onto the input schema, and without JavaScript the endpoint redirects back:
+### From a form
+
+Point `<Form>` at a capability so the human form and the agent tool share one contract. Fields are coerced onto the input schema, and without JavaScript the endpoint redirects back:
 
 ```tsx [src/routes/notes.tsx]
 import { Form } from "@pracht/core";
@@ -227,11 +225,11 @@ import { Form } from "@pracht/core";
 </Form>;
 ```
 
-After typegen, `capability` accepts only http-exposed names. Set `action` explicitly for a capability with a custom `expose.http.path`. A root-absolute `action` gets the deploy base automatically; a button's `formaction` does not, so wrap it with `withBase()`.
+For a capability with a custom `expose.http.path`, set `action` explicitly. A root-absolute `action` gets the deploy base automatically; a button's `formaction` does not, so wrap it with `withBase()`.
 
-After any successful non-`read` call from the browser, the active route's loader data revalidates. Opt out per call with `{ revalidate: false }`.
+### Over HTTP
 
-Over HTTP, every response uses a typed envelope, with path-scoped validation issues:
+Every response is a typed envelope, with path-scoped validation issues:
 
 ```sh
 curl -X POST /api/capabilities/notes/search -H 'content-type: application/json' -d '{"query":"roadmap"}'
@@ -239,9 +237,11 @@ curl -X POST /api/capabilities/notes/search -H 'content-type: application/json' 
 # { "ok": false, "error": { "code": "invalid_input", "issues": [{ "path": "/limit", "message": "must be <= 20" }] } }
 ```
 
-A capability middleware that returns 429 produces the `rate_limited` error code on every projection, and HTTP callers keep its `Retry-After` header.
+A capability middleware that returns 429 produces the `rate_limited` error code on every surface, and HTTP callers keep its `Retry-After` header.
 
-`pracht typegen` writes each capability's types, effect, and exposure into `src/pracht-capabilities.d.ts`, so every call site reads the contract from the name. The compiler then rejects:
+### Typed calls
+
+Run `pracht typegen` to write each capability's types, effect, and exposure into `src/pracht-capabilities.d.ts`. Every call site then reads the contract from the name, and the compiler rejects:
 
 | Mistake | Result |
 | --- | --- |
@@ -251,21 +251,19 @@ A capability middleware that returns 429 produces the `rate_limited` error code 
 | Committing a `destructive` call without `confirm` | compile error |
 | A capability name computed at runtime | compile error — assert `as HttpCapabilityName` |
 
-A capability whose input requires nothing is callable with no argument: `capabilities.notes.stats()`. For a union of names, input must suit every member, and `prepare` or `confirm` is required if any member is `destructive`.
+A capability whose input requires nothing is callable with no argument: `capabilities.notes.stats()`. For a union of names, input must suit every member, and `prepare` or `confirm` is required if any member is `destructive`. After typegen, `<Form capability>` accepts only HTTP-exposed names.
 
-Without typegen, calls stay untyped. Once you adopt it, drop explicit type arguments such as `invokeCapability<Output>(…)`, re-run it after upgrading pracht, and run `pracht typegen --check` in CI.
+Without typegen, calls are untyped. Once you adopt it, drop explicit type arguments such as `invokeCapability<Output>(…)`, re-run it after upgrading pracht, and run `pracht typegen --check` in CI.
 
----
+## WebMCP: tools for in-browser agents
 
-## WebMCP: Tools for In-Browser Agents
+Set `expose.webmcp: true` and list the capability on a route. pracht registers it as a [WebMCP](https://webmachinelearning.github.io/webmcp/) page tool with `document.modelContext.registerTool()` on that route, and swaps tools on client navigation.
 
-With `expose.webmcp: true`, pracht registers the capability as a [WebMCP](https://webmachinelearning.github.io/webmcp/) page tool via `document.modelContext.registerTool()` on routes that activate it, and swaps tools on client navigation.
+The tool's `execute()` calls the HTTP endpoint as the signed-in user and returns its envelope (`{ ok, data }` or `{ ok: false, error }`). A host cancellation aborts the request.
 
-The tool's `execute()` dispatches through the HTTP projection, so the agent acts as the signed-in user while validation and policy stay server-side. It returns the capability envelope (`{ ok, data }` or `{ ok: false, error }`), and a host cancellation aborts the request.
+The tool carries the capability's `title`, `description`, input schema, and a `readOnlyHint` derived from its effect. Keep `expose` and `effect` as inline literals. Standard JSON Schemas are derived by loading the module at build time, so move a top-level edge-only import inside `run()`.
 
-The tool carries the capability's `title`, `description`, input schema, and a `readOnlyHint` derived from its effect. Keep `expose` and `effect` inline. Standard JSON Schemas are derived by loading the module at build time, so move a top-level edge-only import inside `run()`.
-
-Destructive capabilities cannot be page tools. For results that include user-generated or third-party content, set `untrustedContentHint` with the options form, which registers the tool just like `webmcp: true`:
+For results that include user-generated or third-party content, set `untrustedContentHint` with the options form, which registers the tool like `webmcp: true`:
 
 ```ts
 expose: {
@@ -274,13 +272,11 @@ expose: {
 },
 ```
 
-The WebMCP shim loads only in browsers with the API, and a page downloads only its route's tool schemas. Activation is not access control: the HTTP endpoint stays reachable.
+Destructive capabilities cannot be page tools. Activating a tool is not access control: the HTTP endpoint stays reachable. Browsers without WebMCP download none of this code.
 
 ### Hosts and the origin trial
 
-WebMCP is a W3C Community Group Draft. Chrome's origin trial covers versions 149–156, and pracht's `document.modelContext` target needs Chromium 150 or later. Polyfills such as `@mcp-b/webmcp-polyfill` work too.
-
-WebMCP is experimental: as of September 2026 no mainstream browser agent consumes page tools, so keep HTTP or remote MCP for production agents.
+WebMCP is an experimental W3C Community Group Draft, so keep HTTP or remote MCP for production agents. Chrome's origin trial covers versions 149–156, and pracht's `document.modelContext` target needs Chromium 150 or later. Polyfills such as `@mcp-b/webmcp-polyfill` also work.
 
 Stable Chrome needs an [origin-trial token](https://developer.chrome.com/origintrials/) on the page, or the tools stay off. Register your origin, then emit the token from your shell's `head()`:
 
@@ -294,19 +290,13 @@ export function head() {
 }
 ```
 
-The token is public, so the [`PRACHT_PUBLIC_` prefix](/docs/env) fits. For local testing, enable `chrome://flags/#enable-webmcp-testing` (plus `#devtools-webmcp-support` for the DevTools WebMCP pane) or fake the API — see [Testing](/docs/recipes/testing#faking-webmcp-in-the-browser).
+The token is public, so the [`PRACHT_PUBLIC_` prefix](/docs/env) fits. For local testing, enable `chrome://flags/#enable-webmcp-testing` (plus `#devtools-webmcp-support` for the DevTools WebMCP pane) or fake the API; see [Testing](/docs/recipes/testing#faking-webmcp-in-the-browser).
 
-`pracht verify` errors on invalid tool names. It warns when a page tool can never work (under a `"require"` agent policy) or its metadata exceeds [Chrome's budgets](https://developer.chrome.com/docs/ai/webmcp/secure-tools): 30 characters per name, 500 per tool description, 150 per parameter description.
+`pracht verify` errors on invalid tool names. It warns when a page tool can never work (under a `"require"` agent policy) or its metadata exceeds [Chrome's budgets](https://developer.chrome.com/docs/ai/webmcp/secure-tools): 30 characters per name, 500 per tool description, 150 per parameter description. Chrome also recommends at most 1.5K characters per result, and pracht never truncates one, so bound output with input limits, pagination, and output-schema limits.
 
-Chrome also recommends at most 1.5K characters per result. Pracht never truncates one, so bound output with input limits, pagination, and output-schema limits.
+## Remote MCP: tools for agents without a browser
 
-Page tools are restricted to their own origin. Standalone hosts can widen that with `registerWebmcpTools(..., { exposedTo: [...] })`; list only secure origins you fully trust.
-
----
-
-## Remote MCP: Tools for Agents Without a Browser
-
-Remote MCP serves the same operations to agents that never open a browser, such as a coding assistant or a scheduled workflow. It needs two opt-ins: an endpoint, and `expose.mcp` on each capability.
+Configure an endpoint in `agents.mcp`, then set `expose.mcp` on each capability it should serve:
 
 ```ts [src/routes.ts]
 export const app = defineApp({
@@ -330,35 +320,18 @@ export default defineCapability({
 });
 ```
 
-`pracht dev` prints the endpoint. `pracht verify` warns when `expose.mcp` has no endpoint to serve it.
+`pracht dev` prints the endpoint, and `pracht verify` warns when `expose.mcp` has no endpoint to serve it. `expose.mcp` does not require `expose.http`. MCP tools need input and output schemas with an `{ type: "object" }` root. A `destructive` capability needs a third opt-in; see [Destructive tools](#destructive-tools).
 
-A custom `path` must be a same-origin pathname starting with `/`, and must not match a capability HTTP path, an API route, or a page route. `/mcp` and `/mcp/` reach the same endpoint; with `auth`, any spelling other than `resource` is redirected to it with `308`.
+A custom `path` must be a same-origin pathname that no capability, API route, or page already uses. Remote MCP needs a request runtime, so `@pracht/adapter-static` rejects `agents.mcp`.
 
-`expose.mcp` does not require `expose.http`. A `destructive` capability needs a third opt-in — see [Destructive Tools](#destructive-tools). MCP tools need input and output schemas with an `{ type: "object" }` root.
-
-Remote MCP needs a request runtime, so `@pracht/adapter-static` rejects `agents.mcp`.
+`tools/call` uses the same dispatch as `/api/capabilities/*`, so validation, middleware, `agentPolicy`, and auditing match HTTP, and nested `invokeCapability()` calls are [guarded](/docs/agent-trust#remote-mcp-composition-is-guarded). The endpoint is stateless and runs on every serverful adapter.
 
 > [!NOTE]
-> `pracht dev-mcp` is a different thing entirely: a stdio server that gives *coding* agents access to your app graph while you build. This section is about your deployed app's own tools. See [Coding Agents](/docs/coding-agents).
+> `pracht dev-mcp` is unrelated: it gives *coding* agents your app graph during development. See [Coding agents](/docs/coding-agents).
 
-### A Transport, Not a Second Pipeline
+### What an agent sees
 
-`tools/call` builds the request the HTTP projection would have received and hands it to the same dispatch `/api/capabilities/*` uses:
-
-```text
-POST /mcp
-  → transport checks (method, Accept, Origin, protocol version)
-  → tools/list  = projection of the resolved capability graph
-  → tools/call  = the capability HTTP dispatch, verbatim
-```
-
-Validation, middleware, `agentPolicy`, and auditing are identical across HTTP, WebMCP, and MCP. Nested `invokeCapability()` calls under MCP are [guarded](/docs/agent-trust#remote-mcp-composition-is-guarded): they re-apply the callee's `agentPolicy` and refuse unconfirmed destructive callees.
-
-The endpoint is stateless (no sessions or server→client streams), so it runs unchanged on every serverful adapter.
-
-### What an Agent Sees
-
-`tools/list` projects the capability's own JSON Schemas:
+`tools/list` projects each capability's own JSON Schemas:
 
 ```jsonc
 {
@@ -375,11 +348,9 @@ The endpoint is stateless (no sessions or server→client streams), so it runs u
 }
 ```
 
-Annotations are UX hints; the server enforces the effect class.
+Annotations are hints for the host; the server enforces the effect class. `tools/list` returns 100 tools per page (`agents.mcp.pageSize`) with a `nextCursor` while more remain.
 
-`tools/list` returns 100 tools per page (`agents.mcp.pageSize`) and a `nextCursor` while more remain.
-
-Dots in names become underscores: `notes.search` becomes `notes_search`. Names that collide after that mapping, or exceed 64 characters, fail `pracht verify`, and the endpoint answers every call with an error until you rename them.
+Dots in names become underscores: `notes.search` becomes `notes_search`. `pracht verify` fails on names that collide after that mapping or exceed 64 characters.
 
 Results carry the validated output and a text rendering:
 
@@ -391,11 +362,15 @@ Results carry the validated output and a text rendering:
 }
 ```
 
-An unknown tool or malformed params is a JSON-RPC `error`, sent with HTTP 200. A validation failure, middleware rejection, or policy denial is an `isError: true` result with the code and issues in `_meta["io.pracht/error"]`. Non-2xx statuses mean transport failures.
+| Failure | Response |
+| --- | --- |
+| Unknown tool or malformed params | JSON-RPC `error`, sent with HTTP 200 |
+| Validation failure, middleware rejection, or policy denial | `isError: true` result, with the code and issues in `_meta["io.pracht/error"]` |
+| Transport failure | Non-2xx HTTP status |
 
-### Destructive Tools
+### Destructive tools
 
-Off by default. A `destructive` capability that sets `expose.mcp` is left out of `tools/list` and `tools/call` until you turn on two things:
+A `destructive` capability with `expose.mcp` stays out of `tools/list` and `tools/call` until you turn on `agents.mcp.destructive` and register an approval store:
 
 ```ts [src/routes.ts]
 export const app = defineApp({
@@ -416,15 +391,13 @@ import { createSqlApprovalStore, setCapabilityApprovalStore } from "@pracht/core
 setCapabilityApprovalStore(createSqlApprovalStore({ execute }));
 ```
 
-Middleware applied to the capability or the app's API chain may import the setup instead. The store is required because the agent that receives the token also commits it; the store makes each token single-use. See [Durable Approvals](/docs/agent-trust#durable-approvals).
+The store makes each confirmation token single-use, which matters because the agent that receives a token also commits it. See [Durable approvals](/docs/agent-trust#durable-approvals).
 
-If the store, `PRACHT_CONFIRMATION_SECRET`, or (in `mode: "human"`) a principal source is missing, the whole endpoint answers an error naming what is missing instead of serving tools. A principal source is a principal resolver or `agents.mcp.auth`, not a Web Bot Auth key.
+If the store, `PRACHT_CONFIRMATION_SECRET`, or (in `mode: "human"`) a principal source is missing, the endpoint answers every request with an error naming what is missing. A principal source is a principal resolver or `agents.mcp.auth`, not a Web Bot Auth key. `pracht verify` warns when it finds no `setCapabilityApprovalStore()` call.
 
-`pracht verify` warns when it finds no `setCapabilityApprovalStore()` call in your source directories.
+#### Prepare and commit over `tools/call`
 
-#### Prepare and Commit over `tools/call`
-
-The flow is [the same one HTTP uses](/docs/agent-trust#destructive-capabilities-preparecommit). The token is bound to a hash of `arguments`, so it travels in `_meta` instead:
+The flow is [the same one HTTP uses](/docs/agent-trust#destructive-capabilities-preparecommit), with the token in `_meta`:
 
 ```jsonc
 // 1. Prepare — nothing runs.
@@ -453,21 +426,17 @@ The flow is [the same one HTTP uses](/docs/agent-trust#destructive-capabilities-
            "_meta":{"io.pracht/confirmation":"v2.<claims>.<hmac>"}}}
 ```
 
-A tampered, expired, or replayed token answers `confirmation_invalid`; in `mode: "human"` the commit answers `confirmation_pending` until a person decides. Each descriptor advertises `_meta["io.pracht/confirmation"] = { required: true, metaKey: "io.pracht/confirmation" }` for hosts.
+A tampered, expired, or replayed token answers `confirmation_invalid`. In `mode: "human"` the commit answers `confirmation_pending` until a person decides. Each tool descriptor advertises `_meta["io.pracht/confirmation"] = { required: true, metaKey: "io.pracht/confirmation" }`.
 
-### Transport Security
+### Browser and cookie requests
 
-- **Cookie-bearing requests get 403**, so a browser session never authenticates remote MCP. `Authorization` is forwarded to your middleware.
-- **Browser requests get 403** (any `Origin` or `Sec-Fetch-Site` header) unless `agents.mcp.allowedOrigins` lists the exact origin (`"https://inspector.example"`), which gets CORS headers and authenticates with `Authorization`.
-- **Destructive capabilities are unreachable without the opt-in**, even through composition.
+The endpoint answers `403` to requests that carry cookies, and to browser requests (any `Origin` or `Sec-Fetch-Site` header) unless `agents.mcp.allowedOrigins` lists that exact origin, such as `"https://inspector.example"`. Listed origins get CORS headers and authenticate with `Authorization`.
 
-Every dispatch audits with `transport: "mcp"`, and composed calls with `via: "mcp"`. See [Audit Trail](/docs/agent-trust#audit-trail).
+Without `agents.mcp.auth`, the endpoint is open, and authentication belongs in named middleware, which receives the `Authorization` header. With `auth`, the endpoint is an OAuth 2.0 protected resource. Every dispatch is audited with `transport: "mcp"`; see [Audit trail](/docs/agent-trust#audit-trail).
 
-Without `agents.mcp.auth`, the endpoint is open and authentication belongs in named middleware. With it, the endpoint is an OAuth 2.0 protected resource.
+### OAuth: letting a real host connect
 
-### OAuth: Letting a Real Host Connect
-
-MCP hosts such as Claude, ChatGPT connectors, and Inspector authenticate through the [MCP authorization spec](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization). Pracht implements its resource-server half: [RFC 9728](https://www.rfc-editor.org/rfc/rfc9728) metadata and an [RFC 6750](https://www.rfc-editor.org/rfc/rfc6750) `WWW-Authenticate` challenge. Token issuance and consent stay with your identity provider.
+Add `agents.mcp.auth` so MCP hosts such as Claude, ChatGPT connectors, and Inspector can sign users in through the [MCP authorization spec](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization). pracht is the resource server ([RFC 9728](https://www.rfc-editor.org/rfc/rfc9728) metadata, [RFC 6750](https://www.rfc-editor.org/rfc/rfc6750) challenge); your identity provider issues tokens.
 
 ```ts [src/routes.ts]
 export const app = defineApp({
@@ -489,15 +458,13 @@ export const app = defineApp({
 });
 ```
 
-`verify` is a module reference so the verifier never reaches the client bundle. Its module must default-export a function. If two files share its path suffix, use a root-relative reference such as `() => import("/src/server/mcp-token.ts")`.
+`resource` must be the endpoint's exact, deployed URL, including any deploy base: HTTPS (HTTP only on loopback), no query, fragment, or trailing slash. Requests to any other spelling of the endpoint are redirected to it with `308`. `pracht verify` names any problem in the `auth` block.
 
-`resource` must be the exact, canonical URL of the endpoint: HTTPS (HTTP only on loopback), no query or fragment, no trailing slash. `pracht verify` names any problem in the `auth` block.
+`verify` is a module reference, so the verifier never reaches the client bundle; its module must default-export a function. [`pracht plan`](/docs/coding-agents#the-route-graph-lockfile) flags removing a required scope, trusting another authorization server, or removing `auth` as a guard weakening.
 
-[`pracht plan`](/docs/coding-agents#the-route-graph-lockfile) flags removing a required scope, trusting another authorization server, or removing auth as a guard weakening.
+#### The metadata document
 
-#### The Metadata Document
-
-Served unauthenticated and CORS-open at the RFC 9728 path, where the well-known segment goes *between* the host and the resource's path:
+pracht serves the metadata unauthenticated and CORS-open at the RFC 9728 path, which puts the well-known segment between the host and the endpoint's path:
 
 ```bash
 curl -s https://app.example.com/.well-known/oauth-protected-resource/mcp
@@ -512,17 +479,9 @@ curl -s https://app.example.com/.well-known/oauth-protected-resource/mcp
 }
 ```
 
-The bare `/.well-known/oauth-protected-resource` answers with the same document. Tokens are read only from the `Authorization` header.
+The bare `/.well-known/oauth-protected-resource` returns the same document. Under a deploy base the document stays at the origin root, with the base inside the suffix: an endpoint at `https://app.example.com/app/mcp` publishes at `https://app.example.com/.well-known/oauth-protected-resource/app/mcp`.
 
-**Under a deploy base, the document is still at the origin root**, with the base inside the suffix. An app whose endpoint is `https://app.example.com/app/mcp` publishes at:
-
-```text
-https://app.example.com/.well-known/oauth-protected-resource/app/mcp
-```
-
-Set `resource` to the endpoint's real deployed URL, base included. If `agents.mcp.path` is `/`, `resource` is the app root (`https://app.example.com/app` here), or the slashless `https://app.example.com` at the origin root.
-
-#### The Challenge
+#### The challenge
 
 | Situation | Answer |
 | --- | --- |
@@ -538,9 +497,7 @@ WWW-Authenticate: Bearer error="invalid_token",
   scope="notes.read"
 ```
 
-With `expose: { mcp: { scopes: ["notes.write"] } }`, only tokens carrying those scopes see the tool; calling it without them returns the `403` challenge. Scoped tools need `auth`.
-
-`resource_metadata` tells a new host which authorization server to use. Unauthenticated callers learn nothing about your tools.
+Unauthenticated callers learn nothing about your tools. With `expose: { mcp: { scopes: ["notes.write"] } }`, only tokens carrying those scopes see the tool, and calling it without them returns the `403` challenge. Scoped tools need `auth`.
 
 #### Writing `verify`
 
@@ -567,13 +524,11 @@ const verify: McpTokenVerifier = async (token) => {
 export default verify;
 ```
 
-Any JWT library or an introspection call works.
+Any JWT library or an introspection call works. A verifier that throws answers `401 invalid_token`. Its second argument holds a readable `request` clone.
 
-The hook fails closed with `401 invalid_token`, and a `verify` module that fails to load makes inspection report the endpoint `blocked`. The second argument holds a readable `request` clone.
+#### The verified principal
 
-#### The Verified Principal
-
-The principal is bound to the request context as `context.tokenAuth`, alongside [`context.agent`](/docs/agent-trust#web-bot-auth-verified-agent-identity):
+Read the verified principal from `context.tokenAuth`:
 
 ```ts
 async run({ context }) {
@@ -581,13 +536,9 @@ async run({ context }) {
 }
 ```
 
-It is a read-only, request-local snapshot that middleware cannot rewrite, present only on authenticated MCP requests. Requests answer 500 if your adapter context already has `tokenAuth` or is a built-in such as `Map`; wrap it in an ordinary object.
+It is present only on authenticated MCP requests, and middleware cannot rewrite it. `context.agent` says *which agent software* signed the request ([Web Bot Auth](/docs/agent-trust#web-bot-auth-verified-agent-identity)); `context.tokenAuth` says *on whose behalf* it acts. The [audit event](/docs/agent-trust#audit-trail) records both.
 
-An adapter's `createContext` hook may run before MCP authentication. Treat its request as untrusted and avoid privileged or expensive work there.
-
-`context.agent` says *which agent software* signed the request; `context.tokenAuth` says *on whose behalf* it acts. The [audit event](/docs/agent-trust#audit-trail) records both. Apps without `auth` ship none of this code.
-
-### Talking to It
+### Talking to it
 
 ```bash
 curl -sX POST http://localhost:3000/mcp \
@@ -600,10 +551,6 @@ curl -sX POST http://localhost:3000/mcp \
        "params":{"name":"notes_search","arguments":{"query":"roadmap"}}}'
 ```
 
-Protocol versions are negotiated on `initialize`, newest first: `2025-11-25`, `2025-06-18`.
-
-For a repeatable check, a [`pracht eval`](/docs/agent-trust#the-same-scenario-over-remote-mcp) scenario with `"transport": "mcp"` drives the endpoint like a host. Protected endpoints take `"mcpHeaders": { "authorization": "Bearer …" }`; keep real tokens out of committed files.
-
 With `auth` configured, send the token. Point hosts at the endpoint, not the metadata URL:
 
 ```bash
@@ -613,31 +560,23 @@ curl -sX POST https://app.example.com/mcp \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 ```
 
-Not built yet: an authorization server, `resources/*` and `prompts/*`, streaming and progress, and MCP Apps UI views.
+`initialize` negotiates the protocol version, newest first: `2025-11-25`, `2025-06-18`. The endpoint serves tools only, with no `resources/*` or `prompts/*`.
 
----
+For a repeatable check, a [`pracht eval`](/docs/agent-trust#the-same-scenario-over-remote-mcp) scenario with `"transport": "mcp"` drives the endpoint like a host. Protected endpoints take `"mcpHeaders": { "authorization": "Bearer …" }`; keep real tokens out of committed files.
 
-## Private by Default
+## Private by default
 
 - A capability without `expose` is never reachable over the network.
-- Exposure requires a complete contract — `pracht verify` fails for exposed capabilities missing a description, schema, or effect class.
-- `destructive` capabilities need server-verified confirmation. They may be exposed over HTTP and [remote MCP](#destructive-tools), never as WebMCP page tools. See [Agent Trust](/docs/agent-trust).
+- `pracht verify` fails for an exposed capability missing a description, schema, or effect class.
+- `destructive` capabilities need server-verified confirmation over HTTP and [remote MCP](#destructive-tools), and are never WebMCP page tools.
 - Output is validated too: data outside the output schema produces a redacted 500.
-- HTTP-exposed capabilities are listed in the generated [`/llms.txt`](/docs/agents#llmstxt) with their endpoint, effect class, and description.
+- HTTP-exposed capabilities appear in the generated [`/llms.txt`](/docs/agents#llmstxt).
 
----
+Apps that register no capabilities and configure no `agents` ship no agent runtime: the production build drops capability dispatch and the Web Bot Auth verifier. Development keeps both, so adding a capability needs no restart.
 
-## Cost When Unused
+## Inspect the graph
 
-Apps that register no capabilities and configure no `agents` ship no agent surface: the production build drops capability dispatch and the Web Bot Auth verifier. Development keeps them, so adding a capability needs no restart.
-
-If the build cannot read the manifest statically (spreads, computed keys, and similar), it keeps the runtime rather than risk disabling a capability.
-
----
-
-## Inspect the Graph
-
-The capability graph feeds the `pracht dev` banner, `pracht inspect capabilities [--json]`, the `/_pracht` devtools page, the `inspect_capabilities` and `inspect_agents` tools on [`pracht dev-mcp`](/docs/coding-agents#the-authoring-mcp-server), and `pracht verify`. `pracht inspect routes` shows each route's page tools.
+Run `pracht inspect capabilities` to list every capability with its effect, transports, and endpoint:
 
 ```sh
 pracht inspect capabilities
@@ -645,12 +584,15 @@ pracht inspect capabilities
 # notes.create   write  http,mcp          /api/capabilities/notes/create
 ```
 
-An MCP exposure the endpoint cannot serve shows as `mcp(unserved)`. The CLI skips your adapter's server entry, so it shows `mcp(unverified)` when a missing precondition might be registered there. JSON output includes `mcpEndpoint`, `mcpDestructive`, `mcpRuntimeStatus` (`not-configured`, `ready`, `blocked`, or `unverified`), and `mcpUnavailableReasons`.
+`mcp(unserved)` marks an MCP exposure the endpoint cannot serve, and `mcp(unverified)` one the CLI cannot confirm without your adapter's server entry. `--json` adds `mcpRuntimeStatus` and `mcpUnavailableReasons`.
 
-`pracht inspect agents` summarizes `defineApp({ agents })`: Web Bot Auth, confirmation mode, the MCP endpoint and OAuth policy, `llms.txt`, and exposure counts per transport.
+| Command or tool | Shows |
+| --- | --- |
+| `pracht inspect routes` | Each route's page tools |
+| `pracht inspect agents` | Web Bot Auth, confirmation mode, the MCP endpoint and OAuth policy, `llms.txt`, and exposure counts per transport |
+| `/_pracht` **Agents** panel (dev) | Live capability calls with agent attribution |
+| `addCapabilityAuditListener()` (production) | Every dispatch; see [Audit trail](/docs/agent-trust#audit-trail) |
+| [`pracht dev-mcp`](/docs/coding-agents#the-authoring-mcp-server) | `inspect_capabilities` and `inspect_agents` for coding agents |
+| [Dev page tools](/docs/coding-agents#debugging-in-the-tab-dev-page-tools) | Read-only `pracht_*` WebMCP tools on every dev page |
 
-To see whether agents are actually calling the app, use the **Agents** panel on `/_pracht` in dev, or `addCapabilityAuditListener()` in production. See [Agent trust](/docs/agent-trust#audit-trail).
-
-In dev, every page also registers read-only `pracht_*` WebMCP tools (route, loader data, islands, last error) for an agent driving the browser. See [Dev page tools](/docs/coding-agents#debugging-in-the-tab-dev-page-tools).
-
-For the story behind the design, read [The Agentic Web](/docs/agents); for the identity, confirmation, and audit rules every projection enforces, read [Agent Trust](/docs/agent-trust); for unit, E2E, and WebMCP testing patterns, see the [Testing recipe](/docs/recipes/testing).
+For identity, confirmation, and audit rules, read [Agent trust](/docs/agent-trust). For unit, E2E, and WebMCP test patterns, see the [Testing recipe](/docs/recipes/testing).

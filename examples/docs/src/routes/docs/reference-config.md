@@ -15,8 +15,8 @@ export default defineConfig({
 });
 ```
 
-Everything below is optional. The defaults match a `create-pracht` app, so most
-apps pass only an `adapter`.
+Every option is optional. The defaults match a `create-pracht` app, so most apps
+pass only an `adapter`.
 
 ### Project layout
 
@@ -40,7 +40,7 @@ apps pass only an `adapter`.
 | `adapter` | Node adapter | Deployment target. See [Adapters](/docs/adapters) |
 | `pagesDir` | *(unset)* | Opt into [file-system routing](/docs/routing#pages-router-auto-discovery), e.g. `"/src/pages"`. Overrides `appFile` |
 | `pagesDefaultRender` | `"ssr"` | Render mode for pages that do not export `RENDER_MODE`. Pages router only |
-| `trailingSlash` | `"ignore"` | `"always"` or `"never"` makes `/about/` or `/about` the canonical page URL: links use it and the other spelling redirects with a `308`. `"ignore"` serves both. See [Trailing Slashes](/docs/routing#trailing-slashes) |
+| `trailingSlash` | `"ignore"` | `"always"` or `"never"` makes `/about/` or `/about` the canonical page URL: links use it and the other spelling redirects with a `308`. `"ignore"` serves both. See [Trailing slashes](/docs/routing#trailing-slashes) |
 
 ### Build
 
@@ -50,15 +50,15 @@ apps pass only an `adapter`.
 | `maxBodySize` | `1048576` (1 MiB) | Largest request body the dev SSR middleware accepts |
 | `inlineCss` | `false` | Inline each page's route and shell CSS into the HTML instead of linking it. See [Performance](/docs/performance#css-per-page) |
 | `budgets` | `{}` | Per-route gzip client-JS budgets, e.g. `{ "*": "120kb", "/dashboard": "200kb" }`; explicit paths override `"*"`. Exceeding one fails the build unless you pass `pracht build --no-budget-fail` |
-| `precompileSsrJsx` | `false` | Precompile safe Preact JSX DOM subtrees in server (SSR/SSG) bundles. Client bundles are unchanged |
-| `envSafety` | `{}` (enabled) | Fail the build when a production client chunk references a non-public env var. `{ allow: ["NAME"] }` permits specific ones; `false` disables the check. See [Environment Variables](/docs/env) |
+| `precompileSsrJsx` | `false` | `true` or an options object precompiles safe Preact JSX DOM subtrees in server (SSR/SSG) bundles. Client bundles are unchanged |
+| `envSafety` | `{}` (enabled) | Fail the build when a production client chunk references a non-public env var. `{ allow: ["NAME"] }` permits specific ones; `false` disables the check. See [Environment variables](/docs/env) |
 
 ### Client bundle
 
-`client` compiles unused router features out of the client bundle, and adds
-two that cost bytes only when you turn them on. Turn a feature off only if the
-app does not use it: the router then ignores the matching route options and
-`<Link>` props.
+Set a `client` feature to `false` to compile it out of the client bundle; the
+three that default to `false` add bytes when you turn them on. Turn a feature
+off only if the app does not use it: the router then ignores the matching route
+options and `<Link>` props.
 
 | Option | Default | Description |
 | --- | --- | --- |
@@ -87,6 +87,7 @@ An unknown `client` key is an error.
 | `llmsTxt.origin` | *(unset)* | Origin prepended to every link, e.g. `"https://example.com"`. Links stay root-relative when omitted |
 | `llmsTxt.include` | `["pages", "api", "capabilities"]` | Which sections to emit |
 | `llmsTxt.exclude` | `[]` | Path patterns to leave out, using the same segment globs as `constraints` (`*` is one segment, trailing `**` is the rest) |
+| `llmsTxt.maxPagesPerRoute` | `50` | Most prerendered instances one dynamic route lists, in `getStaticPaths()` order. `0` lists all. A line in `llms.txt` names each truncated route |
 | `markdownFiles` | `true` | Publish `<path>.md` next to each SSG page with a `markdown` export and no middleware, linked from its head and from `llms.txt`. See [Markdown for agents](/docs/agents#a-md-url-for-static-markdown-pages) |
 | `devPageTools` | `true` | Register the read-only `pracht_*` WebMCP [dev page tools](/docs/coding-agents#debugging-in-the-tab-dev-page-tools) on pages `pracht dev` serves. Never part of a build |
 
@@ -95,13 +96,11 @@ An unknown `client` key is an error.
 > cannot use, such as pages behind auth or internal tooling. Capabilities match
 > by their dispatch path (`/api/capabilities/**`).
 
-### Vite options that matter
+### Vite options
 
 | Option | Description |
 | --- | --- |
-| `base` | Serve the app under a sub-path. See [Sub-Path Deploys](/docs/deployment#sub-path-deploys) |
-
----
+| `base` | Serve the app under a sub-path. See [Sub-path deploys](/docs/deployment#sub-path-deploys) |
 
 ## `defineApp()` — the route manifest
 
@@ -121,36 +120,34 @@ export const app = defineApp({
 | `middleware` | Record\<string, ModuleRef\> | Named [middleware](/docs/middleware) modules |
 | `capabilities` | Record\<string, ModuleRef\> | Named [capabilities](/docs/capabilities), e.g. `{ "notes.search": () => import("./capabilities/notes-search.ts") }`. Server-only and private unless they declare `expose` |
 | `notFound` | ModuleRef \| NotFoundConfig | The [404 page](/docs/data-loading#custom-404-page) |
-| `api` | ApiConfig | App-wide API policy — see below |
+| `api` | ApiConfig | App-wide API policy; see [`api`](#api) |
 | `agents` | PrachtAgentsConfig | [Agent trust](/docs/agent-trust): Web Bot Auth policy and keys, the destructive-capability confirmation flow, and the [remote MCP endpoint](/docs/capabilities#remote-mcp-tools-for-agents-without-a-browser) with its optional OAuth resource-server config. Serializable data and module references only |
-| `constraints` | RouteConstraint[] | Declarative invariants over the resolved graph, enforced by `pracht verify`. See [Coding Agents](/docs/coding-agents#constraints) |
-| `viewTransitions` | boolean | Animate client navigations with the View Transitions API, and full page loads (islands and `hydration: "none"` routes) as cross-document transitions. See [View Transitions](/docs/recipes/view-transitions) |
-| `loaderTimeoutMs` | number | Per-request budget in milliseconds for the `signal` passed to middleware, loaders, API handlers, and capabilities; it also aborts when the client disconnects. Default `30000`. Applies to SSG/ISG prerendering too, so a short budget can fail the build. See [Data Loading](/docs/data-loading#signal) |
-| `enforceLoaderTimeout` | boolean | Answer with the timeout error when `loaderTimeoutMs` runs out, even if a loader, middleware, or API handler ignores `signal`. Default `false`: the response waits for them. See [Data Loading](/docs/data-loading#signal) |
+| `constraints` | RouteConstraint[] | Invariants over the resolved graph, checked by `pracht verify`. See [Coding agents](/docs/coding-agents#constraints) |
+| `viewTransitions` | boolean | Animate client navigations with the View Transitions API, and full page loads (islands and `hydration: "none"` routes) as cross-document transitions. See [View transitions](/docs/recipes/view-transitions) |
+| `loaderTimeoutMs` | number | Per-request budget in milliseconds for the `signal` passed to middleware, loaders, API handlers, and capabilities; it also aborts when the client disconnects. Default `30000`. Applies to SSG/ISG prerendering too, so a short budget can fail the build. See [Data loading](/docs/data-loading#signal) |
+| `enforceLoaderTimeout` | boolean | Answer with the timeout error when `loaderTimeoutMs` runs out, even if a loader, middleware, or API handler ignores `signal`. Default `false`: the response waits for them. See [Data loading](/docs/data-loading#signal) |
 
 ### `api`
 
 | Field | Default | Description |
 | --- | --- | --- |
 | `middleware` | `[]` | Named middleware applied to every API route |
-| `requireSameOrigin` | `true` | Reject cross-origin state-changing API requests and WebSocket upgrades with `403`. Set `false` only if your middleware does its own CSRF protection. See [Same-Origin Protection](/docs/api-routes#same-origin-protection-csrf) |
+| `requireSameOrigin` | `true` | Reject cross-origin state-changing API requests and WebSocket upgrades with `403`. Set `false` only if your middleware does its own CSRF protection. See [Same-origin protection](/docs/api-routes#same-origin-protection-csrf) |
 
 ### Route and group meta
 
-`route()` and `group()` take the same meta fields — see the
+`route()` and `group()` take the same meta fields; see the
 [RouteMeta table](/docs/routing#routepath-file-meta). A group's meta cascades to
 its children, and a child's own meta wins.
 
----
-
-## Where the rest lives
+## Other configuration
 
 | Configuration | Documented in |
 | --- | --- |
 | Adapter options (`createContextFrom`, `basePathStripped`, compression, …) | [Adapters](/docs/adapters) |
-| `prachtContent()` and `defineCollection()` | [Content Collections](/docs/content) |
+| `prachtContent()` and `defineCollection()` | [Content collections](/docs/content) |
 | `prachtImage()` and image loaders | [Images](/docs/images) |
 | `prachtOpenApi()` | [OpenAPI](/docs/openapi) |
-| `defineI18n()` and dictionaries | [i18n Reference](/docs/reference/i18n) |
+| `defineI18n()` and dictionaries | [i18n reference](/docs/reference/i18n) |
 | `defineFont()` | [Fonts](/docs/fonts) |
 | CLI flags | [CLI](/docs/cli) |
