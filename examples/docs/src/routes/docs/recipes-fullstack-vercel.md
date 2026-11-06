@@ -3,19 +3,15 @@ title: Full-stack Vercel
 lead: "Build an app on Vercel with Postgres (Neon), KV (Upstash Redis), and Blob: setup, provisioning, and access from loaders and API routes."
 ---
 
-## What You Get
+This recipe builds a posts app on Vercel: a Postgres table read in loaders and written from an API route, with a Redis cache in front of an expensive query. The adapter serves SSG pages from the CDN and runs SSR and API routes in an Edge Function; storage connects through environment variables.
 
-Vercel provides managed infrastructure you can connect to from Edge Functions:
+| Store | SDK |
+| --- | --- |
+| Postgres (Neon) | `@vercel/postgres` |
+| KV (Upstash Redis) | `@vercel/kv` |
+| Blob (file storage) | `@vercel/blob` |
 
-- **Vercel Postgres** — Serverless Postgres powered by Neon, accessible via `@vercel/postgres`
-- **Vercel KV** — Redis-compatible store powered by Upstash
-- **Vercel Blob** — File storage with a simple upload/download API
-
-pracht's Vercel adapter deploys your app as an Edge Function with SSG pages served from the CDN.
-
----
-
-## 1. Project Setup
+## 1. Set up the project
 
 ```sh
 # Create a new pracht app
@@ -36,24 +32,20 @@ export default defineConfig({
 });
 ```
 
----
+## 2. Provision a database
 
-## 2. Provision a Database
-
-Create a Postgres database from the Vercel dashboard or CLI:
+Create a Postgres database in the Vercel dashboard, then link the project and pull its environment:
 
 ```sh
 npx vercel link
 npx vercel env pull .env.local
 ```
 
-After linking a Vercel Postgres store, your `.env.local` will contain `POSTGRES_URL` and related connection strings. These are automatically available as environment variables in production.
+`.env.local` now contains `POSTGRES_URL` and related connection strings. Production deployments receive the same variables.
 
----
+## 3. Create the schema
 
-## 3. Database Schema
-
-Use any migration tool you like. Here's a simple approach with `@vercel/postgres`:
+Use any migration tool. This script uses `@vercel/postgres` directly:
 
 ```ts [scripts/migrate.ts]
 import { sql } from "@vercel/postgres";
@@ -78,28 +70,11 @@ migrate();
 npx dotenv -e .env.local -- npx tsx scripts/migrate.ts
 ```
 
----
+The script prints `Migration complete`.
 
-## 4. Type Your Context
+## 4. Query Postgres in a loader
 
-```ts [src/env.d.ts]
-import "@pracht/core";
-
-declare module "@pracht/core" {
-  interface Register {
-    context: {
-      // Vercel's edge context is available here.
-      // Add custom values returned from createContext.
-    };
-  }
-}
-```
-
----
-
-## 5. Query Postgres in Loaders
-
-`@vercel/postgres` reads connection info from environment variables automatically — no binding wiring needed:
+`@vercel/postgres` reads its connection string from the environment, so there is no binding to wire:
 
 ```ts [src/routes/posts.tsx]
 import { sql } from "@vercel/postgres";
@@ -140,13 +115,15 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
 }
 ```
 
----
+Register the route with `render: "ssr"`: the data changes per request.
 
-## 6. Mutations via API Routes
+## 5. Write from an API route
+
+The `sql` template tag parameterizes every interpolated value, so user input cannot inject SQL:
 
 ```ts [src/api/posts.ts]
 import { sql } from "@vercel/postgres";
-import type { ApiRouteArgs } from "@pracht/core";
+import { redirect, type ApiRouteArgs } from "@pracht/core";
 
 export async function POST({ request }: ApiRouteArgs) {
   const form = await request.formData();
@@ -163,14 +140,11 @@ export async function POST({ request }: ApiRouteArgs) {
     RETURNING id
   `;
 
-  return new Response(null, {
-    status: 302,
-    headers: { location: `/posts/${rows[0].id}` },
-  });
+  return redirect(`/posts/${rows[0].id}`, { request });
 }
 ```
 
-Use a form to submit:
+Submit to it with a form:
 
 ```tsx [src/routes/posts/new.tsx]
 import { Form } from "@pracht/core";
@@ -192,13 +166,11 @@ export function Component() {
 }
 ```
 
----
+Submitting creates the row and lands on `/posts/<new id>`.
 
-## 7. Use Vercel KV for Caching
+## 6. Cache in KV
 
-```sh
-pnpm add @vercel/kv
-```
+Cache an expensive query's result in Redis:
 
 ```ts [src/routes/dashboard.tsx]
 import { kv } from "@vercel/kv";
@@ -223,37 +195,27 @@ export async function loader(_args: LoaderArgs) {
 }
 ```
 
----
-
-## 8. Local Development
-
-Pull your environment variables and run the dev server:
+## 7. Develop locally
 
 ```sh
 npx vercel env pull .env.local
 pnpm dev
-# Loaders and API routes connect to your Vercel Postgres and KV stores
 ```
 
-> [!INFO]
-> Vercel Postgres and KV connect over the network even in development. Your local dev server talks to the same remote databases as production. Use a separate "preview" database for development if you want isolation.
+> [!WARNING]
+> Postgres and KV are remote even in development, so `pracht dev` reads and writes the same databases as production unless you point `.env.local` at a separate development store.
 
----
-
-## 9. Deploy
+## 8. Deploy
 
 ```sh
 pracht build
 npx vercel deploy --prebuilt
 ```
 
-Or connect your Git repository in the Vercel dashboard for automatic deployments on push.
+Or connect the repository in the Vercel dashboard to deploy on every push.
 
----
+## Production notes
 
-## Tips
-
-- Use `render: "ssr"` for any route that reads from Postgres — data changes per request.
-- The `sql` template tag from `@vercel/postgres` automatically parameterizes queries — it's safe against SQL injection by default.
-- Pracht's Vercel adapter emits native Build Output API prerender functions for ISG routes. Set `PRACHT_REVALIDATE_TOKEN` if you want webhook revalidation through `/__pracht/revalidate`.
-- Vercel Edge Functions have a 25MB size limit and a 30-second execution timeout. Keep loaders fast and move heavy work to background jobs.
+- To pass your own values on `context`, give the adapter a `createContext` function; see [Adapters](/docs/adapters).
+- ISG routes run as Vercel prerender functions. Set `PRACHT_REVALIDATE_TOKEN` at build time to enable webhook revalidation through `/__pracht/revalidate`.
+- Edge Functions have code-size and response-time limits that depend on your plan; see Vercel's [function limits](https://vercel.com/docs/functions/limitations). Keep loaders fast and move heavy work to background jobs.

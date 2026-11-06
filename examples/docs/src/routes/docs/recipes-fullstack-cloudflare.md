@@ -3,19 +3,17 @@ title: Full-stack Cloudflare
 lead: "Build an app on Cloudflare Workers with D1, KV, and R2: setup, migrations, and bindings in loaders and API routes."
 ---
 
-## What You Get
+This recipe builds a posts app on Cloudflare Workers: a D1 database read in loaders and written from an API route, with a KV cache in front of an expensive query.
 
-Cloudflare Workers give you a global edge runtime with built-in storage primitives:
+The Cloudflare adapter passes every binding to loaders, API routes, and middleware as `context.env`:
 
-- **D1** — SQLite databases with zero-latency reads at the edge
-- **KV** — Eventually-consistent key-value store for caching and config
-- **R2** — S3-compatible object storage for files and uploads
+| Binding | Use it for |
+| --- | --- |
+| D1 | SQLite database |
+| KV | Eventually consistent key-value store for caching and config |
+| R2 | S3-compatible object storage for files and uploads; bind it with `r2_buckets` in `wrangler.jsonc` |
 
-pracht's Cloudflare adapter passes all bindings through to your loaders, API routes, and middleware via `context.env`.
-
----
-
-## 1. Project Setup
+## 1. Set up the project
 
 ```sh
 # Create a new pracht app
@@ -36,11 +34,13 @@ export default defineConfig({
 });
 ```
 
----
+## 2. Configure bindings
 
-## 2. Configure Bindings
+Create the D1 database, then copy the `database_id` it prints into `wrangler.jsonc`:
 
-Add your D1 database and any other bindings to `wrangler.jsonc`:
+```sh
+npx wrangler d1 create my-app-db
+```
 
 ```jsonc [wrangler.jsonc]
 {
@@ -67,18 +67,9 @@ Add your D1 database and any other bindings to `wrangler.jsonc`:
 }
 ```
 
-Create the D1 database:
+## 3. Run migrations
 
-```sh
-npx wrangler d1 create my-app-db
-# Copy the database_id into wrangler.jsonc
-```
-
----
-
-## 3. Database Migrations
-
-Create a `migrations/` directory and add your schema:
+Add the schema to a `migrations/` directory:
 
 ```sql [migrations/0001_create_posts.sql]
 CREATE TABLE IF NOT EXISTS posts (
@@ -89,7 +80,7 @@ CREATE TABLE IF NOT EXISTS posts (
 );
 ```
 
-Apply migrations locally and remotely:
+Apply it locally and in production:
 
 ```sh
 # Local development
@@ -99,20 +90,15 @@ npx wrangler d1 migrations apply my-app-db --local
 npx wrangler d1 migrations apply my-app-db --remote
 ```
 
----
+## 4. Type your bindings
 
-## 4. Type Your Bindings
-
-Generate types from `wrangler.jsonc`, so your loaders and API routes get
-autocomplete for `DB` and `CACHE`:
+Generate types from `wrangler.jsonc`:
 
 ```sh
 npx wrangler types
 ```
 
-This writes `worker-configuration.d.ts`: the Workers runtime types
-(`D1Database`, `KVNamespace`, `ExecutionContext`) and an `Env` interface for
-your bindings, along these lines:
+This writes `worker-configuration.d.ts` with the Workers runtime types (`D1Database`, `KVNamespace`, `ExecutionContext`) and an `Env` interface for your bindings, along these lines:
 
 ```ts [worker-configuration.d.ts]
 declare namespace Cloudflare {
@@ -124,7 +110,7 @@ declare namespace Cloudflare {
 interface Env extends Cloudflare.Env {}
 ```
 
-Register it:
+Register it so `context.env.DB` and `context.env.CACHE` autocomplete:
 
 ```ts [src/env.d.ts]
 import "@pracht/core";
@@ -139,12 +125,9 @@ declare module "@pracht/core" {
 }
 ```
 
-Rerun `wrangler types` whenever you add a binding. A `create-pracht` app runs it
-as `cf-typegen` and before every `typecheck`.
+Rerun `wrangler types` whenever you add a binding. A `create-pracht` app runs it as `cf-typegen` and before every `typecheck`.
 
----
-
-## 5. Query D1 in Loaders
+## 5. Query D1 in a loader
 
 ```ts [src/routes/posts.tsx]
 import type { LoaderArgs, RouteComponentProps } from "@pracht/core";
@@ -182,12 +165,12 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
 }
 ```
 
----
+Register the route with `render: "ssr"`: D1 data changes per request.
 
-## 6. Mutations via API Routes
+## 6. Write from an API route
 
 ```ts [src/api/posts.ts]
-import type { ApiRouteArgs } from "@pracht/core";
+import { redirect, type ApiRouteArgs } from "@pracht/core";
 
 export async function POST({ request, context }: ApiRouteArgs) {
   const form = await request.formData();
@@ -202,14 +185,13 @@ export async function POST({ request, context }: ApiRouteArgs) {
     .bind(title, body)
     .run();
 
-  return new Response(null, {
-    status: 302,
-    headers: { location: `/posts/${result.meta.last_row_id}` },
-  });
+  return redirect(`/posts/${result.meta.last_row_id}`, { request });
 }
 ```
 
-Use a form to submit:
+Always pass user input through `?` placeholders and `.bind()`; never interpolate it into SQL strings. For atomic multi-statement writes, use `context.env.DB.batch([...])`.
+
+Submit to it with a form:
 
 ```tsx [src/routes/posts/new.tsx]
 import { Form } from "@pracht/core";
@@ -231,11 +213,11 @@ export function Component() {
 }
 ```
 
----
+Submitting creates the row and lands on `/posts/<new id>`.
 
-## 7. Use KV for Caching
+## 7. Cache in KV
 
-KV is great for caching expensive queries or storing configuration:
+Cache an expensive query's result in KV:
 
 ```ts [src/routes/dashboard.tsx]
 import type { LoaderArgs } from "@pracht/core";
@@ -259,18 +241,15 @@ export async function loader({ context }: LoaderArgs) {
 }
 ```
 
----
+To write the cache without delaying the response, pass the `put()` promise to the loader's `waitUntil()` argument instead of awaiting it.
 
-## 8. Local Development
-
-The pracht dev server with the Cloudflare adapter runs inside `workerd`, so all bindings work locally:
+## 8. Develop locally
 
 ```sh
 pnpm dev
-# D1, KV, and R2 bindings are available via wrangler's local emulation
 ```
 
----
+With the Cloudflare adapter, `pracht dev` runs your app inside `workerd`, so D1, KV, and R2 bindings use wrangler's local emulation.
 
 ## 9. Deploy
 
@@ -278,12 +257,3 @@ pnpm dev
 pracht build
 npx wrangler deploy
 ```
-
----
-
-## Tips
-
-- Use `render: "ssr"` for any route that reads from D1 — data changes per request.
-- Use parameterized queries (`?` placeholders with `.bind()`) to prevent SQL injection. Never interpolate user input into SQL strings.
-- D1 supports transactions via `context.env.DB.batch([...])` for atomic multi-statement writes.
-- Use the `waitUntil()` arg of a loader, middleware, or API route to run background work (analytics, cache warming) without blocking the response.

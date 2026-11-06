@@ -3,9 +3,11 @@ title: Forms
 lead: Submit forms with `<Form>` and API routes. Forms work without JavaScript and switch to fetch submissions once it loads.
 ---
 
-## Basic Form
+This recipe builds a contact form that posts to an API route, shows field errors, and keeps working with JavaScript disabled.
 
-The simplest pattern: a `<Form>` that posts to an API route, with server-side validation.
+## 1. Write the API route
+
+Validate on the server and return a `Response`:
 
 ```ts [src/api/contact.ts]
 import type { ApiRouteArgs } from "@pracht/core";
@@ -29,6 +31,10 @@ export async function POST({ request }: ApiRouteArgs) {
   return Response.json({ ok: true, sent: true });
 }
 ```
+
+Return the submitted values with the errors so the user does not lose their input.
+
+## 2. Render the form
 
 ```tsx [src/routes/contact.tsx]
 import { Form } from "@pracht/core";
@@ -84,27 +90,18 @@ export function Component() {
 }
 ```
 
----
+Submit an empty form: the page does not reload, and each field shows its error. What happens on submit:
 
-## How It Works
+1. `<Form>` intercepts the submit event and sends the fields with `fetch`.
+2. The API route validates and returns a `Response`.
+3. A 3xx response navigates the client router to its target and reloads that route's data. Any other response goes to `onResponse` as a raw `Response`; read the body with `await response.json()`.
+4. While the request is in flight, `useNavigation()` reports the submission.
 
-1. `<Form method="post" action="/api/contact">` intercepts the submit event and sends data via `fetch` (no full reload).
-2. The API route handler runs server-side, validates, and returns a `Response`.
-3. `onResponse` receives the raw `Response` — read the body yourself with `await response.json()` — and the component re-renders with the result.
-4. Without JavaScript the browser performs a native form POST and navigates to the response, so the JSON handler above shows a raw JSON page. See [Working without JavaScript](#working-without-javascript).
+Without JavaScript, the browser performs a native form POST and navigates to the response, so this JSON handler shows a page of raw JSON. Step 3 fixes that.
 
----
+## 3. Work without JavaScript
 
-## Working without JavaScript
-
-`<Form>` degrades to a native form POST, but degrading is not the same as
-working: the browser *navigates to the response*, and a `Response.json()` is a
-page of JSON.
-
-Answer a document post with a redirect instead. Enhanced submissions carry
-`x-pracht-capability-form`, so the handler can tell the two apart — and pracht
-turns a 3xx into a handshake the client router follows, so the redirect branch
-is correct for both:
+Answer a document post with a redirect. Enhanced submissions carry the `x-pracht-capability-form` header, so the handler can tell the two apart:
 
 ```ts [src/api/contact.ts]
 import { redirect, type ApiRouteArgs } from "@pracht/core";
@@ -140,155 +137,13 @@ export async function POST({ request }: ApiRouteArgs) {
 }
 ```
 
-If you do not need the no-JS path, keep the JSON-only handler: an API that
-only answers `fetch` is a valid choice.
+Disable JavaScript and submit: an empty form lands on `/contact?invalid=name,email,message`, and a valid message lands on `/contact/thanks`. The redirect branches are correct for enhanced submissions too, because the client router follows a 3xx.
 
----
+If you do not need the no-JS path, keep the JSON-only handler from step 1.
 
-## Posting to a Different API Route
+## Refresh loader data after a mutation
 
-Use the `action` prop to target any API route:
-
-<!-- snippet: partial -->
-```tsx
-<Form method="post" action="/api/newsletter">
-  <input type="email" name="email" placeholder="you@example.com" />
-  <button type="submit">Subscribe</button>
-</Form>
-```
-
----
-
-## Programmatic Submission
-
-Use plain `fetch()` when you need to submit from code rather than a form element:
-
-```ts
-import { useRevalidate } from "@pracht/core";
-
-export function Component() {
-  const revalidate = useRevalidate();
-
-  async function handleDelete(id: string) {
-    if (!confirm("Are you sure?")) return;
-
-    const res = await fetch("/api/items", {
-      method: "DELETE",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ id }),
-    });
-
-    if (res.ok) {
-      // Refresh loader data after the mutation
-      revalidate();
-    }
-  }
-
-  return <button onClick={() => handleDelete("123")}>Delete</button>;
-}
-```
-
----
-
-## Multiple Actions with Separate API Routes
-
-You can use separate API routes for different mutations, or handle multiple intents in a single route:
-
-### Separate API routes
-
-<!-- snippet: partial -->
-```tsx
-<Form method="post" action="/api/settings/profile">
-  <input name="name" value={data.user.name} />
-  <button type="submit">Save Profile</button>
-</Form>
-
-<Form method="post" action="/api/settings/password">
-  <input type="password" name="current" placeholder="Current password" />
-  <input type="password" name="next" placeholder="New password" />
-  <button type="submit">Change Password</button>
-</Form>
-```
-
-### Single API route with intent
-
-```ts [src/api/settings.ts]
-import type { ApiRouteArgs } from "@pracht/core";
-
-export async function POST({ request }: ApiRouteArgs) {
-  const form = await request.formData();
-  const intent = form.get("intent");
-
-  switch (intent) {
-    case "update-profile": {
-      const name = String(form.get("name"));
-      await db.users.update({ name });
-      return Response.json({ ok: true });
-    }
-    case "change-password": {
-      const current = String(form.get("current"));
-      const next = String(form.get("next"));
-      // validate and update...
-      return Response.json({ ok: true, passwordChanged: true });
-    }
-    case "delete-account": {
-      await db.users.delete();
-      return new Response(null, {
-        status: 302,
-        headers: { location: "/" },
-      });
-    }
-    default:
-      return Response.json({ ok: false, error: "Unknown intent" }, { status: 400 });
-  }
-}
-```
-
----
-
-## Share One Validation Contract
-
-`<Form schema>` accepts any Standard Schema for client-side feedback. Share the
-same object with `defineApi({ body })` so the server remains authoritative. If
-that validator also implements Standard JSON Schema (Zod 4 does), it can be the
-`input` of a Pracht capability too, so the form, API route, and agent tool
-share one validation contract. See
-[Capabilities](/docs/capabilities#define-the-contract).
-
----
-
-## File Uploads
-
-<!-- snippet: partial -->
-```tsx
-<Form method="post" action="/api/avatar" enctype="multipart/form-data">
-  <input type="file" name="avatar" accept="image/*" />
-  <button type="submit">Upload</button>
-</Form>
-```
-
-```ts [src/api/avatar.ts]
-import type { ApiRouteArgs } from "@pracht/core";
-
-export async function POST({ request }: ApiRouteArgs) {
-  const form = await request.formData();
-  const file = form.get("avatar") as File;
-
-  if (!file || file.size === 0) {
-    return Response.json({ ok: false, error: "No file selected" }, { status: 400 });
-  }
-
-  const buffer = await file.arrayBuffer();
-  const url = await uploadToStorage(file.name, buffer);
-  return Response.json({ ok: true, url });
-}
-```
-
----
-
-## Revalidation After Mutations
-
-After a mutation via an API route, use `useRevalidate()` to refresh the current route's loader data:
+A JSON response does not reload the current route's data. Call `useRevalidate()` after a mutation that changes what the page shows:
 
 ```tsx
 import { useRevalidate } from "@pracht/core";
@@ -318,11 +173,97 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
 }
 ```
 
----
+The same pattern covers submissions from code rather than a form element, such as a delete button calling `fetch()`.
 
-## Search Forms
+## Multiple actions on one page
 
-A `GET` `<Form>` submits like a plain HTML form: the browser loads the action with the fields as its query. Add `clientNavigation` to go through the client router instead. The page updates without a document reload, and `useNavigation()` reports the pending load:
+Give each mutation its own API route:
+
+<!-- snippet: partial -->
+```tsx
+<Form method="post" action="/api/settings/profile">
+  <input name="name" value={data.user.name} />
+  <button type="submit">Save Profile</button>
+</Form>
+
+<Form method="post" action="/api/settings/password">
+  <input type="password" name="current" placeholder="Current password" />
+  <input type="password" name="next" placeholder="New password" />
+  <button type="submit">Change Password</button>
+</Form>
+```
+
+Or post every form to one route and branch on a hidden `intent` field:
+
+```ts [src/api/settings.ts]
+import { redirect, type ApiRouteArgs } from "@pracht/core";
+
+export async function POST({ request }: ApiRouteArgs) {
+  const form = await request.formData();
+  const intent = form.get("intent");
+
+  switch (intent) {
+    case "update-profile": {
+      const name = String(form.get("name"));
+      await db.users.update({ name });
+      return Response.json({ ok: true });
+    }
+    case "change-password": {
+      const current = String(form.get("current"));
+      const next = String(form.get("next"));
+      // validate and update...
+      return Response.json({ ok: true, passwordChanged: true });
+    }
+    case "delete-account": {
+      await db.users.delete();
+      return redirect("/", { request });
+    }
+    default:
+      return Response.json({ ok: false, error: "Unknown intent" }, { status: 400 });
+  }
+}
+```
+
+## Share one validation contract
+
+Pass any Standard Schema to `<Form schema>` for client-side feedback: an invalid submission is not sent, and `onValidationIssues` receives the issues. Pass the same object to `defineApi({ body })` so the server stays authoritative.
+
+If the validator also implements Standard JSON Schema (Zod 4 does), it can be the `input` of a pracht capability too, so the form, API route, and agent tool share one contract. See [Capabilities](/docs/capabilities#define-the-contract).
+
+Client-side validation is feedback, not a security boundary. Always validate on the server.
+
+## File uploads
+
+Set `enctype="multipart/form-data"` and read the file from `formData()`:
+
+<!-- snippet: partial -->
+```tsx
+<Form method="post" action="/api/avatar" enctype="multipart/form-data">
+  <input type="file" name="avatar" accept="image/*" />
+  <button type="submit">Upload</button>
+</Form>
+```
+
+```ts [src/api/avatar.ts]
+import type { ApiRouteArgs } from "@pracht/core";
+
+export async function POST({ request }: ApiRouteArgs) {
+  const form = await request.formData();
+  const file = form.get("avatar") as File;
+
+  if (!file || file.size === 0) {
+    return Response.json({ ok: false, error: "No file selected" }, { status: 400 });
+  }
+
+  const buffer = await file.arrayBuffer();
+  const url = await uploadToStorage(file.name, buffer);
+  return Response.json({ ok: true, url });
+}
+```
+
+## Search forms
+
+A `GET` `<Form>` submits like a plain HTML form: the browser loads the action with the fields as its query. Add `clientNavigation` to go through the client router instead; the page updates without a document reload, and `useNavigation()` reports the pending load.
 
 ```tsx
 import { Form } from "@pracht/core";
@@ -333,13 +274,4 @@ import { Form } from "@pracht/core";
 </Form>
 ```
 
-The query is built as the browser builds it, replacing the action's own. A cross-origin action, or a `target`/`formtarget` other than `_self`, still submits natively.
-
----
-
-## Tips
-
-- Always validate on the server. Client-side validation is a UX nicety, not a security boundary.
-- Return field values in error responses so users don't lose their input.
-- Use `useRevalidate()` after mutations that change the current page's data.
-- Use API routes (`src/api/`) for all mutation endpoints — they return standard `Response` objects and are easy to test independently.
+The browser builds the query, replacing any query on the action. A cross-origin action, or a `target`/`formtarget` other than `_self`, still submits natively.

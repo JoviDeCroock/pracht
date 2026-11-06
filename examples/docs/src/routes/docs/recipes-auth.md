@@ -3,31 +3,28 @@ title: Authentication
 lead: "Session auth with `@pracht/session`: encrypted cookies, middleware gates, login and logout routes, and password hashing on every adapter."
 ---
 
-## Architecture
+This recipe adds password login: an encrypted session cookie, a middleware gate that sends anonymous visitors to `/login`, and login, logout, and signup endpoints.
 
-Auth in pracht is four pieces, and only one of them is auth-specific:
+> [!WARNING]
+> Keep the user on `context.session`, never on a request header. The client controls headers, so a middleware that writes `x-user-id` onto the request and trusts it downstream gates nothing.
 
-- **`@pracht/session`** — reads and writes the encrypted session cookie, with
-  secret rotation built in.
-- **Middleware** — loads the session onto `context.session` and gates the
-  routes that need a user.
-- **API routes** — log in, log out, sign up.
-- **Loaders** — read `context.session` and pass what the page needs.
-
-Keep the user on `context.session`, never on a request header. The client
-controls headers, so a middleware that writes `x-user-id` onto the request and
-trusts it downstream gates nothing.
+## 1. Install
 
 ```bash
 npm install @pracht/session
 ```
 
----
+Generate a secret, add it to `.env`, and confirm `.env*` is gitignored:
 
-## 1. Session Storage
+```bash
+SESSION_SECRET="$(openssl rand -base64 32)"
+```
 
-Define one storage instance for the app. The signing secret comes from
-[`serverEnv`](/docs/env), which keeps it out of the client bundle.
+`createSessionStorage()` throws if any secret is shorter than 16 characters.
+
+## 2. Session storage
+
+Define one storage instance for the app. Read the secret from [`serverEnv`](/docs/env) so it stays out of the client bundle.
 
 ```ts [src/server/session.ts]
 import { serverEnv } from "@pracht/core/env/server";
@@ -48,15 +45,10 @@ let storage: SessionStorage<AppSession> | undefined;
 export function sessions(): SessionStorage<AppSession> {
   storage ??= createSessionStorage<AppSession>({
     cookie: {
-      // The `__Host-` prefix is enforced by the *browser*: it rejects the
-      // cookie unless it is Secure, `Path=/`, and host-only. That is what
-      // stops a sibling subdomain — or anything that has taken one over —
-      // from writing a cookie your app will read. It is also the default,
-      // so you can omit `name` entirely.
+      // The default name. The browser rejects a `__Host-` cookie unless it is
+      // Secure, `Path=/`, and host-only, so a sibling subdomain cannot plant one.
       name: "__Host-session",
-      // Newest first: the first secret seals, every secret opens. Rotating is
-      // then a deploy — add the new one at the front, remove the old one once
-      // cookies sealed with it have expired — instead of logging everybody out.
+      // Newest first: the first secret seals, every secret opens.
       secrets: [serverEnv.SESSION_SECRET as string],
       maxAge: 60 * 60 * 24 * 7,
     },
@@ -65,46 +57,31 @@ export function sessions(): SessionStorage<AppSession> {
 }
 ```
 
-Build it **lazily**, inside a function. On Cloudflare Workers, env bindings
-exist only per request, so reading `serverEnv` at module load throws.
+Build the storage lazily inside a function: on Cloudflare Workers, env bindings exist only per request, so reading `serverEnv` at module load throws.
 
-What the defaults give you:
-
-| | |
+| Setting | Default |
 | --- | --- |
-| `HttpOnly` | on — the cookie is invisible to JavaScript |
+| `name` | `__Host-session` |
+| `maxAge` | One week, counted from the last write |
+| `HttpOnly` | On; JavaScript cannot read the cookie |
 | `SameSite` | `Lax` |
 | `Path` | `/` |
-| `Secure` | always on with the default `__Host-` name; with an unprefixed name, on except for plain http from a loopback host (`localhost`, `*.localhost`, `127.0.0.1`, `[::1]`) |
+| `Secure` | Always on with a `__Host-` or `__Secure-` name; otherwise on except for plain http from `localhost`, `*.localhost`, `127.0.0.1`, or `[::1]` |
 | Encryption | AES-256-GCM, key derived from the secret with HKDF-SHA256 |
-| Expiry | sealed into the encrypted payload, not just `Max-Age` |
-| Size | over 4 KB throws instead of emitting a cookie the browser drops |
+| Size | Over 4 KB throws |
 
 ### `__Host-` and local development
 
-The `__Host-` prefix forces `Secure`, in development too. Chrome 89+ and
-Firefox 75+ accept a `Secure` cookie on `http://localhost`, so `pracht dev`
-works there. If your browser drops the cookie and login seems broken, use an
-unprefixed `name` in development, or run dev over https.
+The `__Host-` prefix forces `Secure` in development too, which Chrome 89+ and Firefox 75+ accept on `http://localhost`. If login seems to do nothing because your browser drops the cookie, use an unprefixed `name` in development or run dev over https. In production, drop the prefix only when the cookie must be shared across subdomains.
 
-Drop the prefix in production only if the cookie must be shared across
-subdomains: the prefix stops other hosts from planting a same-name cookie.
+`secure: false` is for http development on a non-localhost hostname; it throws with a `__Host-` or `__Secure-` name, or with `sameSite: "None"`.
 
-Pass `secure: false` only for http development on a non-localhost hostname. It
-throws with a `__Host-`/`__Secure-` name or `sameSite: "None"`.
+## 3. Session middleware
 
----
+Create two middleware files:
 
-## 2. Session Middleware
-
-Two middleware factories:
-
-- `sessionMiddleware(storage)` **loads** the session onto `context.session`.
-  It never blocks.
-- `requireSession(storage)` loads it **and gates**: a page request without a
-  user is redirected to the login page with `?redirect=` set to the route path
-  it asked for (without any deploy base, ready for `redirect()`), an API
-  request gets a `401`.
+- `sessionMiddleware(storage)` loads the session onto `context.session` and never blocks.
+- `requireSession(storage)` loads it and gates. A page request without a user is redirected to the login page with `?redirect=<route path>`; an API request gets `401` with `{"error":"unauthorized"}`.
 
 ```ts [src/middleware/session.ts]
 import type { MiddlewareFn } from "@pracht/core";
@@ -134,13 +111,9 @@ export const middleware: MiddlewareFn = (args, next) => {
 };
 ```
 
-Both load the session before `next()` and commit it after, so a loader can
-call `context.session.set(...)` and the cookie lands on its response. A request
-that changes nothing emits no `Set-Cookie`. See [Middleware](/docs/middleware)
-for the contract.
+Both commit the session after `next()`, so a loader can call `context.session.set(...)` and the cookie lands on its response; a request that changes nothing gets no `Set-Cookie`. `requireSession` treats a session with a `userId` as authenticated; pass `isAuthenticated(session)` to change that. See [Middleware](/docs/middleware) for the contract.
 
-Type `context.session` once and every loader, API route, and capability sees
-it:
+Type `context.session` once for every loader, API route, and capability:
 
 ```ts [src/env.d.ts]
 import type { SessionRequestContext } from "@pracht/session";
@@ -154,13 +127,9 @@ declare module "@pracht/core" {
 }
 ```
 
----
+## 4. Password hashing
 
-## 3. Password Hashing
-
-`@pracht/session` ships `hashPassword()` / `verifyPassword()` over
-PBKDF2-HMAC-SHA256, the one password KDF WebCrypto exposes. They run unchanged
-on every adapter.
+Hash with `hashPassword()` and check with `verifyPassword()`. Both use PBKDF2-HMAC-SHA256 through WebCrypto, so they run on every adapter.
 
 ```ts [src/server/users.ts]
 import { hashPassword, verifyPassword } from "@pracht/session";
@@ -183,23 +152,15 @@ export async function verifyCredentials(email: string, password: string): Promis
 }
 ```
 
-The stored hash records its own parameters, so raising the iteration count
-later keeps existing hashes valid.
+The stored hash records its own parameters, so raising the iteration count later keeps existing hashes valid.
 
-- **Never** store a plain `SHA-256(password)`; a GPU tries billions per second.
-- Prefer Argon2id or scrypt (native module, WASM build, or an identity
-  provider) wherever the runtime allows it.
-- On Cloudflare Workers, PBKDF2 spends metered CPU time. Measure a login
-  against your plan's CPU limit. If it does not fit, pass a lower
-  `hashPassword(password, { iterations })` or move hashing off the worker.
+- Never store a plain `SHA-256(password)`.
+- Prefer Argon2id or scrypt (native module, WASM build, or an identity provider) where the runtime allows it.
+- On Cloudflare Workers, PBKDF2 spends metered CPU time. If a login exceeds your plan's CPU limit, pass a lower `hashPassword(password, { iterations })` or hash off the worker.
 
----
+## 5. Login and logout
 
-## 4. Login and Logout
-
-The login page renders the form; an API route validates and issues the
-session. Both read a `redirect` target from the request, so both pass it
-through the same same-origin check.
+The login page renders the form, and an API route validates and issues the session. Both read a `redirect` target from user input, so both pass it through one same-origin check:
 
 ```ts [src/server/redirects.ts]
 // The redirect target is user input. Parse it before trusting it: URL parsing
@@ -241,7 +202,7 @@ export async function POST({ request, url }: ApiRouteArgs) {
   const storage = sessions();
   const session = await storage.getSession(request);
   // Rotate the session id at the moment of privilege change, before writing
-  // the user onto it. See "Session fixation" below — this line is the fix.
+  // the user onto it. See "Session fixation" below.
   await session.regenerate();
   session.set("userId", user.id);
   session.set("email", user.email);
@@ -252,20 +213,7 @@ export async function POST({ request, url }: ApiRouteArgs) {
 }
 ```
 
-`storage.commit(session, response)` **appends** the `Set-Cookie`, so cookies
-set elsewhere on the response survive.
-
-### Session fixation
-
-Call `session.regenerate()` on **every privilege change**: right after
-credentials verify, and after anything that raises what the session can do
-(completing 2FA, assuming an admin role). It issues a new id, keeps the data,
-and drops the old record.
-
-It matters once you add a `store`, where the cookie is only a pointer. Someone
-who can write a cookie for your host plants an id they know and waits for the
-victim to log in. Cookie-only sessions are not exposed, but the call keeps the
-login path correct if you add a store later.
+`storage.commit(session, response)` appends the `Set-Cookie`, so cookies set elsewhere on the response survive.
 
 ```tsx [src/routes/login.tsx]
 import { Form, type LoaderArgs, type RouteComponentProps } from "@pracht/core";
@@ -307,6 +255,8 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
 }
 ```
 
+Submitting valid credentials sets the session cookie and redirects to the `redirect` target. Wrong credentials land back on `/login?error=1` with the alert shown.
+
 ```ts [src/api/auth/logout.ts]
 import { redirect, type ApiRouteArgs } from "@pracht/core";
 
@@ -321,8 +271,7 @@ export async function POST({ request }: ApiRouteArgs) {
 }
 ```
 
-Log out with a form. It must be a `POST`: a `GET` logout link is a one-click
-CSRF, and link scanners prefetch it.
+Log out with a `POST` form; a `GET` logout link is a one-click CSRF, and link scanners prefetch it.
 
 ```tsx
 import { Form } from "@pracht/core";
@@ -332,13 +281,13 @@ import { Form } from "@pracht/core";
 </Form>
 ```
 
-Signup has the same shape as login: validate (`email` present,
-`password.length >= 8`), redirect back to `/signup?error=…` on failure,
-otherwise `hashPassword()`, insert the user, and issue the session.
+Signup has the same shape as login: validate, redirect to `/signup?error=…` on failure, otherwise `createUser()` and issue the session.
 
----
+### Session fixation
 
-## 5. Reading the User in Loaders
+Call `session.regenerate()` on every privilege change: after credentials verify, after completing 2FA, after assuming an admin role. It issues a new id, keeps the data, and drops the old store record. With a `store`, this stops an attacker who planted a known session id from inheriting the login; cookie-only sessions are not exposed, but the call keeps the login path correct if you add a store later.
+
+## 6. Read the user in loaders
 
 Behind the middleware, loaders read `context.session`:
 
@@ -373,14 +322,11 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
 }
 ```
 
-Loader data is serialized to the client. Return only what the component
-renders — never the whole session, never a password hash.
+Loader data is serialized to the client. Return only what the component renders, never the whole session.
 
----
+## 7. Wire it up
 
-## 6. Wire It Up
-
-Public routes in one group, protected routes in a group carrying the gate:
+Put public routes in one group and protected routes in a group carrying the gate:
 
 ```ts [src/routes.ts]
 import { defineApp, group, route } from "@pracht/core";
@@ -394,8 +340,8 @@ export const app = defineApp({
     auth: "./middleware/auth.ts",
     session: "./middleware/session.ts",
   },
-  // Every mutation API route can see the session; only the gated group is
-  // gated. Individual handlers still check what they need.
+  // Every API route can see the session; only the gated group is gated.
+  // Individual handlers still check what they need.
   api: { middleware: ["session"] },
   routes: [
     // Public — no gate.
@@ -414,21 +360,13 @@ export const app = defineApp({
 });
 ```
 
-Use `render: "ssr"` for anything that reads the session: its output is
-per-visitor, so it cannot be prerendered. The middleware adds `Vary: Cookie`
-to responses, except on `ssg`/`isg` routes.
+Open `/dashboard` in a fresh browser: you are redirected to `/login?redirect=%2Fdashboard`, and after logging in you land back on `/dashboard` with the welcome notice.
 
-Run [`/audit-auth`](/docs/coding-agents) to confirm every route you expect to be
-protected actually resolves the gate.
+Use `render: "ssr"` for anything that reads the session; per-visitor output cannot be prerendered. Run [`/audit-auth`](/docs/coding-agents) to confirm every route you expect to be protected resolves the gate.
 
----
+## Server-side sessions
 
-## 7. Server-Side Sessions
-
-By default the encrypted session data travels in the cookie. Pass a `store` and
-the cookie carries only a sealed session id. Use one when the session outgrows
-4 KB, when logout must end the session in every browser, or when the data must
-stay on the server.
+Pass a `store` and the cookie carries only a sealed session id instead of the data. Use one when the session outgrows 4 KB, when logout must end the session in every browser, or when the data must stay on the server.
 
 ```ts [src/server/session.ts]
 import { createSessionStorage } from "@pracht/session";
@@ -457,21 +395,11 @@ export function sessions() {
 }
 ```
 
-`KV` is a Workers binding, so build the storage inside the request (see
-[Full-Stack Cloudflare](/docs/recipes/fullstack-cloudflare)). Any backend with
-`get`, `set(id, data, expiresAt)`, and `delete` works: D1, Durable Objects,
-Redis, Postgres. `createMemorySessionStore()` is for tests and single-process
-dev servers, not production.
+`KV` is a Workers binding, so build the storage inside the request (see [Full-stack Cloudflare](/docs/recipes/fullstack-cloudflare)). Any backend with `get`, `set(id, data, expiresAt)`, and `delete` works: D1, Durable Objects, Redis, Postgres. `createMemorySessionStore()` is for tests and single-process dev servers.
 
----
+## Session expiry
 
-## 8. How Sessions Expire
-
-`maxAge` counts from the last write, and the middleware writes only when the
-session changed. A user who browses longer than `maxAge` without changing
-anything is logged out mid-session.
-
-To make `maxAge` an **idle** timeout instead, pass `rolling`:
+`maxAge` counts from the last write, and the middleware writes only when the session changed, so a user who browses longer than `maxAge` without changing anything is logged out. Pass `rolling` to make `maxAge` an idle timeout:
 
 ```ts
 import { serverEnv } from "@pracht/core/env/server";
@@ -486,69 +414,39 @@ createSessionStorage<AppSession>({
 });
 ```
 
-The cost is a `Set-Cookie` on every response and, with a `store`, a write per
-request. Anonymous visitors still get no cookie.
+Every response then carries a `Set-Cookie`, and with a `store` every request writes to it. Anonymous visitors still get no cookie.
 
-A rolling session never ends while it is used inside the window, and neither
-does a copied cookie. Add `absoluteMaxAge` (seconds) to cap the total lifetime:
-`absoluteMaxAge: 60 * 60 * 12` signs everyone out 12 hours after their session
-started, however active they are. The cap counts from the first commit, or from
-the last `regenerate()`, so with the login step above it measures time since
-sign-in.
+Add `absoluteMaxAge` (seconds) to cap a rolling session's total lifetime: `absoluteMaxAge: 60 * 60 * 12` signs everyone out 12 hours after sign-in, however active. The cap counts from the first commit or the last `regenerate()`.
 
-**`rolling` and cached routes.** A response with a `Set-Cookie` is never
-cached, so `ssg` or `isg` routes under rolling-session middleware go uncached
-for every signed-in visitor. Put that middleware on the group holding your
-`ssr` routes, not on one that spans prerendered pages.
+> [!WARNING]
+> A response with a `Set-Cookie` is never cached, so `ssg` and `isg` routes under rolling-session middleware go uncached for every signed-in visitor. Put that middleware on the group holding your `ssr` routes.
 
-`destroySession()` ends a session immediately; with a `store`, in every
-browser holding the cookie.
+`storage.destroySession(session)` ends a session immediately; with a `store`, in every browser holding the cookie.
 
----
+## Rotate the secret
 
-## 9. CSRF
+Put the new secret first and keep the old one until cookies sealed with it have expired: `maxAge` after you deploy the new secret, or longer if you pass a larger `maxAge` to `commit()`.
 
-In a CSRF attack, a malicious site submits a form to your API and the browser
-attaches the session cookie.
+```ts
+import { serverEnv } from "@pracht/core/env/server";
 
-### Built in: same-origin enforcement (on by default)
-
-State-changing API requests (`POST`/`PUT`/`PATCH`/`DELETE`) get a `403` unless
-the browser signals a same-origin request: `Sec-Fetch-Site: same-origin`, or an
-`Origin`/`Referer` matching the request's origin. `same-site` is rejected,
-since a sibling subdomain can be hostile. Requests without browser provenance
-headers (curl, server-to-server, tests) pass.
-
-The check runs before API middleware and is controlled by
-[`ApiConfig.requireSameOrigin`](/docs/api-routes), default `true`. Turn it off
-only if your own middleware provides CSRF protection:
-
-```ts [src/routes.ts]
-import { defineApp } from "@pracht/core";
-
-defineApp({
-  api: {
-    middleware: ["session"],
-    requireSameOrigin: false, // default: true
-  },
-  routes: [],
-});
+const secrets = [
+  serverEnv.SESSION_SECRET_V2 as string,
+  serverEnv.SESSION_SECRET as string,
+];
 ```
 
-That blocks cross-site form CSRF for a first-party app. Two more layers:
+New cookies are sealed with the first secret, every listed secret opens existing ones, and a cookie is re-sealed with the new secret the next time its session is written. Removing the old secret too early logs out everyone still holding a cookie sealed with it.
 
-### 1. `SameSite` on the session cookie
+## CSRF protection
 
-The default `SameSite=Lax` keeps the cookie off cross-site
-`POST`/`PUT`/`PATCH`/`DELETE` requests in modern browsers. Keep it alongside
-the built-in check. Use `sameSite: "Strict"` if links from other sites need not
-arrive signed in.
+pracht rejects cross-site mutations by default. A `POST`, `PUT`, `PATCH`, or `DELETE` to an API route gets `403 Cross-origin request blocked` unless the browser marks it same-origin; `same-site` requests are rejected too. Requests without browser provenance headers (curl, server-to-server, tests) pass. The check runs before API middleware and is controlled by [`ApiConfig.requireSameOrigin`](/docs/api-routes), default `true`.
 
-### 2. Custom origin middleware (allowlists)
+Keep the default `SameSite=Lax` cookie alongside it, or use `sameSite: "Strict"` if links from other sites need not arrive signed in.
 
-The built-in check accepts only your own origin. If trusted cross-origin
-callers (an admin app on another domain) must reach your mutation endpoints,
-or you disabled `requireSameOrigin`, add a middleware with an allowlist:
+### Allow trusted cross-origin callers
+
+To accept mutations from another origin you trust (an admin app on another domain), replace the built-in check with a middleware that carries an allowlist:
 
 ```ts [src/middleware/origin-check.ts]
 import type { MiddlewareFn } from "@pracht/core";
@@ -578,10 +476,9 @@ export const middleware: MiddlewareFn = ({ request, url }, next) => {
 };
 ```
 
-Wire it to the API and turn off the built-in check, which would reject the
-allowlisted origins first:
+Wire it to the API and turn off the built-in check, which would reject the allowlisted origins first:
 
-```ts
+```ts [src/routes.ts]
 import { defineApp } from "@pracht/core";
 
 defineApp({
@@ -594,54 +491,14 @@ defineApp({
 });
 ```
 
-This checks headers; it issues no tokens. Pair it with `SameSite` cookies, and
-add synchronizer tokens only if you need them, for example with
-`sameSite: "None"` for embedding. Run [`/audit-csrf`](/docs/coding-agents) to
-check the posture end to end.
+This checks headers and issues no tokens; add synchronizer tokens if you need them, for example with `sameSite: "None"` for embedding. Run [`/audit-csrf`](/docs/coding-agents) to check the posture end to end.
 
----
+## Out of scope
 
-## 10. Env
+`@pracht/session` is session storage, not an auth framework. Build these yourself:
 
-Add the secret to `.env.example`, and confirm `.env*` is gitignored:
-
-```bash
-SESSION_SECRET="$(openssl rand -base64 32)"
-```
-
-`createSessionStorage()` throws on secrets shorter than 16 characters.
-
-To rotate, put the new secret first and keep the old one until cookies sealed
-with it have expired:
-
-```ts
-import { serverEnv } from "@pracht/core/env/server";
-
-const secrets = [
-  serverEnv.SESSION_SECRET_V2 as string,
-  serverEnv.SESSION_SECRET as string,
-];
-```
-
-Existing cookies still open under the old secret, and each is re-sealed with
-the new one on its next commit.
-
----
-
-## What This Does Not Cover
-
-`@pracht/session` is session storage, not an auth framework. Out of scope:
-
-- **OAuth / OIDC providers** ("Sign in with GitHub"). Handle the callback in an
-  API route, verify the provider's response with a protocol library (`arctic`,
-  `openid-client`, or the provider's SDK), then put the user id in the session
-  as in the password flow.
-- **Multi-factor auth.** Keep an `mfaVerified` flag in the session and gate on
-  it with `requireSession(storage, { isAuthenticated })`.
-- **Password reset and email verification.** Both need single-use, expiring,
-  out-of-band tokens and an email sender.
-- **Rate limiting.** Without it, a login endpoint is an online password oracle.
-  Use the platform's (Cloudflare Rate Limiting, Vercel Firewall) or a counter
-  in your session store.
-- **Authorization.** Sessions say who the user is. Enforce roles, permissions,
-  and record ownership in loaders and handlers, not only in the UI.
+- **OAuth / OIDC** ("Sign in with GitHub"). Handle the callback in an API route, verify it with a protocol library (`arctic`, `openid-client`, or the provider's SDK), then put the user id in the session.
+- **Multi-factor auth.** Keep an `mfaVerified` flag in the session and gate on it with `requireSession(storage, { isAuthenticated })`.
+- **Password reset and email verification.** Both need single-use, expiring, out-of-band tokens and an email sender.
+- **Rate limiting.** Without it, a login endpoint is an online password oracle. Use the platform's (Cloudflare Rate Limiting, Vercel Firewall) or a counter in your store.
+- **Authorization.** Sessions say who the user is. Enforce roles, permissions, and record ownership in loaders and handlers, not only in the UI.

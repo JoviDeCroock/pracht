@@ -3,11 +3,11 @@ title: View transitions
 lead: Animate route changes and full page loads with the View Transitions API while keeping data loading and scroll restoration intact.
 ---
 
-## The Short Version
+This recipe animates navigation from a photo grid to a photo page. View transitions are opt-in: pracht wraps the route commit in `document.startViewTransition()` where the browser supports it and commits a normal client navigation everywhere else, so you need no support check.
 
-View transitions are opt-in. Pracht wraps the route commit in
-`document.startViewTransition()` when the browser supports it, and falls back
-to a normal client navigation everywhere else.
+## 1. Mark the link
+
+Add `viewTransition` to the `<Link>` whose navigation should animate:
 
 ```tsx [src/routes/gallery.tsx]
 import { Link } from "@pracht/core";
@@ -36,7 +36,11 @@ export function Component({ data }) {
 }
 ```
 
-Use regular View Transitions CSS to control the animation:
+The prop renders as a `data-pracht-view-transition` attribute on the anchor. Clicking a photo now cross-fades to the photo page in supporting browsers.
+
+## 2. Style the animation
+
+Control the animation with standard View Transitions CSS:
 
 ```css [src/styles/global.css]
 @media (prefers-reduced-motion: no-preference) {
@@ -62,23 +66,43 @@ Use regular View Transitions CSS to control the animation:
 }
 ```
 
----
+## 3. Add a named element transition
 
-## Enable Per Navigation
+Give the matching elements on both routes the same `view-transition-name`, and the browser morphs one into the other. The grid above already names each thumbnail:
 
-Use `<Link viewTransition>` when a specific route change should animate:
-
-```tsx
-import { Link } from "@pracht/core";
-
-<Link route="gallery" viewTransition>
-  Gallery
-</Link>;
+<!-- snippet: partial -->
+```tsx [src/routes/gallery.tsx]
+<Link route="photo" params={{ id: photo.id }} viewTransition>
+  <img
+    src={photo.thumbnail}
+    alt={photo.title}
+    style={{ viewTransitionName: `photo-${photo.id}` }}
+  />
+</Link>
 ```
 
-The prop renders as a `data-pracht-view-transition` attribute on the anchor.
+Use the same name on the photo page:
 
-For imperative navigation, pass the same option to `navigate()`:
+```tsx [src/routes/photo.tsx]
+export function Component({ data }) {
+  return (
+    <article>
+      <img
+        src={data.photo.image}
+        alt={data.photo.title}
+        style={{ viewTransitionName: `photo-${data.photo.id}` }}
+      />
+      <h1>{data.photo.title}</h1>
+    </article>
+  );
+}
+```
+
+The thumbnail grows into the full image. Each `view-transition-name` must be unique in the rendered page; if a grid can render the same photo twice, put enough context in the name to keep it unique.
+
+## Animate programmatic navigation
+
+Pass `viewTransition` to `navigate()`:
 
 ```tsx
 import { useNavigate } from "@pracht/core";
@@ -97,12 +121,9 @@ export function OpenGalleryButton() {
 }
 ```
 
----
+## Enable app-wide
 
-## Enable App-Wide
-
-Set `viewTransitions: true` in the app manifest when most client-side
-navigations should animate:
+Set `viewTransitions: true` in the manifest to animate every client-side navigation:
 
 ```ts [src/routes.ts]
 import { defineApp, route } from "@pracht/core";
@@ -117,8 +138,7 @@ export const app = defineApp({
 });
 ```
 
-Programmatic navigations can still opt out when a route change should commit
-immediately:
+Opt one programmatic navigation out so it commits immediately:
 
 ```ts
 import { useNavigate } from "@pracht/core";
@@ -128,27 +148,13 @@ const navigate = useNavigate();
 await navigate("/settings", { viewTransition: false });
 ```
 
----
+## Islands and static pages
 
-## Islands And Static Pages
+Routes with `hydration: "islands"` or `"none"` do not load the client router, so navigating to, from, or between them is a full page load. With `viewTransitions: true`, every page pracht renders carries `@view-transition { navigation: auto }` in its `<head>`, so supporting browsers animate these loads as cross-document view transitions without added JavaScript. Link clicks, form submissions, and back/forward animate; reloads do not.
 
-Routes with `hydration: "islands"` or `"none"` do not load the client router,
-so navigating to, from, or between them is a full page load. With
-`viewTransitions: true`, every page pracht renders carries
-`@view-transition { navigation: auto }` in its `<head>`, so supporting browsers
-animate these page loads as cross-document view transitions. Link clicks, form
-submissions, and back/forward animate; reloads do not. No JavaScript is added.
+Islands pages swapped in by [`client.islandsNavigation`](/docs/islands#client-side-navigation-between-islands-pages) animate through `document.startViewTransition()`, like client-router navigations. The same `::view-transition-*` CSS and `view-transition-name` values drive both, so the [named photo transition](#3-add-a-named-element-transition) also works between islands pages. Set those names in CSS or server-rendered `style` attributes so they exist when the new page first renders.
 
-Navigations the client router handles, and islands pages swapped in by
-[`client.islandsNavigation`](/docs/islands#client-side-navigation-between-islands-pages),
-animate once through `document.startViewTransition()`. The same `::view-transition-*` CSS and
-`view-transition-name` values drive both, so the
-[named photo transition](#named-element-transitions) also works between islands
-pages. Set those names in CSS or server-rendered `style` attributes so they are
-present when the new page first renders.
-
-To keep one page out of cross-document transitions, override the rule in a
-stylesheet that page loads:
+To keep one page out of cross-document transitions, override the rule in a stylesheet that page loads:
 
 ```css [src/routes/checkout.css]
 @view-transition {
@@ -156,58 +162,13 @@ stylesheet that page loads:
 }
 ```
 
-The rule is an inline `<style>`. Under a strict `style-src`, return
-`styleNonce` from your shell `head()`, or allow it on prerendered pages with
-`'sha256-SREix9zPMZHrSuo8zRSjb672r1gsHIh96MJuaZq6iJo='`. See
-[Content Security Policy](/docs/recipes/csp#framework-generated-styles).
+The rule is an inline `<style>`. Under a strict `style-src`, return `styleNonce` from your shell `head()`, or allow it on prerendered pages with `'sha256-SREix9zPMZHrSuo8zRSjb672r1gsHIh96MJuaZq6iJo='`. See [Content Security Policy](/docs/recipes/csp#framework-generated-styles).
 
----
+## Loading, prefetching, and scroll
 
-## Named Element Transitions
+pracht loads the target route's data and modules before the transition starts, so slow data delays the animation. Redirects, loader errors, and full document fallbacks behave as without a transition.
 
-For shared-element style transitions, give the matching elements on both
-routes the same `view-transition-name`.
-
-<!-- snippet: partial -->
-```tsx [src/routes/gallery.tsx]
-<Link route="photo" params={{ id: photo.id }} viewTransition>
-  <img
-    src={photo.thumbnail}
-    alt={photo.title}
-    style={{ viewTransitionName: `photo-${photo.id}` }}
-  />
-</Link>
-```
-
-```tsx [src/routes/photo.tsx]
-export function Component({ data }) {
-  return (
-    <article>
-      <img
-        src={data.photo.image}
-        alt={data.photo.title}
-        style={{ viewTransitionName: `photo-${data.photo.id}` }}
-      />
-      <h1>{data.photo.title}</h1>
-    </article>
-  );
-}
-```
-
-Each `view-transition-name` must be unique in the rendered page. If a grid can
-render the same photo twice, include enough context in the name to keep it
-unique.
-
----
-
-## Loading, Prefetching, And Scroll
-
-Pracht loads the target route's data and modules before the transition
-starts. Redirects, loader errors, and full document fallbacks keep their
-normal behavior.
-
-That means slow data still makes the user wait before the transition starts.
-Use prefetching for destinations that should feel immediate:
+Prefetch destinations that should feel immediate:
 
 <!-- snippet: partial -->
 ```tsx
@@ -216,8 +177,7 @@ Use prefetching for destinations that should feel immediate:
 </Link>
 ```
 
-For longer navigations, pair the transition with `useNavigation()` so the
-current page can show pending state while the next page loads:
+For longer loads, show pending state on the current page with `useNavigation()`:
 
 ```tsx
 import { useNavigation } from "@pracht/core";
@@ -234,26 +194,13 @@ export function TopProgress() {
 }
 ```
 
-Scroll restoration still runs after the route commit. Forward navigations
-scroll to the top or the target hash by default, and
-`navigate(to, { preserveScroll: true })` keeps the current scroll position for
-that navigation.
+Scroll restoration runs after the route commit. Forward navigations scroll to the top or the target hash; `navigate(to, { preserveScroll: true })` keeps the current position for that navigation.
 
----
+## Reduced motion
 
-## Progressive Enhancement
+Keep animations behind `prefers-reduced-motion: no-preference`, and keep critical state changes out of the animation: the page must be correct whether the transition runs, is skipped, or is interrupted by a newer navigation.
 
-You do not need a support check before using `viewTransition`. Browsers without
-view transition support commit client navigations and load full pages normally.
-
-Keep animations behind `prefers-reduced-motion: no-preference`, and avoid
-putting critical state changes only in the animation. The page should be
-correct whether the transition runs, is skipped, or is interrupted by a newer
-navigation.
-
-The browser's default cross-fade runs even without your CSS. To turn every
-transition off for users who prefer reduced motion, add this to a stylesheet
-every page loads:
+The browser's default cross-fade runs even without your CSS. To turn every transition off for users who prefer reduced motion, add this to a stylesheet every page loads:
 
 ```css [src/styles/global.css]
 @media (prefers-reduced-motion: reduce) {
