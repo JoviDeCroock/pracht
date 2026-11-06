@@ -44,7 +44,7 @@ import DocsEnhancer from "../islands/DocsEnhancer.tsx";
 import DocsSearch from "../islands/DocsSearch.tsx";
 import PageActions from "../islands/PageActions.tsx";
 import { Logo } from "../components/Logo.tsx";
-import { NAV, navContext, type NavIcon } from "../nav.ts";
+import { NAV, navContext, sectionId, type NavIcon } from "../nav.ts";
 import { SITE_NAME, SITE_ORIGIN, absoluteUrl } from "../site.ts";
 import "../styles/global.css";
 import { inter } from "../fonts";
@@ -120,11 +120,6 @@ function Sidebar({ currentPath }: { currentPath: string }) {
   );
 }
 
-/** The first page of a sidebar section, which stands in for the section in breadcrumbs. */
-function sectionHome(label: string): string {
-  return NAV.find((section) => section.label === label)?.links[0]?.href ?? "/docs/getting-started";
-}
-
 function normalizePath(pathname: string): string {
   return pathname.length > 1 ? pathname.replace(/\/$/, "") : pathname;
 }
@@ -162,7 +157,7 @@ export function Shell({ children }: ShellProps) {
           </nav>
           <div class="header-right">
             <DocsSearch client="idle" />
-            <a href={REPO} class="github-link" target="_blank" rel="noopener">
+            <a href={REPO} class="github-link" target="_blank" rel="noopener" aria-label="GitHub">
               <IconBrandGithub size={15} stroke={1.5} />
               <span class="github-label">GitHub</span>
             </a>
@@ -170,9 +165,9 @@ export function Shell({ children }: ShellProps) {
         </div>
       </header>
       <div class="docs-body">
-        <aside id="docs-nav" class="docs-sidebar" popover="auto" aria-label="Documentation">
+        <nav id="docs-nav" class="docs-sidebar" popover="auto" aria-label="Docs">
           <Sidebar currentPath={currentPath} />
-        </aside>
+        </nav>
         <main id="main" class="docs-content" tabIndex={-1}>
           {entry ? (
             <div class="doc-toolbar">
@@ -181,7 +176,7 @@ export function Shell({ children }: ShellProps) {
                 <span class="breadcrumb-sep" aria-hidden="true">
                   /
                 </span>
-                <a href={sectionHome(entry.section)}>{entry.section}</a>
+                <a href={`/docs#${sectionId(entry.section)}`}>{entry.section}</a>
               </nav>
               <PageActions path={currentPath} title={entry.title} client="idle" />
             </div>
@@ -246,7 +241,7 @@ export function head({ url }: { url: URL }) {
             "@type": "ListItem",
             position: 2,
             name: entry.section,
-            item: absoluteUrl(sectionHome(entry.section)),
+            item: absoluteUrl(`/docs#${sectionId(entry.section)}`),
           },
           { "@type": "ListItem", position: 3, name: entry.title, item: canonical },
         ],
@@ -258,9 +253,10 @@ export function head({ url }: { url: URL }) {
     title: `Docs — ${SITE_NAME}`,
     meta: [
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { name: "theme-color", content: "#09090b" },
+      { name: "theme-color", content: "#09090b", media: "(prefers-color-scheme: dark)" },
+      { name: "theme-color", content: "#ffffff", media: "(prefers-color-scheme: light)" },
       { property: "og:site_name", content: SITE_NAME },
-      { property: "og:type", content: "article" },
+      { property: "og:type", content: entry ? "article" : "website" },
       // Only real pages are canonical; the 404 page and redirects are not.
       ...(entry ? [{ property: "og:url", content: canonical }] : []),
       { property: "og:image", content: `${SITE_ORIGIN}/og.png` },

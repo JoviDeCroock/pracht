@@ -186,5 +186,5 @@ commands and [Adapters](/docs/adapters) for what each adapter emits.
 - [Rendering modes](/docs/rendering): choose SSR, SSG, ISG, or SPA per route.
 - [Data loading](/docs/data-loading): fetch data in loaders and handle mutations in API routes.
 - [Adapters](/docs/adapters): deploy to Node.js, Cloudflare Workers, Netlify, Vercel, or a static host.
-- [Capabilities](/docs/agents): expose typed operations to agents and to your own UI.
+- [Agents overview](/docs/agents): expose typed operations to agents and to your own UI.
 - [Coding agents](/docs/coding-agents#the-docs-mcp-server): connect a coding agent to these docs with `claude mcp add --transport http pracht-docs https://pracht.resynapse.dev/mcp`.

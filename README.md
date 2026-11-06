@@ -121,7 +121,7 @@ The starter gives you:
 
 Pracht is built to be operated by coding agents as much as by humans — and for the humans reviewing what agents produce:
 
-- **Provable changes** — a committed app-graph snapshot (`.pracht/app-graph.json`) plus `pracht plan` gives reviewers an intent-level diff of routes, render modes, shells, middleware, and API endpoints; `pracht report` turns it into the factual half of a PR description. See [Coding agents](https://pracht.resynapse.dev/docs/coding-agents#the-route-graph-lockfile).
+- **Provable changes** — a committed app-graph snapshot (`.pracht/app-graph.json`) plus `pracht plan` gives reviewers an intent-level diff of routes, render modes, shells, middleware, and API endpoints; `pracht report` turns it into the factual half of a PR description. See [Coding agents](https://pracht.resynapse.dev/docs/coding-agents#the-app-graph-snapshot).
 - **Machine-enforced invariants** — `defineApp({ constraints })` declares rules like `requireMiddleware("/app/**", "auth")` that `pracht verify` enforces deterministically, so no author (human or LLM) can merge a violation.
 - **MCP server** — `pracht dev-mcp` starts a stdio [Model Context Protocol](https://modelcontextprotocol.io) server so agents can natively inspect the resolved app graph, run doctor/verify diagnostics, diff and snapshot the graph (plan/report), read the authoring guide (get_docs), and scaffold routes, shells, middleware, and API handlers. See [the authoring MCP server](https://pracht.resynapse.dev/docs/coding-agents#the-authoring-mcp-server) for registration and tools.
 - **Authoring guide for agents** — `pracht llms --write` drops the framework's conventions into `llms.txt` so any coding agent picks them up.

@@ -14,7 +14,7 @@ Connect a coding agent to the pracht docs first, then to your own app:
 
 None of these ship in your deployed app. For the tools your deployed app serves to *its* users' agents, see [Remote MCP](/docs/capabilities#remote-mcp-tools-for-agents-without-a-browser).
 
-The rest of the page covers the checks that make an agent's change reviewable: [constraints](#constraints), the [app-graph snapshot](#the-route-graph-lockfile), [PR reports](#pr-reports-from-machine-truth), and [generated smoke tests](#generated-smoke-tests).
+The rest of the page covers the checks that make an agent's change reviewable: [constraints](#constraints), the [app-graph snapshot](#the-app-graph-snapshot), [PR reports](#pr-reports-from-machine-truth), and [generated smoke tests](#generated-smoke-tests).
 
 ## The docs MCP server
 
@@ -103,7 +103,7 @@ Every tool accepts an optional `cwd` (absolute path to the app root), defaulting
 | --- | --- | --- |
 | `doctor` | — | Wiring diagnostics with per-check status |
 | `verify` | `changed?` | Verification results, including [constraints](#constraints) and snapshot freshness |
-| `plan` | `base?` (default `origin/main`), `write?` | The [app-graph diff](#the-route-graph-lockfile), with `widensAgentSurface`. `write: true` refreshes the snapshot |
+| `plan` | `base?` (default `origin/main`), `write?` | The [app-graph diff](#the-app-graph-snapshot), with `widensAgentSurface`. `write: true` refreshes the snapshot |
 | `report` | `base?` | [PR-ready markdown](#pr-reports-from-machine-truth) |
 | `typegen` | `check?` | Regenerates typed routes and capability types; `check: true` only reports staleness |
 | `eval` | `url`, `files?` | Runs eval scenarios against an app you already started |
@@ -191,7 +191,7 @@ Patterns match route paths segment by segment: `*` matches one segment, a traili
 
 Pages-router apps export `constraints` from the root `src/pages/_app.config.ts`. A changed constraint appears in the `pracht plan` diff.
 
-## The route-graph lockfile
+## The app-graph snapshot
 
 Run `pracht plan --write` to snapshot the resolved app graph to `.pracht/app-graph.json`, and commit it like a lockfile:
 

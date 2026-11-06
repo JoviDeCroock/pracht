@@ -11,13 +11,13 @@ This recipe adds password login: an encrypted session cookie, a middleware gate 
 ## 1. Install
 
 ```bash
-npm install @pracht/session
+pnpm add @pracht/session
 ```
 
-Generate a secret, add it to `.env`, and confirm `.env*` is gitignored:
+Generate a secret into `.env`, and confirm `.env*` is gitignored:
 
 ```bash
-SESSION_SECRET="$(openssl rand -base64 32)"
+echo "SESSION_SECRET=$(openssl rand -base64 32)" >> .env
 ```
 
 `createSessionStorage()` throws if any secret is shorter than 16 characters.
@@ -457,7 +457,11 @@ const ALLOWED = new Set<string>([
 ]);
 
 export const middleware: MiddlewareFn = ({ request, url }, next) => {
-  if (!UNSAFE.has(request.method)) return next();
+  // WebSocket upgrades are GETs that carry the user's cookies, so they are
+  // checked too: `requireSameOrigin: false` also turns off the built-in
+  // upgrade check.
+  const upgrade = request.headers.has("upgrade");
+  if (!UNSAFE.has(request.method) && !upgrade) return next();
 
   const origin = request.headers.get("origin");
   if (origin === null) {

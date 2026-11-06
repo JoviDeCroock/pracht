@@ -19,6 +19,13 @@ export default function DocsEnhancer(_props: IslandProps) {
       if (top > sidebar.clientHeight - 80) sidebar.scrollTop = top - sidebar.clientHeight / 3;
     }
 
+    // Copy buttons change their own text, which screen readers do not
+    // announce; this status region does.
+    const status = document.createElement("div");
+    status.className = "sr-only";
+    status.setAttribute("role", "status");
+    document.body.append(status);
+
     const onClick = async (event: MouseEvent) => {
       const button = (event.target as Element | null)?.closest<HTMLButtonElement>(".code-copy");
       if (!button) return;
@@ -26,8 +33,10 @@ export default function DocsEnhancer(_props: IslandProps) {
       try {
         await navigator.clipboard.writeText(code.replace(/\n$/, ""));
         button.textContent = "Copied";
+        status.textContent = "Code copied";
       } catch {
         button.textContent = "Failed";
+        status.textContent = "Copy failed";
       }
       setTimeout(() => (button.textContent = "Copy"), 1600);
     };
@@ -71,6 +80,7 @@ export default function DocsEnhancer(_props: IslandProps) {
     return () => {
       document.removeEventListener("click", onClick);
       observer?.disconnect();
+      status.remove();
     };
   }, []);
 

@@ -1,4 +1,4 @@
-import { NAV } from "../../nav";
+import { NAV, sectionId } from "../../nav";
 import { SITE_NAME, absoluteUrl } from "../../site";
 
 const START = [
@@ -46,7 +46,7 @@ export function Component() {
         </ul>
         {NAV.map((section) => (
           <section key={section.label} class="docs-home-section">
-            <h2 id={section.label.toLowerCase().replace(/\s+/g, "-")}>{section.label}</h2>
+            <h2 id={sectionId(section.label)}>{section.label}</h2>
             <ul>
               {section.links.map((link) => (
                 <li key={link.href}>

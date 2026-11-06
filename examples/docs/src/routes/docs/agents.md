@@ -21,7 +21,7 @@ Agents that edit your source code are a separate audience; see [Coding agents](/
 
 ## Define a capability
 
-Write each operation once as a capability and register it in `defineApp({ capabilities })`, next to your routes:
+Install `@pracht/capabilities` (`pnpm add @pracht/capabilities`), write each operation once as a capability, and register it in `defineApp({ capabilities })`, next to your routes:
 
 ```ts [src/capabilities/book-appointment.ts]
 import { defineCapability } from "@pracht/capabilities";

@@ -142,7 +142,7 @@ Every subcommand accepts `--json` for machine-readable output.
 - Pages-router apps get route files in `src/pages/`. Capabilities are discovered from `src/capabilities/`, so the module declares its own `name`.
 - In pages mode, `generate middleware --name _middleware` scaffolds the root `src/pages/_middleware.ts`, the only middleware seam; it needs a serverful adapter. `generate shell` is manifest-only; pages apps add an `_app.tsx` to the directory it should wrap.
 
-`generate route` also writes a Playwright smoke test to `e2e/<route-id>.spec.ts` when the app has a Playwright setup. `--test` forces it and `--no-test` skips it. See [Generated Smoke Tests](/docs/coding-agents#generated-smoke-tests).
+`generate route` also writes a Playwright smoke test to `e2e/<route-id>.spec.ts` when the app has a Playwright setup. `--test` forces it and `--no-test` skips it. See [Generated smoke tests](/docs/coding-agents#generated-smoke-tests).
 
 > [!NOTE]
 > Git Bash/MSYS on Windows may rewrite a leading `/` in `--path /dashboard` into a Windows path. Use PowerShell or CMD, or set `MSYS_NO_PATHCONV=1` when invoking the `pracht` binary directly.
@@ -231,7 +231,7 @@ pracht plan --json
 pracht plan --markdown
 ```
 
-A `!` marks a capability change that widens what agents can reach. `pracht verify` fails when the committed snapshot is stale; run `pracht plan --write` to refresh it. See [The Route-Graph Lockfile](/docs/coding-agents#the-route-graph-lockfile) for the workflow.
+A `!` marks a capability change that widens what agents can reach. `pracht verify` fails when the committed snapshot is stale; run `pracht plan --write` to refresh it. See [the app-graph snapshot](/docs/coding-agents#the-app-graph-snapshot) for the workflow.
 
 ## pracht verify
 
@@ -277,7 +277,7 @@ pracht report
 pracht report --base origin/release --out report.md
 ```
 
-`--base` sets the git ref (default `origin/main`); `--out` writes to a file instead of stdout. See [PR Reports from Machine Truth](/docs/coding-agents#pr-reports-from-machine-truth).
+`--base` sets the git ref (default `origin/main`); `--out` writes to a file instead of stdout. See [PR reports from machine truth](/docs/coding-agents#pr-reports-from-machine-truth).
 
 ## pracht eval
 
@@ -351,7 +351,7 @@ pracht dev-mcp
 
 It gives the agent writing your code your app's *graph*: docs, inspection, doctor, verify, plan, report, typegen, eval, and generators. Register it as a local MCP server in your client rather than running it by hand; it runs until the client disconnects. `pracht mcp` is a deprecated alias that prints a notice to stderr.
 
-This is not your app's own [remote MCP endpoint](/docs/capabilities#remote-mcp-tools-for-agents-without-a-browser), which serves your app's *operations* to end-user agents in production. See [The Authoring MCP Server](/docs/coding-agents#the-authoring-mcp-server) for client registration and the tool reference.
+This is not your app's own [remote MCP endpoint](/docs/capabilities#remote-mcp-tools-for-agents-without-a-browser), which serves your app's *operations* to end-user agents in production. See [the authoring MCP server](/docs/coding-agents#the-authoring-mcp-server) for client registration and the tool reference.
 
 ## pracht skills
 
@@ -365,7 +365,7 @@ pracht skills list
 pracht skills add audit-loaders add-db
 ```
 
-`create-pracht` seeds four core skills; `pracht skills add` installs others. See [Context Cost](/docs/coding-agents#context-cost) for why the default set is small.
+`create-pracht` seeds four core skills; `pracht skills add` installs others. See [Context cost](/docs/coding-agents#context-cost) for why the default set is small.
 
 | Flag | Effect |
 | --- | --- |

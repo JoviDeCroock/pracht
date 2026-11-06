@@ -973,6 +973,7 @@ code:not(.code-block code) {
 
 .sidebar-nav {
   display: flex;
+  padding: 0;
   flex-direction: column;
   gap: 1px;
   list-style: none;
@@ -1640,12 +1641,63 @@ h4:hover > .heading-anchor,
 }
 
 /* ── Responsive ─────────────────────────────────────────── */
+.doc-toc-inline {
+  display: none;
+  margin: -12px 0 28px;
+  border: 1px solid var(--border-l);
+  border-radius: var(--r-md);
+  font-size: 13.5px;
+}
+
+.doc-toc-inline summary {
+  padding: 10px 14px;
+  color: var(--text-2);
+  font-weight: 550;
+  cursor: pointer;
+}
+
+.doc-toc-inline ul {
+  list-style: none;
+  padding: 0 14px 12px !important;
+  margin: 0 !important;
+}
+
+.doc-toc-inline li {
+  margin: 0;
+}
+
+.doc-toc-inline a {
+  display: block;
+  padding: 3px 0;
+  color: var(--text-3);
+  text-decoration: none !important;
+}
+
+.doc-toc-inline .toc-depth-3 a {
+  padding-left: 14px;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 @media (max-width: 1180px) {
   .doc-page {
     grid-template-columns: minmax(0, 760px);
   }
   .doc-toc {
     display: none;
+  }
+  .doc-toc-inline {
+    display: block;
   }
 }
 

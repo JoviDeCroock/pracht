@@ -20,7 +20,11 @@ input validation → middleware chain → run() → output validation → audit 
 
 ## Register capabilities
 
-Add each capability to `defineApp({ capabilities })`, like shells and middleware. Then list the page tools each route offers:
+Install the package, then add each capability to `defineApp({ capabilities })`, like shells and middleware. Then list the page tools each route offers:
+
+```sh
+pnpm add @pracht/capabilities
+```
 
 ```ts [src/routes.ts]
 import { defineApp, route } from "@pracht/core";
@@ -460,7 +464,7 @@ export const app = defineApp({
 
 `resource` must be the endpoint's exact, deployed URL, including any deploy base: HTTPS (HTTP only on loopback), no query, fragment, or trailing slash. Requests to any other spelling of the endpoint are redirected to it with `308`. `pracht verify` names any problem in the `auth` block.
 
-`verify` is a module reference, so the verifier never reaches the client bundle; its module must default-export a function. [`pracht plan`](/docs/coding-agents#the-route-graph-lockfile) flags removing a required scope, trusting another authorization server, or removing `auth` as a guard weakening.
+`verify` is a module reference, so the verifier never reaches the client bundle; its module must default-export a function. [`pracht plan`](/docs/coding-agents#the-app-graph-snapshot) flags removing a required scope, trusting another authorization server, or removing `auth` as a guard weakening.
 
 #### The metadata document
 

@@ -95,9 +95,9 @@ function createRenderer(): Renderer {
     const seen = usedSlugs.get(base) ?? 0;
     usedSlugs.set(base, seen + 1);
     const id = seen === 0 ? base : `${base}-${seen}`;
-    // An empty, labelled permalink keeps the heading text unchanged for the
-    // docs index, which reads it back from this HTML.
-    return `<h${depth} id="${id}">${inner}<a class="heading-anchor" href="#${id}" aria-label="Link to this section"></a></h${depth}>`;
+    // An empty permalink keeps the heading text (and its accessible name)
+    // unchanged; the docs index reads the text back from this HTML.
+    return `<h${depth} id="${id}">${inner}<a class="heading-anchor" href="#${id}" aria-hidden="true" tabindex="-1"></a></h${depth}>`;
   };
 
   renderer.code = function ({ text, lang }: { text: string; lang?: string }) {
@@ -168,15 +168,24 @@ function buildDocPage(fm: Frontmatter, contentHtml: string): string {
   article.push(contentHtml);
 
   const toc = tableOfContents(contentHtml);
+  const items = toc
+    .map(
+      (entry) =>
+        `<li class="toc-depth-${entry.depth}"><a href="#${entry.id}">${entry.text}</a></li>`,
+    )
+    .join("");
   const rail =
     toc.length >= 2
-      ? `<nav class="doc-toc" aria-label="On this page"><p class="doc-toc-title">On this page</p><ul>${toc
-          .map(
-            (entry) =>
-              `<li class="toc-depth-${entry.depth}"><a href="#${entry.id}">${entry.text}</a></li>`,
-          )
-          .join("")}</ul></nav>`
+      ? `<nav class="doc-toc" aria-label="On this page"><p class="doc-toc-title">On this page</p><ul>${items}</ul></nav>`
       : "";
+  // Below the rail's breakpoint the outline collapses above the content.
+  if (toc.length >= 2) {
+    article.splice(
+      fm.lead ? 2 : 1,
+      0,
+      `<details class="doc-toc-inline"><summary>On this page</summary><ul>${items}</ul></details>`,
+    );
+  }
 
   return `<article class="doc-article">${article.join("\n")}</article>${rail}`;
 }

@@ -77,10 +77,19 @@ export default function PageActions({ path, title }: PageActionsProps & IslandPr
         type="button"
         class="page-action"
         onClick={copyPage}
-        aria-label={`Copy the ${title} page as Markdown`}
+        title={`Copy ${title} as Markdown`}
       >
         {copied === "page" ? "Copied" : copied === "error" ? "Copy failed" : "Copy page"}
       </button>
+      <span class="sr-only" role="status">
+        {copied === "page"
+          ? `${title} copied as Markdown`
+          : copied === "mcp"
+            ? "MCP install command copied"
+            : copied === "error"
+              ? "Copy failed"
+              : ""}
+      </span>
       <details ref={menu} class="page-actions-menu">
         <summary class="page-action" aria-label="More page actions">
           <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">

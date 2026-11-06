@@ -66,6 +66,7 @@ export const NAV: readonly NavSection[] = [
       { href: "/docs/why-pracht", title: "Why pracht", icon: "sparkles" },
       { href: "/docs/demo-comparison", title: "Example app tour", icon: "presentation" },
       { href: "/docs/examples", title: "Examples", icon: "apps" },
+      { href: "/docs/migrate/nextjs", title: "Migrate from Next.js", icon: "refresh" },
     ],
   },
   {
@@ -103,8 +104,6 @@ export const NAV: readonly NavSection[] = [
     links: [
       { href: "/docs/deployment", title: "Deployment", icon: "cloud" },
       { href: "/docs/adapters", title: "Adapters", icon: "plug" },
-      { href: "/docs/cli", title: "CLI", icon: "terminal" },
-      { href: "/docs/migrate/nextjs", title: "Migrate from Next.js", icon: "refresh" },
     ],
   },
   {
@@ -140,11 +139,17 @@ export const NAV: readonly NavSection[] = [
     llms: "/llms-reference.txt",
     links: [
       { href: "/docs/reference/api", title: "API", icon: "book" },
+      { href: "/docs/cli", title: "CLI", icon: "terminal" },
       { href: "/docs/reference/config", title: "Configuration", icon: "adjustments" },
       { href: "/docs/reference/i18n", title: "i18n", icon: "language" },
     ],
   },
 ];
+
+/** The anchor of a section on the docs home page (`/docs#core-concepts`). */
+export function sectionId(label: string): string {
+  return label.toLowerCase().replace(/\s+/g, "-");
+}
 
 export interface NavEntry extends NavLink {
   section: string;
