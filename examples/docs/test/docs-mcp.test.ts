@@ -156,6 +156,15 @@ describe("docs_search", () => {
     ]);
   });
 
+  it("finds two-character product names", () => {
+    // `D1`, `R2`, and `KV` are whole queries people type; dropping every
+    // short word made them return nothing.
+    for (const query of ["D1", "R2", "KV"]) {
+      const pages = searchDocs(index, query, 5).results.map((result) => result.page);
+      expect(pages, query).toContain("/docs/recipes/fullstack-cloudflare");
+    }
+  });
+
   it("explains a query with nothing searchable", () => {
     for (const query of ["how is the", "a b c", "!!!", "   ", ".*(", "[a-z]+$", "\u0000", "🙂"]) {
       expect(searchDocs(index, query, 5)).toEqual({ results: [], message: NO_SEARCHABLE_WORDS });

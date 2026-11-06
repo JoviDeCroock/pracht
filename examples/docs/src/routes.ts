@@ -19,6 +19,11 @@ export const app = defineApp({
         "Documentation for pracht, a full-stack Preact framework. Search with docs_search, then read a page or one section with docs_read. docs_list is the table of contents.",
     },
   },
+  notFound: {
+    component: () => import("./routes/not-found.tsx"),
+    shell: "docs",
+    hydration: "islands",
+  },
   routes: [
     group({ shell: "home" }, [
       route("/", () => import("./routes/home.tsx"), { id: "home", render: "ssg" }),

@@ -8,6 +8,17 @@ import { useEffect } from "preact/hooks";
  */
 export default function DocsEnhancer(_props: IslandProps) {
   useEffect(() => {
+    // Keep the current page visible in a long sidebar.
+    const sidebar = document.querySelector<HTMLElement>(".docs-sidebar");
+    const current = sidebar?.querySelector<HTMLElement>('[aria-current="page"]');
+    if (sidebar && current) {
+      const top =
+        current.getBoundingClientRect().top -
+        sidebar.getBoundingClientRect().top +
+        sidebar.scrollTop;
+      if (top > sidebar.clientHeight - 80) sidebar.scrollTop = top - sidebar.clientHeight / 3;
+    }
+
     const onClick = async (event: MouseEvent) => {
       const button = (event.target as Element | null)?.closest<HTMLButtonElement>(".code-copy");
       if (!button) return;

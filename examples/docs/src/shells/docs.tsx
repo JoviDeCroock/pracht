@@ -261,7 +261,8 @@ export function head({ url }: { url: URL }) {
       { name: "theme-color", content: "#09090b" },
       { property: "og:site_name", content: SITE_NAME },
       { property: "og:type", content: "article" },
-      { property: "og:url", content: canonical },
+      // Only real pages are canonical; the 404 page and redirects are not.
+      ...(entry ? [{ property: "og:url", content: canonical }] : []),
       { property: "og:image", content: `${SITE_ORIGIN}/og.png` },
       { property: "og:image:width", content: "1200" },
       { property: "og:image:height", content: "630" },
@@ -269,7 +270,7 @@ export function head({ url }: { url: URL }) {
       { name: "twitter:image", content: `${SITE_ORIGIN}/og.png` },
     ],
     link: [
-      { rel: "canonical", href: canonical },
+      ...(entry ? [{ rel: "canonical", href: canonical }] : []),
       { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" },
       // The docs index for agents, advertised the same way the homepage's
       // `Link` header does.
