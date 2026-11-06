@@ -80,7 +80,7 @@ declare module "@pracht/core" {
 Middleware wraps the rest of the request through `next()`, so one `try / catch / finally` sees the final status and any thrown error from every loader, API handler, and inner middleware:
 
 ```ts [src/middleware/request-log.ts]
-import type { MiddlewareFn } from "@pracht/core";
+import { PrachtHttpError, type MiddlewareFn } from "@pracht/core";
 
 export const middleware: MiddlewareFn = async (
   { context, request, route, url, waitUntil },
@@ -98,11 +98,12 @@ export const middleware: MiddlewareFn = async (
     throw error;
   } finally {
     const durationMs = Math.round(performance.now() - startedAt);
-    const status = response?.status ?? 500;
+    const status = statusOf(response, thrown);
 
     context.logger.event({
       durationMs,
-      error: serializeError(thrown),
+      // Redirects and 4xx answers are outcomes, not failures.
+      error: status >= 500 ? serializeError(thrown) : undefined,
       method: request.method,
       path: url.pathname,
       requestId: context.requestId,
@@ -114,6 +115,16 @@ export const middleware: MiddlewareFn = async (
     waitUntil(context.logger.flush());
   }
 };
+
+/** The status pracht answers with for what `next()` returned or threw. */
+function statusOf(response: Response | undefined, thrown: unknown): number {
+  if (response) return response.status;
+  // `throw redirect(...)` from an API handler or middleware: sent as-is.
+  if (thrown instanceof Response) return thrown.status;
+  // `throw notFound()` and other `PrachtHttpError`s keep their status.
+  if (thrown instanceof PrachtHttpError) return thrown.status;
+  return 500;
+}
 
 function serializeError(error: unknown) {
   if (!error) return undefined;
@@ -149,7 +160,7 @@ export const app = defineApp({
 });
 ```
 
-Request `/dashboard`: your sink receives one record with `route: "/dashboard"`, the status, and the duration. A loader that throws produces a record with `status: 500` and the serialized error.
+Request `/dashboard`: your sink receives one record with `route: "/dashboard"`, the status, and the duration. A loader that throws `redirect()` logs the 3xx and `throw notFound()` logs 404, both without an error; any other throw logs `status: 500` with the serialized error.
 
 pracht turns loader and handler errors into responses inside its runtime. To observe the outer HTTP cycle, including framework-internal failures, wrap the adapter's server instead.
 
@@ -158,7 +169,7 @@ pracht turns loader and handler errors into responses inside its runtime. To obs
 In a [pages router](/docs/routing) app, `src/pages/_middleware.ts` wraps every page route with the same `MiddlewareFn`. It does not wrap API routes, capability HTTP endpoints, or `/mcp`, so log those with a higher-order handler:
 
 ```ts [src/lib/with-request-logging.ts]
-import type { ApiRouteHandler } from "@pracht/core";
+import { PrachtHttpError, type ApiRouteHandler } from "@pracht/core";
 
 export function withRequestLogging(handler: ApiRouteHandler): ApiRouteHandler {
   return async (args) => {
@@ -173,14 +184,18 @@ export function withRequestLogging(handler: ApiRouteHandler): ApiRouteHandler {
       thrown = error;
       throw error;
     } finally {
+      // A thrown redirect or `notFound()` answers with its own status.
+      const status =
+        response?.status ??
+        (thrown instanceof Response || thrown instanceof PrachtHttpError ? thrown.status : 500);
       args.context.logger.event({
         durationMs: Math.round(performance.now() - startedAt),
-        error: thrown ? String(thrown) : undefined,
+        error: status >= 500 && thrown ? String(thrown) : undefined,
         method: args.request.method,
         path: args.url.pathname,
         requestId: args.context.requestId,
         route: args.route.path,
-        status: response?.status ?? 500,
+        status,
       });
       // Ship the events after the response instead of blocking it.
       args.waitUntil(args.context.logger.flush());

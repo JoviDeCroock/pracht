@@ -117,7 +117,17 @@ Present the plan as a table:
 ## Step 5: Confirm, then apply
 
 Use `AskUserQuestion` before touching anything when breaking migrations are
-required: confirm the target versions and which migrations to apply. Then:
+required: confirm the target versions and which migrations to apply.
+
+Start from a clean tree so the upgrade can be undone without touching the
+user's own work:
+
+```bash
+git status --porcelain        # must print nothing
+```
+
+If it prints anything, ask the user to commit or `git stash push -u` their
+changes first; never upgrade on top of unrelated edits. Then:
 
 ```bash
 pnpm up '@pracht/core@<v>' '@pracht/cli@<v>' '@pracht/vite-plugin@<v>' <adapters...>
@@ -128,6 +138,10 @@ agreed code migrations with minimal diffs, one changelog entry at a time.
 Then read the page behind each changed API with `pracht docs <topic>`, which
 serves the docs bundled with the newly installed CLI. A CLI without that
 command predates it; use https://pracht.resynapse.dev/llms.txt instead.
+
+Keep the whole upgrade, including fixes made during Step 6, in one dedicated
+commit when the user agrees to commits. Otherwise record it as a patch:
+`git add -A && git diff --cached --binary > ../pracht-upgrade.patch`.
 
 ## Step 6: Verification ladder
 
@@ -156,9 +170,15 @@ If the ladder cannot be made green, roll back rather than shipping a
 half-upgrade:
 
 ```bash
-git restore package.json pnpm-lock.yaml && pnpm install
-git checkout -- <migrated files>   # or revert the upgrade commit
+git revert --no-edit <upgrade-commit>          # committed upgrade
+git apply -R --index ../pracht-upgrade.patch   # recorded patch
+pnpm install
 ```
+
+Both undo only the upgrade's own changes; never `git restore` or
+`git checkout --` whole files, which also erases the user's edits to them. If
+the reverse patch does not apply cleanly, stop and ask. Then `git stash pop`
+if Step 5 stashed.
 
 Because internal ranges stop at the minor, a *partial* rollback (one package
 back, the rest forward) hits the peer conflicts or duplicate core from Step 2 —

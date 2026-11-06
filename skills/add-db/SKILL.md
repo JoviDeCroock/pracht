@@ -30,13 +30,15 @@ MCP: if `pracht dev-mcp` is registered, prefer its `inspect_*`, `generate_*`, `d
 ## Step 1: Pick the target
 
 Ask with `AskUserQuestion`, then **cross-check against the project's adapter**
-(`pracht inspect build --json`) and flag mismatches — `node-postgres` on
-Cloudflare Workers will not work.
+(`pracht inspect build --json`) and flag mismatches. On Cloudflare Workers,
+TCP drivers (`pg`, `postgres`) need a Hyperdrive binding plus
+`compatibility_flags = ["nodejs_compat"]` in the wrangler config; without
+Hyperdrive, use an HTTP/WebSocket driver (Neon, PlanetScale, Turso) or D1.
 
 | Provider                         | Driver import                                | Extra package | Runtimes |
 | -------------------------------- | -------------------------------------------- | ------------- | -------- |
 | Cloudflare D1                    | `drizzle-orm/d1`                             | — (Workers binding) | Edge |
-| Cloudflare Hyperdrive (Postgres) | `drizzle-orm/postgres-js` or `node-postgres` | `postgres` / `pg` | Edge (binding) |
+| Cloudflare Hyperdrive (Postgres) | `drizzle-orm/postgres-js` or `node-postgres` | `postgres` / `pg` | Workers (Hyperdrive + `nodejs_compat`) |
 | PlanetScale                      | `drizzle-orm/planetscale-serverless`         | `@planetscale/database` | Node + edge |
 | Neon                             | `drizzle-orm/neon-serverless` or `neon-http` | `@neondatabase/serverless` | Node + edge |
 | Supabase Postgres                | `drizzle-orm/postgres-js`                    | `postgres` | Node + edge (HTTP) |

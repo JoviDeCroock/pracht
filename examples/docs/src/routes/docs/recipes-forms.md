@@ -125,19 +125,79 @@ export async function POST({ request }: ApiRouteArgs) {
         status: 400,
       });
     }
-    // No JS to render the errors, so hand them back through the URL and let
-    // the route's loader put them on the page.
-    return redirect(`/contact?invalid=${Object.keys(errors).join(",")}`, { request });
+    // No JS to render the errors, so hand them and the input back through
+    // the URL and let the route's loader put them on the page.
+    const query = new URLSearchParams({ invalid: Object.keys(errors).join(","), name, email });
+    return redirect(`/contact?${query}`, { request });
   }
 
   await sendContactEmail({ name, email, message });
-  return enhanced ? Response.json({ ok: true, sent: true }) : redirect("/contact/thanks", {
+  return enhanced ? Response.json({ ok: true, sent: true }) : redirect("/contact?sent=1", {
     request,
   });
 }
 ```
 
-Disable JavaScript and submit: an empty form lands on `/contact?invalid=name,email,message`, and a valid message lands on `/contact/thanks`. The redirect branches are correct for enhanced submissions too, because the client router follows a 3xx.
+Read the outcome in the contact route's loader from `url.searchParams`, and fall back to it when no enhanced result is in state:
+
+```tsx [src/routes/contact.tsx]
+import { Form, type LoaderArgs, type RouteComponentProps } from "@pracht/core";
+import { useState } from "preact/hooks";
+
+const MESSAGES: Record<string, string> = {
+  name: "Name is required",
+  email: "Valid email is required",
+  message: "Message is required",
+};
+
+interface ContactResult {
+  ok: boolean;
+  sent?: boolean;
+  errors?: Record<string, string>;
+  values?: { name?: string; email?: string; message?: string };
+}
+
+export function loader({ url }: LoaderArgs) {
+  const query = url.searchParams;
+  const invalid = (query.get("invalid") ?? "").split(",").filter((field) => field in MESSAGES);
+  return {
+    sent: query.has("sent"),
+    errors: Object.fromEntries(invalid.map((field) => [field, MESSAGES[field]])),
+    values: { name: query.get("name") ?? "", email: query.get("email") ?? "" },
+  };
+}
+
+export function Component({ data }: RouteComponentProps<typeof loader>) {
+  const [result, setResult] = useState<ContactResult | null>(null);
+
+  if (result?.sent ?? data.sent) {
+    return <p class="success">Thanks! We'll be in touch.</p>;
+  }
+
+  const errors = result?.errors ?? data.errors;
+  const values: ContactResult["values"] = result?.values ?? data.values;
+
+  return (
+    <Form method="post" action="/api/contact" onResponse={async (r) => setResult(await r.json())}>
+      <label>
+        Name <input type="text" name="name" value={values?.name} />
+        {errors.name && <span class="field-error">{errors.name}</span>}
+      </label>
+      <label>
+        Email <input type="email" name="email" value={values?.email} />
+        {errors.email && <span class="field-error">{errors.email}</span>}
+      </label>
+      <label>
+        Message <textarea name="message">{values?.message}</textarea>
+        {errors.message && <span class="field-error">{errors.message}</span>}
+      </label>
+      <button type="submit">Send</button>
+    </Form>
+  );
+}
+```
+
+Register `/contact` with `render: "ssr"` so the loader sees each request's query string. Disable JavaScript and submit a form with only a name: the page reloads at `/contact` with an error under email and message, and the name field keeps what you typed. A valid message lands on `/contact?sent=1` and shows the thank-you text. The message body stays out of the URL because query strings end up in browser history and server logs.
 
 If you do not need the no-JS path, keep the JSON-only handler from step 1.
 
