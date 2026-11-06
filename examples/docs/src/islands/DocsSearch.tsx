@@ -115,7 +115,14 @@ export default function DocsSearch(_props: IslandProps) {
   const open = () => {
     dialog.current?.showModal();
     input.current?.select();
-    loadIndex().then(setIndex, () => setFailed(true));
+    setFailed(false);
+    loadIndex().then(
+      (loaded) => {
+        setIndex(loaded);
+        setFailed(false);
+      },
+      () => setFailed(true),
+    );
   };
 
   useEffect(() => {
@@ -142,7 +149,15 @@ export default function DocsSearch(_props: IslandProps) {
 
   useEffect(() => setActive(0), [query]);
 
-  const go = (href: string) => {
+  useEffect(() => {
+    document.getElementById(`search-result-${active}`)?.scrollIntoView({ block: "nearest" });
+  }, [active, results]);
+
+  const go = (href: string, newTab = false) => {
+    if (newTab) {
+      window.open(href, "_blank", "noopener");
+      return;
+    }
     dialog.current?.close();
     location.assign(href);
   };
@@ -158,7 +173,7 @@ export default function DocsSearch(_props: IslandProps) {
       dialog.current?.close();
     } else if (event.key === "Enter" && results[active]) {
       event.preventDefault();
-      go(results[active].href);
+      go(results[active].href, event.metaKey || event.ctrlKey);
     }
   };
 
@@ -191,7 +206,11 @@ export default function DocsSearch(_props: IslandProps) {
           <div class="search-field">
             <input
               ref={input}
-              type="search"
+              type="text"
+              role="combobox"
+              aria-expanded={results.length > 0}
+              aria-autocomplete="list"
+              enterKeyHint="go"
               placeholder="Search the docs"
               value={query}
               onInput={(event) => setQuery((event.target as HTMLInputElement).value)}
@@ -206,27 +225,22 @@ export default function DocsSearch(_props: IslandProps) {
           </div>
           <ul id="search-results" class="search-results" role="listbox" aria-label="Results">
             {results.map((result, position) => (
+              // Options are not links: a listbox owns selection through the
+              // combobox, and Enter or a click navigates. ⌘/Ctrl opens a new tab.
               <li
                 key={result.href}
                 id={`search-result-${position}`}
                 role="option"
                 aria-selected={position === active}
+                onMouseMove={() => setActive(position)}
+                onClick={(event) => go(result.href, event.metaKey || event.ctrlKey)}
               >
-                <a
-                  href={result.href}
-                  onMouseMove={() => setActive(position)}
-                  onClick={(event) => {
-                    event.preventDefault();
-                    go(result.href);
-                  }}
-                >
-                  <span class="search-result-path">
-                    {result.section ? `${result.section} › ` : ""}
-                    {result.page}
-                  </span>
-                  <span class="search-result-heading">{result.heading || result.page}</span>
-                  <span class="search-result-snippet">{result.snippet}</span>
-                </a>
+                <span class="search-result-path">
+                  {result.section ? `${result.section} › ` : ""}
+                  {result.page}
+                </span>
+                <span class="search-result-heading">{result.heading || result.page}</span>
+                <span class="search-result-snippet">{result.snippet}</span>
               </li>
             ))}
           </ul>

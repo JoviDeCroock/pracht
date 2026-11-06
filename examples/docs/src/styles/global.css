@@ -1120,15 +1120,16 @@ kbd {
   display: none;
 }
 
-.search-results a {
+.search-results [role="option"] {
   display: grid;
   gap: 2px;
   padding: 9px 12px;
   border-radius: var(--r-md);
   color: var(--text-2);
+  cursor: pointer;
 }
 
-.search-results [aria-selected="true"] a {
+.search-results [aria-selected="true"] {
   background: rgba(139, 92, 246, 0.14);
 }
 
@@ -1814,7 +1815,7 @@ h4:hover > .heading-anchor,
     background: rgba(109, 40, 217, 0.08);
   }
 
-  .docs-layout .search-results [aria-selected="true"] a {
+  .docs-layout .search-results [aria-selected="true"] {
     background: rgba(109, 40, 217, 0.09);
   }
 

@@ -1,4 +1,4 @@
-import { NAV, sectionId } from "../../nav";
+import { NAV, navMarkdown, sectionId } from "../../nav";
 import { SITE_NAME, absoluteUrl } from "../../site";
 
 const START = [
@@ -23,6 +23,12 @@ const START = [
     body: "Connect these docs and your app graph to an agent.",
   },
 ];
+
+/** `/docs.md`: the same table of contents as `/index.md`. */
+export const markdown = navMarkdown(
+  "pracht documentation",
+  "Guides and reference for pracht, a full-stack Preact framework on Vite.",
+);
 
 /** The docs home: start points, then every section of the sidebar. */
 export function Component() {
@@ -88,6 +94,8 @@ export function head() {
       { property: "og:title", content: `Documentation — ${SITE_NAME}` },
       { property: "og:description", content: description },
       { property: "og:url", content: absoluteUrl("/docs") },
+      { name: "twitter:title", content: `Documentation — ${SITE_NAME}` },
+      { name: "twitter:description", content: description },
     ],
     link: [{ rel: "canonical", href: absoluteUrl("/docs") }],
   };

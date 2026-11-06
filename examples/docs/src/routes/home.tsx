@@ -14,32 +14,17 @@ import {
 } from "@tabler/icons-preact";
 import { CodeBlock } from "../components/CodeBlock";
 import { inter } from "../fonts";
-import { NAV } from "../nav";
+import { navMarkdown } from "../nav";
 
 export async function loader() {
   return { version: "0.1.0" };
 }
 
 /** The homepage as Markdown (`/index.md`): the docs table of contents, generated from the sidebar. */
-export const markdown = [
-  "# pracht",
-  "",
+export const markdown = navMarkdown(
+  "pracht",
   "A full-stack Preact framework on Vite. Routes, loaders, API routes, and typed capabilities resolve into one app graph that serves browsers and agents.",
-  "",
-  "Each link is the Markdown version of a docs page. A page URL without `.md` answers the same Markdown to requests sent with `Accept: text/markdown`. https://pracht.resynapse.dev/llms.txt indexes the same pages with one-line summaries.",
-  "",
-  ...NAV.flatMap((section) => [
-    `## ${section.label}`,
-    "",
-    ...section.links.map((link) => `- [${link.title}](${link.href}.md)`),
-    "",
-  ]),
-  "## Tools",
-  "",
-  "- Docs MCP server (Streamable HTTP): `https://pracht.resynapse.dev/mcp` with `docs_search`, `docs_read`, and `docs_list`.",
-  "- Agent skills: `https://pracht.resynapse.dev/.well-known/agent-skills/index.json`.",
-  "",
-].join("\n");
+);
 
 export function head() {
   // The shell registers `inter` too — the head renderer collapses the
@@ -69,7 +54,7 @@ const FEATURES: { Icon: Icon; title: string; desc: string }[] = [
   {
     Icon: IconSitemap,
     title: "One Explicit App Graph",
-    desc: "Routes, loaders, API routes, and capabilities are declared in one typed manifest and resolved into a single graph. Nothing is inferred from folder names, so what runs where is readable by you, by a reviewer, and by a machine.",
+    desc: "Routes, loaders, API routes, and capabilities resolve into one typed app graph, whether you declare pages in a manifest or in a pages directory. The pracht inspect command prints that graph, so what runs where is readable by you, by a reviewer, and by a machine.",
   },
   {
     Icon: IconWorldBolt,

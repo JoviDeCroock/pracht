@@ -151,6 +151,33 @@ export function sectionId(label: string): string {
   return label.toLowerCase().replace(/\s+/g, "-");
 }
 
+/**
+ * A Markdown table of contents: an H1, an introduction, one H2 per section
+ * linking each page's `.md` source, and the agent tools. Served as `/index.md`
+ * and `/docs.md`.
+ */
+export function navMarkdown(title: string, intro: string): string {
+  return [
+    `# ${title}`,
+    "",
+    intro,
+    "",
+    "Each link is the Markdown version of a docs page. A page URL without `.md` answers the same Markdown to requests sent with `Accept: text/markdown`. https://pracht.resynapse.dev/llms.txt indexes the same pages with one-line summaries.",
+    "",
+    ...NAV.flatMap((section) => [
+      `## ${section.label}`,
+      "",
+      ...section.links.map((link) => `- [${link.title}](${link.href}.md)`),
+      "",
+    ]),
+    "## Tools",
+    "",
+    "- Docs MCP server (Streamable HTTP): `https://pracht.resynapse.dev/mcp` with `docs_search`, `docs_read`, and `docs_list`.",
+    "- Agent skills: `https://pracht.resynapse.dev/.well-known/agent-skills/index.json`.",
+    "",
+  ].join("\n");
+}
+
 export interface NavEntry extends NavLink {
   section: string;
 }

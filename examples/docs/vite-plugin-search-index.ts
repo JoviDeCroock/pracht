@@ -13,13 +13,14 @@ import { buildDocsIndexData, type DocsIndexSourceDocument } from "./docs-index-b
 import { NAV_PAGES } from "./src/nav.ts";
 import { plainText } from "./src/server/docs-text.ts";
 
-/** Characters of section text kept per entry: enough to rank and to show a snippet. */
-const TEXT_CHARS = 280;
-
 export interface SearchIndex {
   /** `[path, title, section label]` */
   pages: [string, string, string][];
-  /** `[page, anchor, heading, text]`; anchor `""` is the page introduction. */
+  /**
+   * `[page, anchor, heading, text]`; anchor `""` is the page introduction.
+   * `text` is the whole section, so every identifier in it is searchable
+   * (about 140 KB gzipped, fetched the first time search opens).
+   */
   entries: [number, string, string, string][];
 }
 
@@ -36,7 +37,7 @@ export function buildSearchIndex(documents: readonly DocsIndexSourceDocument[]):
       const { body, lead } = data.pages[page];
       const own = plainText(body.slice(ownStart, ownEnd));
       const text = anchor === "" ? `${plainText(lead)} ${own}`.trim() : own;
-      return [page, anchor, heading, text.slice(0, TEXT_CHARS)];
+      return [page, anchor, heading, text];
     },
   );
   return { pages, entries };
