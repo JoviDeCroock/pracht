@@ -9,7 +9,7 @@
     "standard-schema"
   ],
   "license": "MIT",
-  "homepage": "https://github.com/JoviDeCroock/pracht/tree/main/packages/openapi",
+  "homepage": "https://pracht.resynapse.dev/docs/openapi",
   "bugs": {
     "url": "https://github.com/JoviDeCroock/pracht/issues"
   },

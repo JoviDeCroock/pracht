@@ -12,7 +12,7 @@
     "data-fetching"
   ],
   "license": "MIT",
-  "homepage": "https://github.com/JoviDeCroock/pracht/tree/main/packages/query",
+  "homepage": "https://pracht.resynapse.dev/docs/recipes/tanstack-query",
   "bugs": {
     "url": "https://github.com/JoviDeCroock/pracht/issues"
   },
