@@ -3,9 +3,7 @@ title: Migrate from Next.js
 lead: Move a Next.js App Router project to pracht, with side-by-side examples for routing, layouts, data, rendering, middleware, and APIs.
 ---
 
-## Overview
-
-Next.js and pracht share most concepts, but pracht wires them explicitly. The key differences:
+## Concept map
 
 | Concept         | Next.js (App Router)                  | pracht                                   |
 | --------------- | ------------------------------------- | ---------------------------------------- |
@@ -17,18 +15,16 @@ Next.js and pracht share most concepts, but pracht wires them explicitly. The ke
 | Rendering modes | Per-segment (`dynamic`, `revalidate`) | Per-route (`ssg`, `ssr`, `isg`, `spa`)   |
 | Middleware      | Single `middleware.ts` at root        | Named middleware, per-route or per-group |
 | API routes      | `app/api/**/route.ts`                 | `src/api/**/*.ts`                        |
-| Deployment      | Vercel-first                          | Adapter-based (Node, Cloudflare, Netlify, Vercel) |
-
----
+| Deployment      | Vercel-first                          | Adapters (Node, Cloudflare, Netlify, Vercel, static) |
 
 ## React → Preact
 
-Most React components work in Preact unchanged. The main changes:
+Most React components work in Preact unchanged. Make these changes:
 
-1. **Replace imports** — `react` → `preact` and `react-dom` → `preact/compat`
-2. **`className` → `class`** — Preact supports both, but `class` is idiomatic
-3. **No Server Components** — pracht uses loaders for server-side data, not `async` components
-4. **Hooks** — Import from `preact/hooks` instead of `react`
+1. Import hooks from `preact/hooks` instead of `react`.
+2. Replace `react-dom` imports with `preact/compat`.
+3. Write `class` instead of `className` (Preact accepts both).
+4. Move `async` Server Component data into [loaders](#server-components--loaders).
 
 ```tsx
 // Next.js
@@ -38,16 +34,12 @@ import { useState } from "react";
 import { useState } from "preact/hooks";
 ```
 
-> [!NOTE]
-> If you have a large component library built for React, you can use `preact/compat` as a drop-in alias during migration. Configure it in your `vite.config.ts` with `resolve.alias`.
-
----
+> [!TIP]
+> For a large React component library, alias `react` and `react-dom` to `preact/compat` with `resolve.alias` in `vite.config.ts` during the migration. The compat layer adds about 0.75 KB gzip ([Performance](/docs/performance#what-pracht-costs-a-page)).
 
 ## Routing
 
-### File-system → Manifest
-
-Next.js derives routes from the file system. pracht uses an explicit `src/routes.ts` manifest:
+### File-system → manifest
 
 ```
 # Next.js file structure
@@ -78,29 +70,30 @@ export const app = defineApp({
 });
 ```
 
-URLs are independent of file layout, and shells, middleware, and render modes are visible in one file. If you prefer file-based routing, the [pages router](/docs/routing#pages-router-auto-discovery) derives routes from `src/pages/`.
+URLs do not depend on file layout, and shells, middleware, and render modes are visible in one file. For file-based routing, use the [pages router](/docs/routing#pages-router-auto-discovery), which derives routes from `src/pages/`.
 
-### Dynamic Routes
+### Dynamic routes
 
 | Next.js             | pracht                       |
 | ------------------- | ---------------------------- |
 | `[slug]` folder     | `:slug` in path              |
-| `[...slug]` folder  | `*` catch-all                |
+| `[...slug]` folder  | `*` catch-all, read as `params["*"]` |
 | `(group)` folder    | `group()` call               |
-| `app/not-found.tsx` | `notFound` in `defineApp` — see [Routing](/docs/routing#not-found-page) |
+| `app/not-found.tsx` | `notFound` in `defineApp` (see [Routing](/docs/routing#not-found-page)) |
 
----
+## Layouts → shells
 
-## Layouts → Shells
-
-Next.js uses `layout.tsx` files that nest based on folder structure. pracht uses **named shells** that are explicitly assigned to routes or groups.
+Assign named shells to routes or groups in the manifest instead of nesting `layout.tsx` files. The framework renders `<html>`, `<head>`, and `<body>`, so a shell renders only the layout inside them:
 
 ```tsx
 // Next.js — app/layout.tsx
 export default function RootLayout({ children }) {
   return (
     <html>
-      <body>{children}</body>
+      <body>
+        <nav>…</nav>
+        {children}
+      </body>
     </html>
   );
 }
@@ -112,9 +105,10 @@ import type { ShellProps } from "@pracht/core";
 
 export function Shell({ children }: ShellProps) {
   return (
-    <html>
-      <body>{children}</body>
-    </html>
+    <div class="layout">
+      <nav>…</nav>
+      <main>{children}</main>
+    </div>
   );
 }
 
@@ -123,15 +117,11 @@ export function head() {
 }
 ```
 
-Shells are decoupled from URLs: a flat route like `/settings` can use the `app` shell without living under `/app/settings`.
+A flat route like `/settings` can use the `app` shell without living under `/app/settings`. See [Shells](/docs/shells).
 
----
+## Data fetching → loaders and API routes
 
-## Data Fetching → Loaders & API Routes
-
-### Server Components → Loaders
-
-Next.js uses async Server Components that `fetch` data inline. pracht separates data fetching into `loader` functions:
+### Server Components → loaders
 
 ```tsx
 // Next.js — app/blog/[slug]/page.tsx
@@ -147,7 +137,7 @@ export default async function BlogPost({ params }) {
 
 ```tsx [src/routes/blog-post.tsx]
 // pracht
-import type { LoaderArgs, RouteComponentProps } from "@pracht/core";
+import type { LoaderArgs } from "@pracht/core";
 import { useRouteData } from "@pracht/core";
 
 export async function loader({ params }: LoaderArgs) {
@@ -165,10 +155,9 @@ export default function BlogPost() {
 }
 ```
 
-### Server Actions → API Routes
+### Server Actions → API routes
 
-Next.js Server Actions map cleanly to pracht API routes plus `<Form>` or
-client-side `fetch` calls:
+Replace a Server Action with an API route, called from `<Form>` or `fetch`:
 
 ```tsx
 // Next.js
@@ -207,11 +196,9 @@ export default function NewPost() {
 }
 ```
 
----
+## Head metadata
 
-## Head Metadata
-
-Next.js uses a `metadata` export or `generateMetadata` function. pracht uses a `head` export:
+Replace `metadata` and `generateMetadata` with a `head` export:
 
 ```tsx
 // Next.js
@@ -224,9 +211,7 @@ export async function generateMetadata({ params }) {
 
 ```tsx [src/routes/about.tsx]
 // pracht
-import type { HeadArgs } from "@pracht/core";
-
-export function head({ data }: HeadArgs) {
+export function head() {
   return {
     title: "About Us",
     meta: [{ name: "description", content: "Learn about us" }],
@@ -234,11 +219,11 @@ export function head({ data }: HeadArgs) {
 }
 ```
 
----
+`head()` receives the loader's `data` and the route `params`, so per-page titles read from them.
 
-## Rendering Modes
+## Rendering modes
 
-Next.js controls caching with `export const dynamic` and `revalidate`. pracht sets rendering mode per-route in the manifest:
+Replace `export const dynamic` and `revalidate` with a `render` mode on each route in the manifest:
 
 | Next.js                              | pracht                                   | When to use                     |
 | ------------------------------------ | ---------------------------------------- | ------------------------------- |
@@ -256,11 +241,9 @@ route("/pricing", "./routes/pricing.tsx", {
 });
 ```
 
----
-
 ## Middleware
 
-Next.js uses a single `middleware.ts` file at the project root with path matching. pracht uses **named middleware** assigned per-route or per-group:
+Split the root `middleware.ts` into named middleware and assign it to routes or groups instead of path matchers:
 
 ```ts
 // Next.js — middleware.ts
@@ -293,13 +276,9 @@ group({ middleware: ["auth"], shell: "app" }, [
 ]);
 ```
 
-Groups can compose several named middleware, with no path matchers.
+## API routes
 
----
-
-## API Routes
-
-Both frameworks use file-based API routes. Named HTTP method exports map directly:
+Move handlers from `app/api/` to `src/api/` and return a standard `Response`:
 
 ```ts
 // Next.js — app/api/posts/route.ts
@@ -319,17 +298,11 @@ export async function GET() {
 }
 ```
 
-The main differences:
-
-- pracht uses standard `Response` instead of `NextResponse`
-- Files live in `src/api/` instead of `app/api/`
-- No need for route segment config — middleware is applied via `defineApp({ api: { middleware } })`
-
----
+Apply middleware to every API route with `defineApp({ api: { middleware } })` instead of route segment config.
 
 ## Deployment
 
-Next.js is optimized for Vercel. pracht uses **adapters** to deploy anywhere:
+Pick an adapter in `vite.config.ts`:
 
 ```ts [vite.config.ts]
 import { pracht } from "@pracht/vite-plugin";
@@ -337,30 +310,24 @@ import { nodeAdapter } from "@pracht/adapter-node";
 // or: import { cloudflareAdapter } from "@pracht/adapter-cloudflare";
 // or: import { netlifyAdapter } from "@pracht/adapter-netlify";
 // or: import { vercelAdapter } from "@pracht/adapter-vercel";
+// or: import { staticAdapter } from "@pracht/adapter-static";
 
 export default {
   plugins: [pracht({ adapter: nodeAdapter() })],
 };
 ```
 
-| Target             | Adapter                      | Notes                                |
-| ------------------ | ---------------------------- | ------------------------------------ |
-| Node.js            | `@pracht/adapter-node`       | Node `http` server, ISG revalidation |
-| Cloudflare Workers | `@pracht/adapter-cloudflare` | KV, D1, R2 bindings via context      |
-| Netlify            | `@pracht/adapter-netlify`    | Functions v2, durable CDN caching    |
-| Vercel             | `@pracht/adapter-vercel`     | Edge Functions, Build Output API v3  |
+[Deployment](/docs/deployment) has the build and deploy commands for each target.
 
----
+## Migration checklist
 
-## Migration Checklist
-
-1. **Scaffold a pracht project** — `npm create pracht@latest`
-2. **Move components** — Update imports from `react` to `preact/hooks`, `class` instead of `className`
-3. **Create the route manifest** — Map your `app/` folder structure to `src/routes.ts`
-4. **Convert layouts to shells** — Extract `layout.tsx` files into named shell components
-5. **Extract data fetching into loaders** — Move `async` component logic into `loader` exports
-6. **Convert Server Actions to API routes** — Replace `"use server"` functions with API route handlers plus `<Form>` or `fetch`
-7. **Move middleware** — Split your single `middleware.ts` into named middleware files
-8. **Move API routes** — Copy `app/api/` handlers to `src/api/`, replace `NextResponse` with `Response`
-9. **Choose an adapter** — Pick your deployment target in `vite.config.ts`
-10. **Test** — Run `pracht dev` and verify each route renders correctly
+1. Scaffold a pracht project with `npm create pracht@latest`.
+2. Move components: import hooks from `preact/hooks` and write `class` instead of `className`.
+3. Map your `app/` folder structure to `src/routes.ts`.
+4. Convert `layout.tsx` files into named shells without `<html>` or `<body>`.
+5. Move `async` component data fetching into `loader` exports.
+6. Replace `"use server"` functions with API routes called from `<Form>` or `fetch`.
+7. Split `middleware.ts` into named middleware files.
+8. Copy `app/api/` handlers to `src/api/` and replace `NextResponse` with `Response`.
+9. Pick a deployment adapter in `vite.config.ts`.
+10. Run `pracht dev` and check that each route renders.

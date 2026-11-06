@@ -3,7 +3,7 @@ title: Fonts
 lead: "Self-host fonts with `defineFont()`: generated `@font-face` rules, preload links, and size-matched fallbacks that prevent layout shift."
 ---
 
-## Quick Start
+## Quick start
 
 Put a self-hosted WOFF2 file in `src/fonts/` and import its URL into `defineFont()`:
 
@@ -19,9 +19,9 @@ export const inter = defineFont({
 });
 ```
 
-Vite emits the font as a content-hashed asset and applies your deploy `base` to the imported URL. `?url&no-inline` keeps even small subsets in a separate file, so the preload and `@font-face` use the same URL. Keep `vite/client` in your TypeScript types for asset imports.
+Vite emits the font as a content-hashed asset and applies your deploy `base` to the URL. `?url&no-inline` keeps small subsets in a separate file, so the preload and `@font-face` use the same URL. Keep `vite/client` in your TypeScript types for asset imports.
 
-Register it in a shell (site-wide) or route `head()` via the `fonts` array, and use it in components:
+Register the font in a shell (site-wide) or a route `head()` through the `fonts` array, then apply it in components:
 
 ```tsx [src/shells/public.tsx]
 import { inter } from "../fonts";
@@ -45,11 +45,11 @@ The server expands each font into head HTML, so routes with `hydration: "none"` 
 </style>
 ```
 
-The asset hash in this example represents the filename Vite emits at build time. A changed font gets a new URL; configure your host to cache hashed assets for a year with `Cache-Control: public, max-age=31536000, immutable`.
+`HASH` stands for the content hash Vite adds at build time, so a changed font gets a new URL. Configure your host to cache hashed assets with `Cache-Control: public, max-age=31536000, immutable`.
 
-If you need a stable URL, put the file in `public/fonts/` and set `src: "/fonts/inter-latin.woff2"` instead. Public files keep their names; use revalidation rather than immutable caching when their bytes can change. Preloading helps font discovery; use the fallback metrics below to reduce layout shift.
+For a stable URL, put the file in `public/fonts/` and set `src: "/fonts/inter-latin.woff2"`. Public files keep their names, so serve them with revalidation rather than immutable caching if their bytes can change.
 
-## Using the Font in Components
+## Use the font in components
 
 Every font object exposes three ways to apply it:
 
@@ -70,11 +70,9 @@ export default function Home() {
 }
 ```
 
-`inter.fontFamily` is the full stack including fallbacks, e.g. `"Inter", "Arial", sans-serif`.
+`inter.fontFamily` is the full stack including fallbacks, for example `"Inter", "Arial", sans-serif`.
 
-Importing a font or using its `className` does not register it: list the font
-in the active shell or route `head().fonts`. Client navigation updates the font
-CSS and preload links to match the new route.
+Importing a font or using its `className` does not register it: list the font in the active shell or route `head().fonts`. Client navigation updates the font CSS and preload links to match the new route.
 
 ## Options
 
@@ -97,9 +95,9 @@ defineFont({
 });
 ```
 
-`src` accepts multiple variants of the same face. `woff2` is assumed unless a
-`format` is given. Pracht lists WOFF2 variants first and preloads one source:
-the first WOFF2, or the first variant when there is none.
+An invalid descriptor, such as a malformed `weight`, `unicodeRange`, or metric override, throws when `defineFont()` runs.
+
+`src` accepts several variants of the same face. `woff2` is assumed unless you set `format`. WOFF2 variants are listed first, and one source is preloaded: the first WOFF2, or the first variant when there is none.
 
 ```ts
 defineFont({
@@ -121,13 +119,11 @@ export const interBold = defineFont({ family: "Inter", src: "/fonts/inter-700.wo
 
 ## Deduplication
 
-A font registered by both a shell and a route emits one preload link and one `@font-face` block. Unicode-range subsets of one family still keep a face each.
+Register site-wide fonts in the shell's `head()` and page-specific fonts in the route's `head()`. A font registered by both emits one preload link and one `@font-face` block. Unicode-range subsets of one family keep a face each.
 
-Register site-wide fonts in the shell's `head()` and page-specific fonts in the route's `head()`; overlap is free.
+## Fallback metrics (no layout shift)
 
-## Fallback Metrics (no layout shift)
-
-With `font-display: swap`, text renders in a fallback font first and swaps when the web font loads. If the metrics differ, the page shifts. The metric overrides generate a fallback face that reshapes a local font to match:
+With `font-display: swap`, text renders in a fallback font first and swaps when the web font loads. If the metrics differ, the page shifts. Set the metric overrides to generate a fallback face that reshapes a local font to match:
 
 ```ts
 export const inter = defineFont({
@@ -141,7 +137,7 @@ export const inter = defineFont({
 });
 ```
 
-The extra face needs a real font for `local()`, so it uses the first `fallbacks` entry that is not a generic family (`sans-serif`, `system-ui`, ...) or vendor keyword (`-apple-system`). To pick a different one, point `metricsFallback` at the font the numbers were computed against:
+The generated face needs a real font for `local()`, so it uses the first `fallbacks` entry that is not a generic family (`sans-serif`, `system-ui`, ...) or vendor keyword (`-apple-system`). To choose another, point `metricsFallback` at the font the numbers were computed against:
 
 ```ts
 fallbacks: ["-apple-system", "BlinkMacSystemFont", "Segoe UI", "Arial", "sans-serif"],
@@ -162,21 +158,16 @@ The generated face:
 }
 ```
 
-and the stack becomes `"Inter", "Inter Fallback 1a2b3c", "Arial", sans-serif`.
+The stack becomes `"Inter", "Inter Fallback 1a2b3c", "Arial", sans-serif`.
 
-**Computing the values:** the overrides are ratios of the web font's metrics (`ascent`, `descent`, `lineGap`, per-glyph advance widths) to the fallback font's, expressed as percentages. You can:
+pracht does not read font files, so you supply the override values. They are ratios of the web font's metrics (`ascent`, `descent`, `lineGap`, advance widths) to the fallback font's, as percentages. Get them from:
 
-- copy them from [Fontaine](https://github.com/nuxt-modules/fontaine) or the [fallback metrics tables](https://github.com/seek-oss/capsize/blob/master/packages/metrics/README.md) published by Capsize (`@capsizecss/metrics` has data for common families),
-- or compute them once with `npx fontpie ./public/fonts/inter-latin.woff2 --fallback arial`.
+- [Fontaine](https://github.com/nuxt-modules/fontaine) or the [Capsize fallback metrics](https://github.com/seek-oss/capsize/blob/master/packages/metrics/README.md) (`@capsizecss/metrics` covers common families).
+- `npx fontpie ./public/fonts/inter-latin.woff2 --fallback arial`, run once.
 
-Pracht does not read font files, so you supply these values yourself.
+## Content Security Policy
 
-## Security Notes
-
-Family names and URLs are escaped in the generated CSS. Invalid descriptor values, such as a malformed `weight`, `unicodeRange`, or metric override, throw when `defineFont()` runs.
-
-For a nonce-based Content Security Policy, return the request's nonce as
-`styleNonce` from a shared shell `head()` and include it in `style-src`:
+For a nonce-based policy, return the request's nonce as `styleNonce` from a shared shell `head()` and include it in `style-src`:
 
 ```ts
 export function head({ context }) {
@@ -184,9 +175,6 @@ export function head({ context }) {
 }
 ```
 
-`fontNonce` also works but covers only font styles. Prefer `styleNonce`, which
-also covers `pracht({ inlineCss: true })`.
+`styleNonce` also covers `pracht({ inlineCss: true })`. `fontNonce` covers only font styles.
 
-Under a strict policy, use `font.className` rather than `font.style`: inline
-style attributes need a separate CSP allowance. SSG and ISG pages cannot reuse a
-request nonce, so use a style hash or an external stylesheet policy there.
+Under a strict policy, use `font.className` rather than `font.style`, because inline style attributes need a separate CSP allowance. SSG and ISG pages cannot reuse a request nonce, so use a style hash or an external stylesheet policy there.
