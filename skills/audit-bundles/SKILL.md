@@ -2,11 +2,11 @@
 name: audit-bundles
 version: 1.2.1
 description: |
-  Analyze a pracht production build: client bytes per route, fat vendor chunks,
-  routes shipping large dependencies, and dynamic `import()` / prefetch
-  recommendations.
-  Use for "audit bundles", "why is my JS so big", "bundle size per route", "what's
-  in my vendor chunk", "tune prefetching".
+  Analyze a pracht production build for client bytes per route, heavy vendor
+  chunks, and large dependencies, and recommend code-splitting and prefetch
+  changes.
+  Use for "audit bundles", "why is my JS so big", "bundle size per route",
+  "what's in my vendor chunk".
 allowed-tools:
   - Bash
   - Read
@@ -16,16 +16,14 @@ allowed-tools:
 
 # Pracht Audit Bundles
 
-Pracht performs route-level code splitting via the Vite plugin and emits a
+pracht performs route-level code splitting via the Vite plugin and emits a
 manifest. This skill reads that manifest, sizes each route's client payload,
 and surfaces the worst offenders.
 
 ## Step 1: Build with analysis
 
-MCP: when the pracht MCP server is registered (`pracht dev-mcp`), prefer its
-`inspect_routes`/`inspect_api`/`inspect_build`/`doctor`/`verify` tools over
-shelling out. `pracht inspect` needs the pracht plugin in the vite config.
-`inspect build` needs a prior `pracht build`.
+MCP: if `pracht dev-mcp` is registered, prefer its `inspect_*`, `doctor`, and `verify` tools to the CLI.
+`pracht inspect build` needs a prior `pracht build`.
 
 ```bash
 pracht build --analyze --json
@@ -156,7 +154,7 @@ prefetching first: the router silently stops honouring `route({ prefetch })` and
 ## Step 6b: Chunk-group composition
 
 App-level chunking and pracht's vendor chunk coexist — recommend it freely.
-Pracht reads `build.rollupOptions.output` and contributes its Preact group in
+pracht reads `build.rollupOptions.output` and contributes its Preact group in
 whichever form the app used, so adding a group (to merge the long tail of small
 initial chunks, say) does not cost the framework chunk:
 
@@ -191,7 +189,7 @@ pracht injects per route. Compare `<link rel="stylesheet">` tags in
 that wants Preact inside its own chunks or places `frameworkChunkGroups()`
 itself.
 
-Pracht contributes one group to the **server** build too: each island becomes
+pracht contributes one group to the **server** build too: each island becomes
 its own chunk, so a route that does not fully hydrate can resolve its CSS from
 that build without inheriting the server entry's merged stylesheet. An app that
 configures SSR chunking composes with it the same way the client side does; a

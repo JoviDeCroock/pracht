@@ -3,10 +3,10 @@ name: pracht-deploy
 version: 1.3.0
 description: |
   Configure a pracht adapter and deploy to Node, Cloudflare Workers, Netlify,
-  Vercel, or a pure static host: platform config, build, Docker, production
+  Vercel, or a static host: platform config, build, Docker, and production
   checklist.
   Use for "deploy", "set up deployment", "configure adapter", "deploy to
-  cloudflare/netlify/vercel", "static export", "production build".
+  Cloudflare/Netlify/Vercel", "static export".
 allowed-tools:
   - Bash
   - Read
@@ -26,10 +26,8 @@ adapter if it is missing (`pnpm add @pracht/adapter-*`), run `pracht build` to
 confirm the build succeeds, smoke-test the production runtime, and never push
 to production without explicit confirmation.
 
-MCP: when the pracht MCP server is registered (`pracht dev-mcp`), prefer
-`inspect_build`/`doctor`/`verify` over shelling out. `inspect_build` (like
-`pracht inspect build`) needs a prior `pracht build`; `pracht inspect` needs
-the pracht plugin in the vite config.
+MCP: if `pracht dev-mcp` is registered, prefer its `inspect_*`, `doctor`, and `verify` tools to the CLI.
+`pracht inspect build` needs a prior `pracht build`.
 
 | Target             | Adapter package              | Local smoke test                       |
 | ------------------ | ---------------------------- | -------------------------------------- |
@@ -112,7 +110,7 @@ pracht build && npx wrangler deploy
 ```
 
 ```jsonc
-// wrangler.jsonc — canonical version at examples/cloudflare/wrangler.jsonc
+// wrangler.jsonc
 {
   "name": "my-pracht-app",
   "compatibility_date": "2026-04-06",

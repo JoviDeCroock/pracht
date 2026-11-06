@@ -675,9 +675,10 @@ describe("context budgets", () => {
   });
 
   it.each(skills)("$name keeps its body under the per-invocation budget", (skill) => {
+    const bytes = Buffer.byteLength(skill.raw, "utf-8");
     expect(
-      skill.raw.length,
-      `skills/${skill.name}/SKILL.md is ${skill.raw.length} bytes; the budget is ${MAX_SKILL_BYTES}. A skill is loaded whole on invocation — prefer tables over prose, drop rationale that does not change what the agent does, and keep a trailing "Rules" section only for constraints the steps do not already state.`,
+      bytes,
+      `skills/${skill.name}/SKILL.md is ${bytes} bytes; the budget is ${MAX_SKILL_BYTES}. A skill is loaded whole on invocation — prefer tables over prose, drop rationale that does not change what the agent does, and keep a trailing "Rules" section only for constraints the steps do not already state.`,
     ).toBeLessThanOrEqual(MAX_SKILL_BYTES);
   });
 });

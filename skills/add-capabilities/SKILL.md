@@ -2,10 +2,9 @@
 name: add-capabilities
 version: 1.3.0
 description: |
-  Expose an app operation as a typed pracht capability — one contract projected
-  into direct server calls, an HTTP endpoint, a route-scoped WebMCP page tool, and a remote MCP
-  tool — plus `defineApp({ agents })` trust config, typed clients,
-  `<Form capability>`, and `pracht eval` scenarios.
+  Expose an app operation as a typed pracht capability served over HTTP, WebMCP,
+  and remote MCP, with `agents` trust config, typed clients, and `pracht eval`
+  scenarios.
   Use for "add a capability", "expose this to agents", "add an MCP tool", "add
   WebMCP", "serve remote MCP", "make my app agent-callable".
 allowed-tools:
@@ -20,8 +19,8 @@ allowed-tools:
 
 # Pracht Add Capabilities
 
-A capability is a protocol-neutral operation. Every
-projection runs the identical pipeline, so rules never diverge per transport:
+A capability is a protocol-neutral operation. Every projection runs the same
+pipeline:
 
 ```text
 input validation → named middleware chain → run() → output validation
@@ -30,8 +29,8 @@ input validation → named middleware chain → run() → output validation
 Registration is opt-in and private by default; loaders and API routes are never
 inferred as capabilities, and an app with none ships no dispatch surface.
 
-Non-Pracht app: use `createCapabilityHost()` and the signal-owned WebMCP
-registrar. See <https://pracht.resynapse.dev/docs/standalone-capabilities>.
+Not a pracht app? Use `createCapabilityHost()`; see
+<https://pracht.resynapse.dev/docs/standalone-capabilities>.
 
 ## Step 1: Decide the contract before writing code
 
@@ -73,9 +72,8 @@ The generator writes and registers `src/capabilities/notes-search.ts`.
 `--description` is required with `--expose`; the MCP `generate_capability` tool
 has the same contract.
 
-If dispatch answers `500 internal_error` and `pracht inspect capabilities`
-prints capabilities as `unreadable`, the package is missing — that is the
-symptom.
+Dispatch answering `500 internal_error` while `pracht inspect capabilities`
+prints `unreadable` means the package is missing.
 
 ## Step 3: Write the capability
 
@@ -131,8 +129,8 @@ Schema rules that bite:
 - Inputs and outputs are JSON data only. `File`, `Blob`, `Date`, `Map`,
   `undefined`, and cycles are rejected — keep uploads in API routes.
 - `expose` and `effect` must be **inline literals**. `input` and `output` may be
-  Standard Schema + Standard JSON Schema validators such as Zod 4. Pracht
-  derives the supported JSON subset server-side and runs the validator; async
+  Standard Schema + Standard JSON Schema validators such as Zod 4; pracht
+  derives the supported JSON subset server-side and runs the validator. Async
   validation, defaults, and transforms work without adding it to WebMCP.
 - MCP exposure additionally requires both schemas rooted at `type: "object"`.
 - Annotate `run()` with `CapabilityRunArgs<Input>` so TypeScript still infers
@@ -233,7 +231,7 @@ Rules to hold the user to:
   error with casts. The MCP path must also differ from every explicit API route
   path, or `pracht verify` rejects the graph and the runtime fails closed with
   500 before the API handler can bypass MCP's gates.
-- **Pracht is not an authorization server.** Do not offer to implement token
+- **pracht is not an authorization server.** Do not offer to implement token
   issuance, refresh, or dynamic client registration — those belong to the
   user's identity provider. Write `verify` with their library (`jose` works on
   Workers and Vercel Edge) and **bind `audience` to the `resource` value**, or a
@@ -388,10 +386,8 @@ unit tests, without a server.
 WebMCP: names must fit the draft's 1–128 ASCII `[a-zA-Z0-9_.-]` grammar;
 Chrome advises 30 chars/name, 500/tool description, 150/parameter description,
 and 1.5K/result. `pracht verify` checks static limits; bound outputs yourself.
-Stable Chrome needs an origin-trial token. No mainstream production agent
-consumes these tools yet, so retain HTTP or remote MCP. See the capabilities
-site page for current compatibility. An effective `agentPolicy: "require"`
-always 401s unsigned page-tool calls and is warned.
+Keep an HTTP or remote MCP projection for agents outside the browser. An
+effective `agentPolicy: "require"` always 401s unsigned page-tool calls.
 
 To audit what the whole agent surface exposes, run `/audit-agent-surface`.
 

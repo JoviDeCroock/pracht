@@ -2,11 +2,11 @@
 name: pracht-scaffold
 version: 1.5.0
 description: |
-  Scaffold pracht code with the native generators (`pracht generate
-  route|shell|middleware|api`), falling back to manual edits only when the CLI
-  flags cannot express the requested shape.
+  Generate pracht routes, shells, middleware, API routes, and capabilities with
+  `pracht generate`, editing by hand only when the flags cannot express the
+  shape.
   Use for "scaffold", "generate a route", "create a new page", "add middleware",
-  "add an API route", "create a shell".
+  "add an API route", "create a shell", "generate a capability".
 allowed-tools:
   - Bash
   - Read
@@ -31,6 +31,7 @@ pracht generate route --path /dashboard --render ssr
 pracht generate shell --name app
 pracht generate middleware --name auth
 pracht generate api --path /health --methods GET,POST
+pracht generate capability --name notes.search --effect read --expose http,mcp --description "Search notes"
 ```
 
 If the CLI can express the request, do not reimplement the scaffold by hand.
@@ -52,10 +53,12 @@ If the CLI can express the request, do not reimplement the scaffold by hand.
 `generate shell` and `generate middleware` take `--name`; `generate shell
 --loader` adds a shell `loader` export read in the shell with `useShellData()`
 (layout-level data such as the signed-in user). `generate api` takes
-`--path` and `--methods`. All subcommands accept `--json` — use it when another
+`--path` and `--methods`. `generate capability` takes `--name` (dot-separated),
+`--effect` (`read` default, `write`, `destructive`), `--expose`
+(`http,webmcp,mcp`; omit to keep it private), `--title`, and `--description`
+(required when exposed). All subcommands accept `--json` — use it when another
 agent or tool consumes the output. When the pracht MCP server is registered
-(`pracht dev-mcp`), call the `generate_route`/`generate_shell`/`generate_middleware`/
-`generate_api` MCP tools instead of Bash: same behavior, structured results.
+(`pracht dev-mcp`), call the matching `generate_*` MCP tool instead of Bash.
 
 - `--shell`/`--middleware` names must already be registered or the CLI errors.
   Generate the shell or middleware first, then the route referencing it.

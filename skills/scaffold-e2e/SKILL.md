@@ -2,12 +2,11 @@
 name: scaffold-e2e
 version: 1.1.1
 description: |
-  Set up Playwright for a pracht app: install it, generate a
-  `playwright.config.ts` that boots `pracht dev` (or the build via `pracht
-  preview`), and emit a smoke test per manifest route asserting 200, head/title,
-  no console errors, and navigation.
-  Use for "scaffold E2E", "set up Playwright", "add browser tests", "create smoke
-  tests for my routes".
+  Set up Playwright for a pracht app with a config that boots `pracht dev` or
+  `pracht preview`, plus a smoke test per route for status, title, console
+  errors, and navigation.
+  Use for "scaffold E2E", "set up Playwright", "add browser tests", "smoke test
+  my routes".
 allowed-tools:
   - Bash
   - Read
@@ -81,10 +80,7 @@ If `playwright.config.ts` already exists, merge — do not clobber.
 
 ## Step 4: Generate per-route smoke tests
 
-MCP: when the pracht MCP server is registered (`pracht dev-mcp`), prefer its
-`inspect_routes`/`inspect_api`/`inspect_build`/`doctor`/`verify`/`generate_*`
-tools over shelling out. `pracht inspect` needs the pracht plugin in the vite
-config.
+MCP: if `pracht dev-mcp` is registered, prefer its `inspect_*`, `generate_*`, `doctor`, and `verify` tools to the CLI.
 
 ```bash
 pracht inspect routes --json

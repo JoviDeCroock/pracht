@@ -2,10 +2,9 @@
 name: audit-islands
 version: 1.1.0
 description: |
-  Audit pracht hydration: over-hydrated routes that should be `hydration:
-  "islands"` or `"none"`, dead interactivity outside the islands directory,
-  non-serializable island props, mis-tuned `client` strategies, and invalid
-  render/hydration pairs.
+  Audit pracht hydration: routes that should use `hydration: "islands"` or
+  `"none"`, dead interactivity, non-serializable island props, and mis-tuned
+  `client` strategies.
   Use for "audit islands", "reduce hydration", "why is this island not
   interactive", "check partial hydration".
 allowed-tools:
@@ -18,16 +17,14 @@ allowed-tools:
 # Pracht Audit Islands
 
 Report-only audit of hydration modes and islands usage (see <https://pracht.resynapse.dev/docs/islands>).
-Pracht hydrates the whole page by default (`hydration: "full"`); routes can opt
+pracht hydrates the whole page by default (`hydration: "full"`); routes can opt
 into `"islands"` (only components from the islands directory hydrate) or
 `"none"` (zero JS). This audit finds routes shipping JS they don't need and
 islands wired in ways that break at render time or ship dead handlers.
 
 ## Step 1: Enumerate routes and hydration modes
 
-MCP: when the pracht MCP server is registered (`pracht dev-mcp`), prefer its
-`inspect_routes`/`inspect_api`/`inspect_build`/`doctor`/`verify` tools over
-shelling out.
+MCP: if `pracht dev-mcp` is registered, prefer its `inspect_*`, `doctor`, and `verify` tools to the CLI.
 
 ```bash
 pracht inspect routes --json

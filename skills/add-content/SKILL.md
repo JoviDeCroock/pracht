@@ -2,11 +2,11 @@
 name: add-content
 version: 1.0.1
 description: |
-  Wire `@pracht/content` and `@pracht/markdown`: a collection registry owning
-  source discovery, routes, locales, compilation, and static artifacts
-  (`llms.txt`, raw source), plus Markdown/MDX route modules and snapshot loaders.
+  Wire `@pracht/content` collections and `@pracht/markdown` routes: source
+  discovery, Markdown/MDX pages, locales, and `llms.txt` or raw-source
+  artifacts.
   Use for "add a blog", "set up docs", "render markdown pages", "add MDX",
-  "content collections", "why is my markdown route 404ing".
+  "content collections", "my markdown route 404s".
 allowed-tools:
   - Bash
   - Read
@@ -24,7 +24,7 @@ allowed-tools:
 instead of two readers that drift — route modules reading source through Vite,
 and sitemap/`llms.txt`/search plugins scanning the filesystem again.
 `@pracht/markdown` is the opinionated Markdown route-module compiler on top of
-it (`packages/markdown/README.md`).
+it (`node_modules/@pracht/markdown/README.md`).
 
 Nothing here is on by default: adding a collection publishes no source and
 creates no agent surface until you add artifacts or capabilities.

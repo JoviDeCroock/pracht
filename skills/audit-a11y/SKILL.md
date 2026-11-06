@@ -2,11 +2,9 @@
 name: audit-a11y
 version: 1.1.1
 description: |
-  Per-route axe-core audit of a pracht app in a headless browser: alt text,
-  contrast, landmarks, focus order, and form labels, grouped by severity and
-  route.
-  Use for "audit a11y", "check accessibility", "axe my app", "WCAG compliance",
-  "screen reader test".
+  Run axe-core against every pracht route in a headless browser and report alt
+  text, contrast, landmark, focus, and form-label issues by severity.
+  Use for "audit a11y", "check accessibility", "WCAG compliance", "axe my app".
 allowed-tools:
   - Bash
   - Read
@@ -60,9 +58,7 @@ project tooling.
 
 ## Step 3: Enumerate routes
 
-MCP: when the pracht MCP server is registered (`pracht dev-mcp`), prefer its
-`inspect_routes`/`inspect_api`/`inspect_build`/`doctor`/`verify` tools over
-shelling out.
+MCP: if `pracht dev-mcp` is registered, prefer its `inspect_*`, `doctor`, and `verify` tools to the CLI.
 
 ```bash
 pracht inspect routes --json

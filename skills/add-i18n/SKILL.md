@@ -2,12 +2,11 @@
 name: add-i18n
 version: 2.2.0
 description: |
-  Wire `@pracht/i18n`: locale-detection middleware (URL prefix, cookie,
-  `Accept-Language`), lazy typed dictionaries, and either strategy —
-  locale-prefixed route groups with hreflang, or one URL per page with a
-  cookie-backed switcher.
+  Wire `@pracht/i18n`: locale detection, typed lazy dictionaries, and either
+  locale-prefixed routes with hreflang or one URL per page with a cookie
+  switcher.
   Use for "add i18n", "set up translations", "make my app multilingual", "add
-  locale routing", "switch language without changing URLs", "extract strings".
+  locale routing", "switch language without changing URLs".
 allowed-tools:
   - Bash
   - Read
@@ -25,13 +24,12 @@ typed from the default locale, `t()`/`tPlural()` (plurals via
 `Intl.PluralRules`), `localePath()`, and `hreflang()` for `head()`. Full guide:
 <https://pracht.resynapse.dev/docs/recipes/i18n> — which also carries a
 hand-rolled fallback recipe if the user refuses the dependency. Working setups
-live in `examples/basic`, both locale-prefixed (`/welcome`, `/en/welcome`,
-`/nl/welcome`) and prefix-free (`/greeting`, `src/api/locale.ts`).
+of both strategies live in
+<https://github.com/JoviDeCroock/pracht/tree/main/examples/basic>:
+locale-prefixed (`/welcome`, `/en/welcome`, `/nl/welcome`) and prefix-free
+(`/greeting`, `src/api/locale.ts`).
 
-MCP: when the pracht MCP server is registered (`pracht dev-mcp`), prefer its
-`inspect_routes`/`inspect_api`/`inspect_build`/`doctor`/`verify`/`generate_*`
-tools over shelling out. `pracht inspect` needs the pracht plugin in the vite
-config.
+MCP: if `pracht dev-mcp` is registered, prefer its `inspect_*`, `generate_*`, `doctor`, and `verify` tools to the CLI.
 
 ## Step 1: Pick locales and a URL strategy
 

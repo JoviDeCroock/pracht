@@ -2,13 +2,10 @@
 name: add-observability
 version: 1.1.3
 description: |
-  Wire Sentry or OpenTelemetry into pracht server boundaries (loaders, middleware,
-  API routes), client-side Web Vitals reporting, and a capability audit sink that
-  records every capability dispatch with transport, outcome, latency, and verified
-  identity.
+  Wire Sentry or OpenTelemetry into pracht loaders, middleware, and API routes,
+  report Web Vitals, and record every capability call with an audit sink.
   Use for "add observability", "wire Sentry", "set up tracing", "add
-  OpenTelemetry", "monitor Web Vitals", "track errors", "log capability calls",
-  or "are agents calling my app".
+  OpenTelemetry", "monitor Web Vitals", "track errors", "log capability calls".
 allowed-tools:
   - Bash
   - Read
@@ -30,10 +27,7 @@ Four layers, each opt-in:
 4. **Agent traffic** — one structured audit event per capability dispatch.
    Only relevant when the app registers capabilities; skip it otherwise.
 
-MCP: when the pracht MCP server is registered (`pracht dev-mcp`), prefer its
-`inspect_agents`/`inspect_routes`/`inspect_api`/`inspect_build`/`doctor`/
-`verify`/`generate_*` tools over shelling out. `pracht inspect` needs the pracht
-plugin in the vite config.
+MCP: if `pracht dev-mcp` is registered, prefer its `inspect_*`, `generate_*`, `doctor`, and `verify` tools to the CLI.
 
 ## Step 1: Pick the stack
 
@@ -48,7 +42,7 @@ but trivial.
 
 ## Step 2: Server error tracking
 
-Pracht already prints one line per 5xx to the server console — phase, route id,
+pracht already prints one line per 5xx to the server console — phase, route id,
 source file, request path, message, and the stack — so the app is not silent
 before any of this is wired. What that default does not give you is a request
 id, a duration, the successful requests, or delivery to a sink off the box.
@@ -121,7 +115,7 @@ export const middleware: MiddlewareFn = async ({ request, route }, next) => {
 > the runtime before installing; if it needs to own the handler, fall back to
 > option 1. (This mirrors the OTel-edge honesty note below.)
 
-Pracht middleware is wrap-around: `await next()` invokes the rest of the
+pracht middleware is wrap-around: `await next()` invokes the rest of the
 request and resolves to the final `Response`, so the span naturally covers
 the loader/handler and ends when they finish.
 

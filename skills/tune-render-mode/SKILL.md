@@ -2,10 +2,10 @@
 name: tune-render-mode
 version: 1.2.0
 description: |
-  Recommend the right render mode (ssg, isg, ssr, spa) per route from what each
-  loader actually does, then apply the change after confirmation.
-  Use for "tune render modes", "should this route be SSG", "audit render modes",
-  "review SSG/ISG/SSR choices", "make my site faster".
+  Recommend a render mode (ssg, isg, ssr, spa) for each pracht route from what
+  its loader does, and apply the changes after confirmation.
+  Use for "tune render modes", "should this route be SSG", "review SSG/ISG/SSR
+  choices", "make my site faster".
 allowed-tools:
   - Bash
   - Read
@@ -72,9 +72,7 @@ For each route:
 
 ## Step 1: Enumerate
 
-MCP: when the pracht MCP server is registered (`pracht dev-mcp`), prefer its
-`inspect_routes`/`inspect_api`/`inspect_build`/`doctor`/`verify` tools over
-shelling out.
+MCP: if `pracht dev-mcp` is registered, prefer its `inspect_*`, `doctor`, and `verify` tools to the CLI.
 
 ```bash
 pracht inspect routes --json
@@ -148,7 +146,7 @@ field (absent from the JSON), grep the manifest for `hydration:` (pages apps:
 An `ssr` route whose loader has one slow call and several fast ones is a
 candidate for `defer()` plus `streaming: true`. Flag it when the loader awaits
 more than one independent source and at least one is materially slower — the
-whole document currently waits on the slowest. On Preact 11 the shell also
+whole document waits on the slowest. On Preact 11 the shell also
 becomes interactive before the slow data arrives; on Preact 10 it waits for the
 whole document.
 

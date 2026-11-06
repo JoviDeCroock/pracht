@@ -2,11 +2,11 @@
 name: audit-shells
 version: 1.4.0
 description: |
-  Audit pracht shells: missing `Loading()` on SPA routes, `<html>`/`<head>`/
-  `<body>` rendered inside a shell, shells that never render `children`, unused
-  shells, and `ErrorBoundary` exports shadowed by every route under them.
-  Use for "audit shells", "check shell composition", "find unused shells", "is my
-  layout structured correctly".
+  Audit pracht shells: missing `Loading()` on SPA routes, document tags inside a
+  shell, shells that drop `children`, unused shells, and shadowed
+  `ErrorBoundary` exports.
+  Use for "audit shells", "check shell composition", "find unused shells", "is
+  my layout structured correctly".
 allowed-tools:
   - Bash
   - Read
@@ -23,9 +23,7 @@ component.
 
 ## Step 1: Enumerate
 
-MCP: when the pracht MCP server is registered (`pracht dev-mcp`), prefer its
-`inspect_routes`/`inspect_api`/`inspect_build`/`doctor`/`verify` tools over
-shelling out.
+MCP: if `pracht dev-mcp` is registered, prefer its `inspect_*`, `doctor`, and `verify` tools to the CLI.
 
 ```bash
 pracht inspect routes --json
@@ -73,7 +71,7 @@ client-only data fetch. Without it, users see blank content during navigation.
 ### 2e. `ErrorBoundary` export
 
 `ErrorBoundary` is a valid export on **both** shells and routes (see
-`ShellModule` and `RouteModule` in `packages/framework/src/types.ts`). The
+the `ShellModule` and `RouteModule` types exported by `@pracht/core`). The
 runtime resolves `routeMod.ErrorBoundary ?? shellModule.ErrorBoundary` — a
 shell-level boundary is the fallback for every route under that shell when
 the route doesn't declare its own.

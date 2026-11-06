@@ -2,11 +2,10 @@
 name: audit-secrets
 version: 1.2.0
 description: |
-  Detect environment variables and secrets reaching the client bundle via loader
-  return values, hydration state, or server-only modules imported from client code
-  paths.
-  Use for "audit secrets", "find leaked env vars", "is my API key exposed", "scan
-  for credential leaks".
+  Detect env vars and secrets that reach the client through loader data,
+  hydration state, or server-only modules imported by client code.
+  Use for "audit secrets", "find leaked env vars", "is my API key exposed",
+  "scan for credential leaks".
 allowed-tools:
   - Bash
   - Read
@@ -16,20 +15,20 @@ allowed-tools:
 
 # Pracht Audit Secrets
 
-Pracht serializes loader return values into the `pracht-state` JSON script and
+pracht serializes loader return values into the `pracht-state` JSON script and
 hydrates the client from them. Anything a loader returns ends up readable in the
 browser. The Vite plugin also strips server-only exports from route files, but
 it cannot save you from a value that flows into the return.
 
 Prerequisites: `pracht inspect` requires a vite config that registers the
 pracht plugin; the env-safety report under `dist/client/_pracht/` requires a
-prior `pracht build`. If the pracht MCP server is registered (see
-<https://pracht.resynapse.dev/docs/coding-agents#the-authoring-mcp-server>), prefer its tools (`inspect_routes`, `inspect_api`,
-`inspect_build`, `doctor`, `verify`) over shelling out.
+prior `pracht build`.
+
+MCP: if `pracht dev-mcp` is registered, prefer its `inspect_*`, `doctor`, and `verify` tools to the CLI.
 
 ## Step 0: Run the native env safety check
 
-Pracht has built-in env leak detection (see <https://pracht.resynapse.dev/docs/env#client-leak-detection>):
+pracht has built-in env leak detection (see <https://pracht.resynapse.dev/docs/env#client-leak-detection>):
 
 - `pracht build` fails when a client chunk references a non-public env var
   (anything not `PRACHT_PUBLIC_`-prefixed and not a Vite built-in),
@@ -106,7 +105,7 @@ Check for accidental exposure outside loaders:
 - `head()` returns: rare, but a `meta` value containing a token leaks into HTML.
 - `headers()` returns: flag values that look like secrets. For SSG/ISG pages,
   document headers enter `dist/server/headers-manifest.json`; every serverful
-  build currently also copies that manifest to public
+  build also copies that manifest to public
   `dist/client/_pracht/headers.json` (only Cloudflare reads it there). A pure
   static export omits the client copy but may mirror the server manifest into
   host configuration. This skill owns secret VALUES in headers; header policy
@@ -124,7 +123,7 @@ Check for accidental exposure outside loaders:
   identifier names from step 1).
 - Confirm client-side env access goes through `publicEnv` (from
   `@pracht/core`) or `import.meta.env.PRACHT_PUBLIC_*`; `VITE_*` values are
-  still exposed by Vite compatibility wiring, but Pracht does not treat them as
+  still exposed by Vite compatibility wiring, but pracht does not treat them as
   intentionally public, so flag client-side `VITE_*` references unless they are
   explicitly allowlisted and reviewed. Warn loudly if a public env name has a
   secret-shaped name.

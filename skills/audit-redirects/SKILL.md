@@ -2,12 +2,10 @@
 name: audit-redirects
 version: 1.1.2
 description: |
-  Find open redirects in pracht loaders, middleware, and navigation. The framework
-  rejects unsafe schemes and CRLF at both ends, but a hand-rolled 3xx Response
-  bypasses every guard, and even a guarded redirect to an attacker-chosen origin
-  can phish.
+  Find open redirects in pracht loaders, middleware, and navigation, including
+  hand-rolled 3xx responses that bypass the built-in guards.
   Use for "audit redirects", "check for open redirects", "is my ?redirect= param
-  safe", "review login redirect handling".
+  safe", "review login redirects".
 allowed-tools:
   - Bash
   - Read
@@ -40,9 +38,7 @@ Bound the search first — do not grep the whole repo blind:
 pracht inspect routes --json
 ```
 
-MCP: when the pracht MCP server is registered (`pracht dev-mcp`), prefer its
-`inspect_routes`/`inspect_api`/`inspect_build`/`doctor`/`verify` tools over
-shelling out.
+MCP: if `pracht dev-mcp` is registered, prefer its `inspect_*`, `doctor`, and `verify` tools to the CLI.
 
 The resolved graph gives you each route's `file`, `loaderFile`, and
 `middleware` names (resolve names to files via the `defineApp({ middleware })`

@@ -2,13 +2,11 @@
 name: pre-deploy
 version: 1.5.0
 description: |
-  Adapter-aware pre-deployment checklist (Node, Cloudflare Workers, Vercel, static)
-  for the failures that only surface in production: missing env vars, Node-only
-  APIs in edge bundles, absent ISG manifest, oversized bundles, missing
-  wrangler/vercel config, and static hosts without clean URLs, 404, or security
-  headers.
+  Check a pracht build for production-only failures before deploying: missing
+  env vars, Node-only APIs in edge bundles, missing ISG manifest or platform
+  config, oversized bundles, and static-host gaps.
   Use for "pre-deploy check", "ready to ship?", "deployment checklist", "is my
-  build production-safe", before `wrangler deploy` or `vercel deploy`.
+  build production-safe".
 allowed-tools:
   - Bash
   - Read
@@ -22,9 +20,7 @@ Run before every production deploy. Each adapter has a different runtime
 contract; enforce the one that matches the build. Never deploy on the user's
 behalf — end at the verdict.
 
-MCP: when the pracht MCP server is registered (`pracht dev-mcp`), prefer its
-`inspect_routes`/`inspect_api`/`inspect_build`/`doctor`/`verify` tools over
-shelling out.
+MCP: if `pracht dev-mcp` is registered, prefer its `inspect_*`, `doctor`, and `verify` tools to the CLI.
 
 ## Step 1: Build, then detect the adapter
 
@@ -122,7 +118,7 @@ For a PR deploy, `pracht report --base origin/main` produces a markdown summary
     manifests, `resolvedApp`, …) that `server.js` exports for the prerender
     pass.
   - `no_bundle: true` plus an `ESModule` rule whose globs include `"**/*.js"`,
-    so Wrangler uploads Pracht's lazy server chunks as separate modules instead
+    so Wrangler uploads pracht's lazy server chunks as separate modules instead
     of folding them into the entry, and `assets.directory: "dist/client"`.
 - `compatibility_date` is set and is a date the installed workerd supports. It
   must not be *newer* than the runtime, or workerd refuses to start ("This
@@ -140,7 +136,7 @@ For a PR deploy, `pracht report --base origin/main` produces a markdown summary
   is the backstop for code paths dev never hits.
 - An API route importing `@pracht/image/node` is an error on Workers (its
   optimizer needs `sharp`). Require `cloudflareLoader` or `passthroughLoader`.
-- ISG works out of the box via the per-colo Workers Cache API. If
+- ISG uses the per-colo Workers Cache API with no extra config. If
   time-revalidated routes should use the edge-tier Workers Caching upgrade,
   confirm *both* sides: `cloudflareAdapter({ cache: true })` and
   `"cache": { "enabled": true }` in wrangler config. With it enabled, flag ISG

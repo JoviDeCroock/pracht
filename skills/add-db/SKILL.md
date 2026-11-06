@@ -2,11 +2,10 @@
 name: add-db
 version: 1.2.1
 description: |
-  Wire Drizzle ORM into a pracht app: pick the target (D1, PlanetScale, Neon,
-  Supabase, Turso, Postgres, MySQL, SQLite), then generate driver setup, schema,
-  migration workflow, and a typed client for loaders, middleware, and API routes.
-  Use for "add database", "set up Drizzle", "wire D1", "add Postgres", "set up an
-  ORM", "I need a DB".
+  Wire Drizzle ORM into a pracht app for D1, PlanetScale, Neon, Supabase, Turso,
+  Postgres, MySQL, or SQLite: driver, schema, migrations, and a typed client.
+  Use for "add a database", "set up Drizzle", "wire D1", "add Postgres", "set up
+  an ORM".
 allowed-tools:
   - Bash
   - Read
@@ -25,10 +24,8 @@ client factory wired to the project's adapter. Never overwrite an existing
 `drizzle.config.ts`, `wrangler.toml`, or `package.json` script — diff, merge,
 and ask about collisions.
 
-MCP: when the pracht MCP server is registered (`pracht dev-mcp`), prefer its
-`inspect_routes`/`inspect_api`/`inspect_build`/`doctor`/`verify`/`generate_*`
-tools over shelling out. `pracht inspect` needs the pracht plugin in the vite
-config; `inspect build` needs a prior `pracht build`.
+MCP: if `pracht dev-mcp` is registered, prefer its `inspect_*`, `generate_*`, `doctor`, and `verify` tools to the CLI.
+`pracht inspect build` needs a prior `pracht build`.
 
 ## Step 1: Pick the target
 

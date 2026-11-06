@@ -2,12 +2,11 @@
 name: configure-isg
 version: 1.0.1
 description: |
-  Wire ISG revalidation for the project's adapter: route-level
-  `timeRevalidate`/`webhookRevalidate`, the authenticated `/__pracht/revalidate`
-  webhook, Cloudflare Workers Cache, Vercel ISR, and cache-key pitfalls — then
-  verify locally.
-  Use for "set up ISG", "configure revalidation", "add a revalidation webhook", "my
-  ISG page never updates", "cache this page at the edge".
+  Set up ISG revalidation for the project's adapter:
+  `timeRevalidate`/`webhookRevalidate`, the `/__pracht/revalidate` webhook,
+  Cloudflare and Vercel caching, and local verification.
+  Use for "set up ISG", "configure revalidation", "add a revalidation webhook",
+  "my ISG page never updates".
 allowed-tools:
   - Bash
   - Read
@@ -29,9 +28,7 @@ webhook, and the adapter-specific cache correctly.
 
 ## Step 1: Identify adapter and candidate routes
 
-MCP: when the pracht MCP server is registered (`pracht dev-mcp`), prefer its
-`inspect_routes`/`inspect_api`/`inspect_build`/`doctor`/`verify` tools over
-shelling out.
+MCP: if `pracht dev-mcp` is registered, prefer its `inspect_*`, `doctor`, and `verify` tools to the CLI.
 
 ```bash
 pracht inspect routes --json    # render + revalidate per route

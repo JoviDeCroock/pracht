@@ -2,11 +2,10 @@
 name: pracht-debug
 version: 1.5.0
 description: |
-  Framework-aware debugging for pracht: route matching, loader and API errors,
-  rendering and hydration, middleware, HMR, and build failures — root cause first.
-  Use for "debug this", "fix this bug", "why is this broken", "blank page",
-  "hydration mismatch", "404 on my route"; suggest it when the user reports
-  unexpected pracht behavior.
+  Debug a pracht app root cause first: route matching, loader and API errors,
+  rendering and hydration, middleware, HMR, and build failures.
+  Use for "debug this", "why is this broken", "blank page", "hydration
+  mismatch", "404 on my route", or any unexpected pracht behavior.
 allowed-tools:
   - Bash
   - Read
@@ -41,10 +40,9 @@ Reach for these before deep manual inspection:
 
 `pracht inspect` needs the pracht plugin in the vite config; `inspect build`
 needs a prior `pracht build`. Under a Vite deploy base, prefix `/_pracht` with
-that base (links from the devtools and dev-404 pages already do). When the
-pracht MCP server is registered (`pracht dev-mcp`), prefer the
-`inspect_routes`/`inspect_api`/`doctor`/`verify` MCP tools — same payloads,
-structured results.
+that base (links from the devtools and dev-404 pages already do).
+
+MCP: if `pracht dev-mcp` is registered, prefer its `inspect_*`, `doctor`, and `verify` tools to the CLI.
 
 When you are driving a browser against `pracht dev` with a WebMCP-compatible
 test harness or host, ask the tab before reading logs: every dev document registers read-only
@@ -64,7 +62,7 @@ Work in order; stop at the root cause.
 
 ### 1. Route matching
 
-- `pracht inspect routes --json` (or `curl http://localhost:5173/_pracht.json`)
+- `pracht inspect routes --json` (or `curl http://localhost:3000/_pracht.json`; `pracht dev` serves port 3000 unless `--port` or `$PORT` is set)
   for the resolved wiring; `pracht doctor` if a route may be missing, miswired,
   or pointing at a missing module.
 - Is the route in `src/routes.ts` with the right path? The manifest uses
@@ -114,7 +112,7 @@ Work in order; stop at the root cause.
   client output. Usual causes: date/time differences, browser-only APIs during
   SSR (`window`, `document`, `localStorage`), conditional rendering on client
   state — or, on Preact 10, a suspending boundary resolving to zero or multiple
-  DOM nodes. Preact 11 supports those boundary shapes, so Pracht skips that
+  DOM nodes. Preact 11 supports those boundary shapes, so pracht skips that
   legacy diagnostic there. Another cause is two copies of `@pracht/core` in
   the SSR module graph. The tell for
   that last one: in the server-rendered HTML of *every* page, `useLocation()`

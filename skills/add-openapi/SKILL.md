@@ -2,11 +2,10 @@
 name: add-openapi
 version: 1.0.1
 description: |
-  Wire `@pracht/openapi`: generate an OpenAPI 3.1 document from `defineApi()`
-  routes, attach response contracts with `defineOpenApi()`, serve an optional
-  Scalar or Swagger UI, handle deploy-base and CSP, and gate completeness in CI.
+  Wire `@pracht/openapi`: generate an OpenAPI 3.1 document from API routes, add
+  response contracts, serve a Scalar or Swagger UI, and gate completeness in CI.
   Use for "add OpenAPI", "generate an API spec", "add Swagger", "publish API
-  docs", "document my API routes".
+  docs".
 allowed-tools:
   - Bash
   - Read
@@ -26,8 +25,7 @@ own descriptor.
 
 ## Step 1: Inventory the API first
 
-MCP: when the pracht MCP server is registered (`pracht dev-mcp`), prefer its
-`inspect_api`/`inspect_routes`/`doctor`/`verify` tools over shelling out.
+MCP: if `pracht dev-mcp` is registered, prefer its `inspect_*`, `doctor`, and `verify` tools to the CLI.
 
 ```bash
 pracht inspect api --json   # endpoint paths, methods, hasDefaultHandler
@@ -156,8 +154,8 @@ prachtOpenApi({ info: { title: "Acme API", version: "1.0.0" }, failOnWarnings: t
 ```
 
 Any warning then fails the dev request and `pracht build`. There is no dedicated
-diff/check command yet — deterministic build output plus `failOnWarnings` is how
-drift is caught.
+diff/check command; deterministic build output plus `failOnWarnings` catches
+drift.
 
 ## Step 6: UI provider, CDN, and CSP
 
