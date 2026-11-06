@@ -15,7 +15,7 @@ import { buildDocsBundle, writeDocsBundle } from "./docs-bundle.js";
 const packageRoot = fileURLToPath(new URL("..", import.meta.url));
 const repoRoot = resolve(packageRoot, "../..");
 const sourceDir = resolve(repoRoot, "examples/docs/src/routes/docs");
-const shellFile = resolve(repoRoot, "examples/docs/src/shells/docs.tsx");
+const navFile = resolve(repoRoot, "examples/docs/src/nav.ts");
 const targetDir = join(packageRoot, "docs");
 
 if (!existsSync(sourceDir)) {
@@ -23,7 +23,7 @@ if (!existsSync(sourceDir)) {
   process.exit(1);
 }
 
-const bundle = buildDocsBundle({ sourceDir, shellFile });
+const bundle = buildDocsBundle({ sourceDir, navFile });
 if (bundle.pages.length === 0) {
   console.error(`sync-docs: no .md pages found in ${sourceDir}`);
   process.exit(1);

@@ -1,13 +1,6 @@
 ---
-title: Full-Stack Cloudflare
-lead: Build a full-stack app on Cloudflare with D1 (SQLite), KV, and R2. This recipe covers project setup, database migrations, and wiring bindings into your loaders and API routes.
-breadcrumb: Full-Stack Cloudflare
-prev:
-  href: /docs/recipes/streaming
-  title: Server-Sent Events & WebSockets
-next:
-  href: /docs/recipes/fullstack-vercel
-  title: Full-Stack Vercel
+title: Full-stack Cloudflare
+lead: "Build an app on Cloudflare Workers with D1, KV, and R2: setup, migrations, and bindings in loaders and API routes."
 ---
 
 ## What You Get

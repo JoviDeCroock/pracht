@@ -1,13 +1,6 @@
 ---
 title: Islands
-lead: Islands let mostly static routes hydrate only the components that need browser interactivity. The rest of the document stays server-rendered HTML with little or no JavaScript.
-breadcrumb: Islands
-prev:
-  href: /docs/rendering
-  title: Rendering Modes
-next:
-  href: /docs/server-islands
-  title: Server Islands
+lead: Hydrate only the interactive components of a server-rendered page; the rest ships as HTML without JavaScript.
 ---
 
 ## Overview

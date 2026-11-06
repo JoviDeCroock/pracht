@@ -14,137 +14,37 @@ import {
 } from "@tabler/icons-preact";
 import { CodeBlock } from "../components/CodeBlock";
 import { inter } from "../fonts";
+import { NAV } from "../nav";
 
 export async function loader() {
   return { version: "0.1.0" };
 }
 
-const AGENT_DOC_LINKS: { href: string; text: string }[] = [
-  {
-    href: "/docs/getting-started",
-    text: "Getting started — project creation, dev server, and first production build",
-  },
-  {
-    href: "/docs/why-pracht",
-    text: "Why pracht — how it compares to other full-stack frameworks and when it fits",
-  },
-  {
-    href: "/docs/routing",
-    text: "Routing — explicit src/routes.ts manifest wiring shells, middleware, and render modes per route",
-  },
-  {
-    href: "/docs/rendering",
-    text: "Rendering modes — per-route SSG, SSR, ISG, and SPA in a single app",
-  },
-  {
-    href: "/docs/data-loading",
-    text: "Data loading — server-only loaders, mutations via API routes, and end-to-end type inference",
-  },
-  {
-    href: "/docs/api-routes",
-    text: "API routes — standalone server endpoints returning native Response objects",
-  },
-  {
-    href: "/docs/middleware",
-    text: "Middleware — server interceptors for auth, redirects, validation, and context enrichment",
-  },
-  {
-    href: "/docs/shells",
-    text: "Shells — layout wrappers decoupled from URL structure, attached per route or group",
-  },
-  {
-    href: "/docs/styling",
-    text: "Styling — build-time CSS via CSS Modules, Tailwind, or plain stylesheets",
-  },
-  {
-    href: "/docs/prefetching",
-    text: "Prefetching — automatic data prefetching for instant navigation, configurable per route",
-  },
-  {
-    href: "/docs/performance",
-    text: "Performance — what pracht costs a page per hydration mode, how those numbers are measured, and the automatic code splitting, module preloading, and vendor chunking",
-  },
-  {
-    href: "/docs/cli",
-    text: "CLI — @pracht/cli dev, build, scaffold, and doctor commands",
-  },
-  {
-    href: "/docs/deployment",
-    text: "Deployment — building and shipping via platform adapters, including runtime ISG on Node",
-  },
-  {
-    href: "/docs/adapters",
-    text: "Adapters — Cloudflare Workers, Vercel Edge Functions, and Node.js",
-  },
-  {
-    href: "/docs/agents",
-    text: "The agentic web — the one app graph pracht projects to browsers and to agents, plus Accept: text/markdown negotiation and /llms.txt discovery",
-  },
-  {
-    href: "/docs/capabilities",
-    text: "Capabilities — typed operations defined once and projected to server calls, HTTP endpoints, WebMCP page tools, and remote MCP tools",
-  },
-  {
-    href: "/docs/agent-trust",
-    text: "Agent trust — Web Bot Auth verified identity, confirmation flow for destructive operations, audit events, and pracht eval",
-  },
-  {
-    href: "/docs/coding-agents",
-    text: "Coding agents — the pracht dev-mcp authoring server, Claude Code skills, constraints, app-graph snapshots, and pracht plan/report",
-  },
-  {
-    href: "/docs/demo-comparison",
-    text: "Demo comparison — product + agent demo highlighting pracht's strengths",
-  },
-  {
-    href: "/docs/recipes/auth",
-    text: "Recipe: authentication — session-based auth with middleware and route guards",
-  },
-  {
-    href: "/docs/recipes/forms",
-    text: "Recipe: forms — progressive-enhancement <Form> backed by API routes",
-  },
-  {
-    href: "/docs/recipes/i18n",
-    text: "Recipe: i18n — locale detection middleware and translated loader content",
-  },
-  {
-    href: "/docs/recipes/csp",
-    text: "Recipe: CSP — focused Content Security Policy via route or shell headers",
-  },
-  {
-    href: "/docs/recipes/testing",
-    text: "Recipe: testing — Vitest for loaders and API routes, Playwright for E2E, and capability/agent-surface testing with pracht eval",
-  },
-  {
-    href: "/docs/recipes/fullstack-cloudflare",
-    text: "Recipe: full-stack Cloudflare — D1, KV, and R2 wired into loaders and API routes",
-  },
-  {
-    href: "/docs/recipes/fullstack-vercel",
-    text: "Recipe: full-stack Vercel — Postgres (Neon), KV (Upstash), and Blob storage",
-  },
-  {
-    href: "/docs/migrate/nextjs",
-    text: "Migrate from Next.js — App Router to pracht with side-by-side examples",
-  },
-];
-
+/** The homepage as Markdown (`/index.md`): the docs table of contents, generated from the sidebar. */
 export const markdown = [
-  "# Agent guidance",
+  "# pracht",
   "",
-  "Each link below is the Markdown version of a documentation page. The page URL without `.md` answers the same Markdown to requests sent with `Accept: text/markdown`.",
+  "A full-stack Preact framework on Vite. Routes, loaders, API routes, and typed capabilities resolve into one app graph that serves browsers and agents.",
   "",
-  ...AGENT_DOC_LINKS.map((l) => `- [${l.text}](${l.href}.md)`),
+  "Each link is the Markdown version of a docs page. A page URL without `.md` answers the same Markdown to requests sent with `Accept: text/markdown`. https://pracht.resynapse.dev/llms.txt indexes the same pages with one-line summaries.",
   "",
-  "To search and read these docs as tools instead, connect an MCP client to `https://pracht.resynapse.dev/mcp` (Streamable HTTP): `docs_search`, `docs_read`, and `docs_list`.",
+  ...NAV.flatMap((section) => [
+    `## ${section.label}`,
+    "",
+    ...section.links.map((link) => `- [${link.title}](${link.href}.md)`),
+    "",
+  ]),
+  "## Tools",
+  "",
+  "- Docs MCP server (Streamable HTTP): `https://pracht.resynapse.dev/mcp` with `docs_search`, `docs_read`, and `docs_list`.",
+  "- Agent skills: `https://pracht.resynapse.dev/.well-known/agent-skills/index.json`.",
   "",
 ].join("\n");
 
 export function head() {
   // The shell registers `inter` too — the head renderer collapses the
   // duplicate to a single preload and @font-face block.
-  return { title: "pracht — one app graph, projected to browsers and to agents.", fonts: [inter] };
+  return { fonts: [inter] };
 }
 
 export function headers() {
@@ -321,9 +221,8 @@ export function Component(_props: RouteComponentProps<typeof loader>) {
           </div>
 
           <div class="hero-code">
-            <p class="hero-code-label">src/routes.ts</p>
             <CodeBlock
-              filename="routes.ts"
+              filename="src/routes.ts"
               code={`import { defineApp, group, route, timeRevalidate } from "@pracht/core";
 
 export const app = defineApp({
@@ -457,7 +356,8 @@ export const app = defineApp({
           </div>
           <div class="data-loading-code">
             <CodeBlock
-              filename="routes/dashboard.tsx"
+              filename="src/routes/dashboard.tsx"
+              lang="tsx"
               code={`import type { LoaderArgs, RouteComponentProps } from "@pracht/core";
 
 export async function loader({ request, context }: LoaderArgs) {

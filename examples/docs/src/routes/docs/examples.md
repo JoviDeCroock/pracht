@@ -1,13 +1,6 @@
 ---
 title: Examples
-lead: Eight runnable apps in the repository, each isolating one part of the framework. Every one is a real pracht project you can clone, build, and deploy.
-breadcrumb: Examples
-prev:
-  href: /docs/migrate/nextjs
-  title: Migrating from Next.js
-next:
-  href: /docs/reference/api
-  title: API Reference
+lead: Eight runnable apps in the repository, each focused on one part of the framework.
 ---
 
 The examples live under [`examples/`](https://github.com/JoviDeCroock/pracht/tree/main/examples)

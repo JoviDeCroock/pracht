@@ -27,7 +27,7 @@ import {
   type DocsIndex,
 } from "../src/server/docs-index";
 import { stem, textStems } from "../src/server/docs-text";
-import { NAV } from "../src/shells/docs";
+import { NAV } from "../src/nav";
 import { docsIndex as docsIndexPlugin, DOCS_INDEX_MODULE } from "../vite-plugin-docs-index";
 
 let index: DocsIndex;
@@ -98,11 +98,11 @@ describe("docs MCP index", () => {
     const listed = groups.flatMap((group) => group.pages.map((page) => page.page));
     expect(new Set(listed).size).toBe(listed.length);
     expect(listed.sort()).toEqual(index.pages.map((page) => page.path).sort());
-    // A page missing from the sidebar would land in "Other"; add it to NAV in src/shells/docs.tsx.
+    // A page missing from the sidebar would land in "Other"; add it to NAV in src/nav.ts.
     expect(groups.map((group) => group.label)).not.toContain("Other");
     expect(groups[0].pages[0]).toMatchObject({
       page: "/docs/getting-started",
-      title: "Getting Started",
+      title: "Quick start",
     });
     expect(groups[0].pages[0].lead.length).toBeGreaterThan(0);
   });

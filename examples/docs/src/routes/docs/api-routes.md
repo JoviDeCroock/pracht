@@ -1,13 +1,6 @@
 ---
-title: API Routes
-lead: Standalone server endpoints that live alongside your pages. Export named HTTP method handlers or one default handler, then return `Response` objects directly.
-breadcrumb: API Routes
-prev:
-  href: /docs/content
-  title: Content Collections
-next:
-  href: /docs/api-validation
-  title: API Validation
+title: API routes
+lead: "Server endpoints in `src/api/`: export a handler per HTTP method, or one default handler, and return a `Response`."
 ---
 
 ## File Convention

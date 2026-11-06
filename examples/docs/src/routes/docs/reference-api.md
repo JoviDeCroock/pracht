@@ -1,13 +1,6 @@
 ---
-title: API Reference
-lead: Every export an application uses, grouped by what it does, with the guide that explains it. Look a symbol up here when you know the name but not the page.
-breadcrumb: API Reference
-prev:
-  href: /docs/examples
-  title: Examples
-next:
-  href: /docs/reference/config
-  title: Configuration
+title: API reference
+lead: Every export an app uses, grouped by task, with a link to the guide that explains it.
 ---
 
 ## Import Paths

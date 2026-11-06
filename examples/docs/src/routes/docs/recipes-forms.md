@@ -1,13 +1,6 @@
 ---
-title: Forms & Validation
-lead: Handle form submissions with progressive enhancement using pracht's `<Form>` component and API routes. Forms work without JavaScript and upgrade to fetch-based submissions when JS is available.
-breadcrumb: Forms
-prev:
-  href: /docs/recipes/csp
-  title: Content Security Policy
-next:
-  href: /docs/recipes/tanstack-query
-  title: TanStack Query
+title: Forms
+lead: Submit forms with `<Form>` and API routes. Forms work without JavaScript and switch to fetch submissions once it loads.
 ---
 
 ## Basic Form

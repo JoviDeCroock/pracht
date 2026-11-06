@@ -1,13 +1,6 @@
 ---
-title: Agent Trust
-lead: Who is calling, may they do this, and what happened? Verified agent identity with Web Bot Auth, a prepare/commit confirmation flow for destructive operations, structured audit events, and `pracht eval` to prove agent flows in CI.
-breadcrumb: Agent Trust
-prev:
-  href: /docs/standalone-capabilities
-  title: Standalone Capabilities
-next:
-  href: /docs/coding-agents
-  title: Coding Agents
+title: Agent trust
+lead: Verify agent identity with Web Bot Auth, confirm destructive operations, record audit events, and test agent flows with `pracht eval`.
 ---
 
 > **Both routers.** `defineApp({ agents })` configures Web Bot Auth, confirmation, and remote MCP. [Pages-router](/docs/routing#app-config-via-appconfigts) apps export the same object as `agents` from `src/pages/_app.config.ts`.

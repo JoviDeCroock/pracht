@@ -1,13 +1,6 @@
 ---
 title: Styling
-lead: Pracht optimizes style loading for CSS that exists at build time. Prefer CSS Modules, Tailwind, or plain stylesheets over runtime CSS-in-JS — especially on server-rendered routes.
-breadcrumb: Styling
-prev:
-  href: /docs/shells
-  title: Shells
-next:
-  href: /docs/fonts
-  title: Fonts
+lead: Style routes with CSS Modules, Tailwind, or plain stylesheets, which pracht loads at build time. Avoid runtime CSS-in-JS on server-rendered routes.
 ---
 
 ## Recommended Approaches

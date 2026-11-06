@@ -1,13 +1,6 @@
 ---
 title: OpenAPI
-lead: Generate an OpenAPI 3.1 document and optional Scalar or Swagger UI from Pracht API routes without changing ordinary route authoring.
-breadcrumb: OpenAPI
-prev:
-  href: /docs/api-validation
-  title: API Validation
-next:
-  href: /docs/middleware
-  title: Middleware
+lead: Generate an OpenAPI 3.1 document, and optionally a Scalar or Swagger UI, from your API routes.
 ---
 
 ## Install the companion package

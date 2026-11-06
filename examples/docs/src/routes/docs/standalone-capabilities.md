@@ -1,13 +1,6 @@
 ---
-title: Standalone Capabilities
-lead: Mount Pracht's validated capability pipeline in an existing Web-standard server without adopting the Pracht router, Vite plugin, or Preact.
-breadcrumb: Standalone Capabilities
-prev:
-  href: /docs/capabilities
-  title: Capabilities
-next:
-  href: /docs/agent-trust
-  title: Agent Trust
+title: Standalone capabilities
+lead: Run pracht's validated capability pipeline in an existing Web-standard server, without the pracht router, Vite plugin, or Preact.
 ---
 
 ## Adopt One Contract at a Time

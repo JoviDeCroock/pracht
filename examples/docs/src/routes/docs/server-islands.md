@@ -1,13 +1,6 @@
 ---
-title: Server Islands
-lead: A server island is a small server-rendered part of a page that renders per request, with the visitor's cookies and middleware context, even when the page around it is prerendered and cached for everyone.
-breadcrumb: Server Islands
-prev:
-  href: /docs/islands
-  title: Islands
-next:
-  href: /docs/data-loading
-  title: Data Loading
+title: Server islands
+lead: Render one part of a cached or prerendered page per request, with the visitor's cookies and middleware context.
 ---
 
 ## Overview

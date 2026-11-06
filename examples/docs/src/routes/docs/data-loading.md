@@ -1,13 +1,6 @@
 ---
-title: Data Loading
-lead: Loaders fetch data on the server, API routes handle mutations, and client hooks give reactive access to route data — in every render mode, with full TypeScript inference.
-breadcrumb: Data Loading
-prev:
-  href: /docs/server-islands
-  title: Server Islands
-next:
-  href: /docs/content
-  title: Content Collections
+title: Data loading
+lead: Fetch data in server loaders, change it through API routes, and read typed route data in components with client hooks.
 ---
 
 ## Loaders

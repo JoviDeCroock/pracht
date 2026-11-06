@@ -1,13 +1,6 @@
 ---
-title: Logging & Observability
-lead: Capture request duration, status, and failures from loaders and API routes with one wrap-around middleware — no per-handler instrumentation.
-breadcrumb: Logging
-prev:
-  href: /docs/recipes/testing
-  title: Testing
-next:
-  href: /docs/recipes/streaming
-  title: Server-Sent Events & WebSockets
+title: Logging
+lead: Record request duration, status, and failures from loaders and API routes with one wrap-around middleware.
 ---
 
 ## What pracht Logs on Its Own

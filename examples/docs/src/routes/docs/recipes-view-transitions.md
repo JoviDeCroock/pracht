@@ -1,13 +1,6 @@
 ---
-title: View Transitions
-lead: Animate client-side route changes and full page loads with the browser View Transitions API while keeping pracht's data loading, scroll restoration, and fallback behavior intact.
-breadcrumb: View Transitions
-prev:
-  href: /docs/recipes/tanstack-query
-  title: TanStack Query
-next:
-  href: /docs/recipes/testing
-  title: Testing
+title: View transitions
+lead: Animate route changes and full page loads with the View Transitions API while keeping data loading and scroll restoration intact.
 ---
 
 ## The Short Version

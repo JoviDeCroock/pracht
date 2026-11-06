@@ -1,13 +1,6 @@
 ---
 title: Middleware
-lead: Server-side request interceptors that run before loaders and API routes. Use them for authentication, redirects, request validation, and context enrichment.
-breadcrumb: Middleware
-prev:
-  href: /docs/openapi
-  title: OpenAPI
-next:
-  href: /docs/shells
-  title: Shells
+lead: Run code before loaders and API routes to authenticate, redirect, validate requests, and add values to the request context.
 ---
 
 ## Defining Middleware

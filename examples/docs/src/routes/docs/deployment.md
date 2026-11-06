@@ -1,13 +1,6 @@
 ---
 title: Deployment
-lead: pracht apps deploy anywhere via platform adapters. Pick one, build, and ship; the Adapters reference covers each platform's options in depth.
-breadcrumb: Deployment
-prev:
-  href: /docs/cli
-  title: CLI
-next:
-  href: /docs/adapters
-  title: Adapters Reference
+lead: Pick an adapter, build, and deploy to Cloudflare Workers, Vercel, Netlify, Node.js, or a static host.
 ---
 
 ## Node on the build image

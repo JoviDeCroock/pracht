@@ -157,7 +157,7 @@ The point: every LLM-authored route arrives with a falsifiable claim attached.
   reduced to `title`/`lead`/`url`, links to other docs pages become sibling
   files (`routing.md#anchor`), other site paths become absolute
   `https://pracht.resynapse.dev` URLs, and relative assets point at GitHub.
-  Sections come from the sidebar in `examples/docs/src/shells/docs.tsx`; both
+  Sections come from the sidebar in `examples/docs/src/nav.ts`; both
   are external inputs of the CLI in `scripts/build.mjs`, so a docs edit rebuilds
   it. The `get_docs` (`topic?`), `list_docs`, and `search_docs` MCP tools read
   the same bundle via `packages/cli/src/docs.ts`; topics only ever resolve to

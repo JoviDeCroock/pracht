@@ -1,13 +1,6 @@
 ---
 title: Images
-lead: Use `@pracht/image` for responsive image markup, reserved layout space, and deployment-specific optimization loaders.
-breadcrumb: Images
-prev:
-  href: /docs/fonts
-  title: Fonts
-next:
-  href: /docs/env
-  title: Environment Variables
+lead: "Render responsive images with `@pracht/image`: reserved layout space, build-time imports, and an optimization loader for each host."
 ---
 
 ## Install

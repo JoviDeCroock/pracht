@@ -1,13 +1,6 @@
 ---
 title: Capabilities
-lead: Define a typed operation once and pracht projects it everywhere — direct server calls, a generated HTTP endpoint, a WebMCP page tool for in-browser agents, and a tool on your app's own remote MCP endpoint. Explicit, validated, and private by default.
-breadcrumb: Capabilities
-prev:
-  href: /docs/agents
-  title: The Agentic Web
-next:
-  href: /docs/standalone-capabilities
-  title: Standalone Capabilities
+lead: Define a typed operation once and call it from server code, over HTTP, as a WebMCP page tool, or as a remote MCP tool.
 ---
 
 > **Both routers.** Manifest apps register capabilities through `defineApp({ capabilities })`. [Pages-router](/docs/routing#capabilities-via-srccapabilities) apps auto-discover `src/capabilities/` and configure `agents` from `src/pages/_app.config.ts`. Everything on this page works the same in both.

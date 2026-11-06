@@ -1,13 +1,6 @@
 ---
-title: The Agentic Web
-lead: "The web has two users now — people, and the agents acting on their behalf. pracht resolves your app into one explicit graph and projects that graph to both: components for humans, typed and trust-gated tools for agents."
-breadcrumb: Agents
-prev:
-  href: /docs/performance
-  title: Performance
-next:
-  href: /docs/capabilities
-  title: Capabilities
+title: Agents overview
+lead: "How pracht serves agents: typed capabilities over HTTP, WebMCP, and remote MCP, plus Markdown pages and `llms.txt` for reading."
 ---
 
 ## The Web Has Two Users Now

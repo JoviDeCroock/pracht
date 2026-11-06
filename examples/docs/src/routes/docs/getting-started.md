@@ -1,10 +1,6 @@
 ---
-title: Getting Started
+title: Quick start
 lead: Create a pracht app, run it locally, and ship your first production build.
-breadcrumb: Getting Started
-next:
-  href: /docs/why-pracht
-  title: Why Pracht?
 ---
 
 ## Requirements

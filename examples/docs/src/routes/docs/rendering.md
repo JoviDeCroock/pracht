@@ -1,13 +1,6 @@
 ---
-title: Rendering Modes
-lead: pracht supports four rendering modes, configured per route. Each route declares how and when its HTML is generated, so every page gets its own performance and freshness trade-off.
-breadcrumb: Rendering Modes
-prev:
-  href: /docs/routing
-  title: Routing
-next:
-  href: /docs/islands
-  title: Islands
+title: Rendering modes
+lead: Choose SSG, SSR, ISG, or SPA per route to decide when its HTML is generated and how fresh it stays.
 ---
 
 ## Overview

@@ -1,13 +1,6 @@
 ---
-title: Migrating from Next.js
-lead: Move a Next.js App Router project to pracht, with side-by-side examples for routing, layouts, data loading, rendering modes, middleware, and API routes.
-breadcrumb: Migrate from Next.js
-prev:
-  href: /docs/recipes/fullstack-vercel
-  title: Full-Stack Vercel
-next:
-  href: /docs/examples
-  title: Examples
+title: Migrate from Next.js
+lead: Move a Next.js App Router project to pracht, with side-by-side examples for routing, layouts, data, rendering, middleware, and APIs.
 ---
 
 ## Overview

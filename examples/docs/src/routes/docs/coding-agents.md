@@ -1,13 +1,6 @@
 ---
-title: Coding Agents
-lead: The other kind of agent — the one writing your app rather than using it. pracht hands coding agents the resolved app graph and these docs over MCP, an embedded authoring guide, installable skills, and machine-checkable proof that the change is the change it claims to be.
-breadcrumb: Coding Agents
-prev:
-  href: /docs/agent-trust
-  title: Agent Trust
-next:
-  href: /docs/recipes/i18n
-  title: i18n
+title: Coding agents
+lead: Give coding agents your app graph, these docs over MCP, installable skills, and checks that prove a change does what it claims.
 ---
 
 ## Two Different Kinds of Agent

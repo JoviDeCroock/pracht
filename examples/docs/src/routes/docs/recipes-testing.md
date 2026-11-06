@@ -1,13 +1,6 @@
 ---
 title: Testing
-lead: Unit test loaders, API routes, middleware, and forms with Vitest and `@pracht/test`, verify rendering and hydration end to end with Playwright, and prove your agent surfaces with capability tests and `pracht eval`.
-breadcrumb: Testing
-prev:
-  href: /docs/recipes/view-transitions
-  title: View Transitions
-next:
-  href: /docs/recipes/logging
-  title: Logging
+lead: Test loaders, API routes, and middleware with Vitest and `@pracht/test`, pages with Playwright, and agent flows with `pracht eval`.
 ---
 
 ## Recommended Setup

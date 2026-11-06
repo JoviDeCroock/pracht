@@ -56,12 +56,12 @@ function parseScalar(raw) {
   return raw;
 }
 
-/** Nav sections and their page paths, in sidebar order, read from the docs shell. */
-export function parseNavSections(shellSource) {
-  const start = shellSource.indexOf("const NAV");
+/** Nav sections and their page paths, in sidebar order, read from the docs site's `src/nav.ts`. */
+export function parseNavSections(navSource) {
+  const start = navSource.indexOf("const NAV");
   if (start === -1) return [];
-  const end = shellSource.indexOf("\n];", start);
-  const nav = shellSource.slice(start, end === -1 ? undefined : end);
+  const end = navSource.indexOf("\n];", start);
+  const nav = navSource.slice(start, end === -1 ? undefined : end);
   const sections = [];
   for (const match of nav.matchAll(/label:\s*"([^"]+)"|href:\s*"([^"]+)"/g)) {
     if (match[1] !== undefined) sections.push({ label: match[1], paths: [] });
@@ -139,7 +139,7 @@ export function rewriteLinks(body, pathToSlug) {
  * Read every `.md` page in `sourceDir` and return the files to write:
  * `{ pages: [{ slug, path, url, title, lead, section, markdown }] }`.
  */
-export function buildDocsBundle({ sourceDir, shellFile }) {
+export function buildDocsBundle({ sourceDir, navFile }) {
   const files = readdirSync(sourceDir)
     .filter((name) => extname(name).toLowerCase() === ".md")
     .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
@@ -167,8 +167,8 @@ export function buildDocsBundle({ sourceDir, shellFile }) {
 
   const sectionOf = new Map();
   const navOrder = new Map();
-  if (shellFile && existsSync(shellFile)) {
-    for (const section of parseNavSections(readFileSync(shellFile, "utf-8"))) {
+  if (navFile && existsSync(navFile)) {
+    for (const section of parseNavSections(readFileSync(navFile, "utf-8"))) {
       for (const path of section.paths) {
         const slug = pathToSlug.get(path);
         if (!slug || sectionOf.has(slug)) continue;

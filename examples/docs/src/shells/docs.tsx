@@ -2,226 +2,287 @@ import { useLocation } from "@pracht/core";
 import type { ShellProps } from "@pracht/core";
 import type { Icon } from "@tabler/icons-preact";
 import {
-  IconRocket,
-  IconSitemap,
-  IconBolt,
-  IconServerBolt,
-  IconPlug,
-  IconShield,
-  IconLayout,
-  IconPalette,
-  IconTerminal2,
-  IconCloud,
-  IconGauge,
-  IconWorld,
-  IconLock,
-  IconKey,
-  IconForms,
-  IconTestPipe,
-  IconTriangle,
-  IconRefresh,
-  IconRobot,
-  IconBrandGithub,
-  IconSparkles,
-  IconPresentationAnalytics,
   IconActivity,
-  IconBroadcast,
-  IconShieldCheck,
-  IconWorldBolt,
-  IconPhoto,
-  IconTypography,
-  IconFileText,
-  IconBook,
-  IconLanguage,
   IconAdjustments,
   IconApps,
+  IconBolt,
+  IconBook,
+  IconBrandGithub,
+  IconBroadcast,
+  IconCloud,
+  IconFileText,
+  IconForms,
+  IconGauge,
+  IconKey,
+  IconLanguage,
+  IconLayout,
+  IconLock,
+  IconMenu2,
+  IconPalette,
+  IconPhoto,
+  IconPlug,
+  IconPresentation,
+  IconRefresh,
+  IconRobot,
+  IconRocket,
+  IconRoute,
+  IconServer,
+  IconShield,
+  IconShieldCheck,
+  IconSitemap,
+  IconSparkles,
+  IconTerminal2,
+  IconTestPipe,
+  IconTriangle,
+  IconTypography,
   IconUserBolt,
+  IconWorld,
+  IconWorldBolt,
 } from "@tabler/icons-preact";
+
+import DocsEnhancer from "../islands/DocsEnhancer.tsx";
+import DocsSearch from "../islands/DocsSearch.tsx";
+import PageActions from "../islands/PageActions.tsx";
+import { Logo } from "../components/Logo.tsx";
+import { NAV, navContext, type NavIcon } from "../nav.ts";
+import { SITE_NAME, SITE_ORIGIN, absoluteUrl } from "../site.ts";
 import "../styles/global.css";
 import { inter } from "../fonts";
 
-/** The sidebar. The docs MCP server's `docs.list` tool groups pages the same way. */
-export const NAV = [
-  {
-    label: "Getting Started",
-    links: [
-      { href: "/docs/getting-started", Icon: IconRocket, title: "Quick Start" },
-      { href: "/docs/why-pracht", Icon: IconSparkles, title: "Why Pracht?" },
-      { href: "/docs/demo-comparison", Icon: IconPresentationAnalytics, title: "Demo Comparison" },
-      { href: "/docs/routing", Icon: IconSitemap, title: "Routing" },
-    ],
-  },
-  {
-    label: "Core Concepts",
-    links: [
-      { href: "/docs/rendering", Icon: IconBolt, title: "Rendering Modes" },
-      { href: "/docs/islands", Icon: IconSparkles, title: "Islands" },
-      { href: "/docs/server-islands", Icon: IconUserBolt, title: "Server Islands" },
-      { href: "/docs/data-loading", Icon: IconServerBolt, title: "Data Loading" },
-      { href: "/docs/content", Icon: IconFileText, title: "Content Collections" },
-      { href: "/docs/api-routes", Icon: IconPlug, title: "API Routes" },
-      { href: "/docs/api-validation", Icon: IconTestPipe, title: "API Validation" },
-      { href: "/docs/openapi", Icon: IconSitemap, title: "OpenAPI" },
-      { href: "/docs/middleware", Icon: IconShield, title: "Middleware" },
-      { href: "/docs/shells", Icon: IconLayout, title: "Shells" },
-      { href: "/docs/styling", Icon: IconPalette, title: "Styling" },
-      { href: "/docs/fonts", Icon: IconTypography, title: "Fonts" },
-      { href: "/docs/images", Icon: IconPhoto, title: "Images" },
-      { href: "/docs/env", Icon: IconKey, title: "Environment" },
-    ],
-  },
-  {
-    label: "Guides",
-    links: [
-      { href: "/docs/cli", Icon: IconTerminal2, title: "CLI" },
-      { href: "/docs/deployment", Icon: IconCloud, title: "Deployment" },
-    ],
-  },
-  {
-    label: "Advanced",
-    links: [
-      { href: "/docs/prefetching", Icon: IconBolt, title: "Prefetching" },
-      { href: "/docs/performance", Icon: IconGauge, title: "Performance" },
-    ],
-  },
-  {
-    label: "Agents",
-    links: [
-      { href: "/docs/agents", Icon: IconWorldBolt, title: "The Agentic Web" },
-      { href: "/docs/capabilities", Icon: IconRobot, title: "Capabilities" },
-      {
-        href: "/docs/standalone-capabilities",
-        Icon: IconPlug,
-        title: "Standalone Capabilities",
-      },
-      { href: "/docs/agent-trust", Icon: IconShieldCheck, title: "Agent Trust" },
-      { href: "/docs/coding-agents", Icon: IconTerminal2, title: "Coding Agents" },
-    ],
-  },
-  {
-    label: "Recipes",
-    links: [
-      { href: "/docs/recipes/i18n", Icon: IconWorld, title: "i18n" },
-      { href: "/docs/recipes/auth", Icon: IconLock, title: "Authentication" },
-      { href: "/docs/recipes/csp", Icon: IconShield, title: "CSP" },
-      { href: "/docs/recipes/forms", Icon: IconForms, title: "Forms" },
-      { href: "/docs/recipes/tanstack-query", Icon: IconServerBolt, title: "TanStack Query" },
-      { href: "/docs/recipes/view-transitions", Icon: IconSparkles, title: "View Transitions" },
-      { href: "/docs/recipes/testing", Icon: IconTestPipe, title: "Testing" },
-      { href: "/docs/recipes/logging", Icon: IconActivity, title: "Logging" },
-      { href: "/docs/recipes/streaming", Icon: IconBroadcast, title: "SSE & WebSockets" },
-      {
-        href: "/docs/recipes/fullstack-cloudflare",
-        Icon: IconCloud,
-        title: "Full-Stack Cloudflare",
-      },
-      { href: "/docs/recipes/fullstack-vercel", Icon: IconTriangle, title: "Full-Stack Vercel" },
-    ],
-  },
-  {
-    label: "Migration",
-    links: [{ href: "/docs/migrate/nextjs", Icon: IconRefresh, title: "From Next.js" }],
-  },
-  {
-    label: "Reference",
-    links: [
-      { href: "/docs/adapters", Icon: IconPlug, title: "Adapters" },
-      { href: "/docs/reference/api", Icon: IconBook, title: "API Reference" },
-      { href: "/docs/reference/config", Icon: IconAdjustments, title: "Configuration" },
-      { href: "/docs/reference/i18n", Icon: IconLanguage, title: "i18n" },
-      { href: "/docs/examples", Icon: IconApps, title: "Examples" },
-    ],
-  },
-];
+const ICONS: Record<NavIcon, Icon> = {
+  activity: IconActivity,
+  adjustments: IconAdjustments,
+  apps: IconApps,
+  bolt: IconBolt,
+  book: IconBook,
+  broadcast: IconBroadcast,
+  cloud: IconCloud,
+  "file-text": IconFileText,
+  forms: IconForms,
+  gauge: IconGauge,
+  key: IconKey,
+  language: IconLanguage,
+  layout: IconLayout,
+  lock: IconLock,
+  palette: IconPalette,
+  photo: IconPhoto,
+  plug: IconPlug,
+  presentation: IconPresentation,
+  refresh: IconRefresh,
+  robot: IconRobot,
+  rocket: IconRocket,
+  route: IconRoute,
+  server: IconServer,
+  shield: IconShield,
+  "shield-check": IconShieldCheck,
+  sitemap: IconSitemap,
+  sparkles: IconSparkles,
+  terminal: IconTerminal2,
+  test: IconTestPipe,
+  triangle: IconTriangle,
+  typography: IconTypography,
+  "user-bolt": IconUserBolt,
+  world: IconWorld,
+  "world-bolt": IconWorldBolt,
+};
 
-function NavLink({
-  href,
-  Icon,
-  title,
-  currentPath,
-}: {
-  href: string;
-  Icon: Icon;
-  title: string;
-  currentPath: string;
-}) {
-  const active = currentPath === href;
+const REPO = "https://github.com/JoviDeCroock/pracht";
+
+function Sidebar({ currentPath }: { currentPath: string }) {
   return (
-    <a href={href} class={active ? "active" : ""}>
-      <span class="sidebar-icon">
-        <Icon size={14} stroke={1.75} />
-      </span>
-      {title}
-    </a>
+    <>
+      {NAV.map((section) => (
+        <div key={section.label} class="sidebar-section">
+          <div class="sidebar-label">{section.label}</div>
+          <ul class="sidebar-nav">
+            {section.links.map(({ href, title, icon }) => {
+              const Glyph = ICONS[icon];
+              const active = currentPath === href;
+              return (
+                <li key={href}>
+                  <a
+                    href={href}
+                    class={active ? "active" : undefined}
+                    aria-current={active ? "page" : undefined}
+                  >
+                    <span class="sidebar-icon" aria-hidden="true">
+                      <Glyph size={14} stroke={1.75} />
+                    </span>
+                    {title}
+                  </a>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ))}
+    </>
   );
 }
 
+/** The first page of a sidebar section, which stands in for the section in breadcrumbs. */
+function sectionHome(label: string): string {
+  return NAV.find((section) => section.label === label)?.links[0]?.href ?? "/docs/getting-started";
+}
+
+function normalizePath(pathname: string): string {
+  return pathname.length > 1 ? pathname.replace(/\/$/, "") : pathname;
+}
+
 export function Shell({ children }: ShellProps) {
-  const { pathname: currentPath } = useLocation();
-  const docsActive = currentPath.startsWith("/docs");
+  const currentPath = normalizePath(useLocation().pathname);
+  const { entry, prev, next } = navContext(currentPath);
+  const sourceFile = entry ? `${currentPath.slice("/docs/".length).replace("/", "-")}.md` : null;
 
   return (
     // Apply the generated stack to the shell root, including its adjusted
     // fallback face, so every descendant inherits it.
     <div class="docs-layout" style={inter.style}>
+      <a class="skip-link" href="#main">
+        Skip to content
+      </a>
       <header class="site-header">
         <div class="inner">
-          <a href="/" class="logo">
-            <div class="logo-mark">v</div>
+          <button
+            type="button"
+            class="nav-toggle"
+            popovertarget="docs-nav"
+            aria-label="Open navigation"
+          >
+            <IconMenu2 size={18} stroke={1.75} />
+          </button>
+          <a href="/" class="logo" aria-label="pracht home">
+            <Logo />
             pracht
           </a>
-          <nav class="header-nav">
-            <a href="/docs/getting-started" class={docsActive ? "active" : ""}>
+          <nav class="header-nav" aria-label="Site">
+            <a href="/docs/getting-started" class="active">
               Docs
             </a>
           </nav>
           <div class="header-right">
-            <a
-              href="https://github.com/JoviDeCroock/pracht"
-              class="github-link"
-              target="_blank"
-              rel="noopener"
-            >
+            <DocsSearch client="idle" />
+            <a href={REPO} class="github-link" target="_blank" rel="noopener">
               <IconBrandGithub size={15} stroke={1.5} />
-              GitHub
+              <span class="github-label">GitHub</span>
             </a>
           </div>
         </div>
       </header>
       <div class="docs-body">
-        <aside class="docs-sidebar">
-          {NAV.map((section) => (
-            <div key={section.label} class="sidebar-section">
-              <div class="sidebar-label">{section.label}</div>
-              <nav class="sidebar-nav">
-                {section.links.map((link) => (
-                  <NavLink key={link.href} {...link} currentPath={currentPath} />
-                ))}
-              </nav>
-            </div>
-          ))}
+        <aside id="docs-nav" class="docs-sidebar" popover="auto" aria-label="Documentation">
+          <Sidebar currentPath={currentPath} />
         </aside>
-        <main class="docs-content">{children}</main>
+        <main id="main" class="docs-content" tabIndex={-1}>
+          {entry ? (
+            <div class="doc-toolbar">
+              <nav class="breadcrumb" aria-label="Breadcrumb">
+                <a href="/docs/getting-started">Docs</a>
+                <span class="breadcrumb-sep" aria-hidden="true">
+                  /
+                </span>
+                <a href={sectionHome(entry.section)}>{entry.section}</a>
+              </nav>
+              <PageActions path={currentPath} title={entry.title} client="idle" />
+            </div>
+          ) : null}
+          {children}
+          {entry ? (
+            <footer class="doc-footer">
+              <nav class="doc-nav" aria-label="Previous and next page">
+                {prev ? (
+                  <a href={prev.href} class="doc-nav-card prev" rel="prev">
+                    <span class="doc-nav-dir">Previous</span>
+                    <span class="doc-nav-title">← {prev.title}</span>
+                  </a>
+                ) : (
+                  <span />
+                )}
+                {next ? (
+                  <a href={next.href} class="doc-nav-card next" rel="next">
+                    <span class="doc-nav-dir">Next</span>
+                    <span class="doc-nav-title">{next.title} →</span>
+                  </a>
+                ) : (
+                  <span />
+                )}
+              </nav>
+              <p class="doc-edit">
+                <a
+                  href={`${REPO}/edit/main/examples/docs/src/routes/docs/${sourceFile}`}
+                  target="_blank"
+                  rel="noopener"
+                >
+                  Edit this page on GitHub
+                </a>
+                <span aria-hidden="true">·</span>
+                <a href={`${currentPath}.md`}>View as Markdown</a>
+              </p>
+            </footer>
+          ) : null}
+        </main>
       </div>
+      <DocsEnhancer client="idle" />
     </div>
   );
 }
 
-export function head() {
+export function head({ url }: { url: URL }) {
+  const path = normalizePath(url.pathname);
+  const { entry } = navContext(path);
+  const canonical = absoluteUrl(path);
+  const breadcrumbs = entry
+    ? {
+        "@context": "https://schema.org",
+        "@type": "BreadcrumbList",
+        itemListElement: [
+          {
+            "@type": "ListItem",
+            position: 1,
+            name: "Docs",
+            item: absoluteUrl("/docs/getting-started"),
+          },
+          {
+            "@type": "ListItem",
+            position: 2,
+            name: entry.section,
+            item: absoluteUrl(sectionHome(entry.section)),
+          },
+          { "@type": "ListItem", position: 3, name: entry.title, item: canonical },
+        ],
+      }
+    : null;
+
   return {
     lang: "en",
-    title: "Docs — pracht",
+    title: `Docs — ${SITE_NAME}`,
     meta: [
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      {
-        name: "description",
-        content:
-          "pracht documentation — routing, rendering modes, data loading, and deployment adapters.",
-      },
+      { name: "theme-color", content: "#09090b" },
+      { property: "og:site_name", content: SITE_NAME },
+      { property: "og:type", content: "article" },
+      { property: "og:url", content: canonical },
+      { property: "og:image", content: `${SITE_ORIGIN}/og.png` },
+      { property: "og:image:width", content: "1200" },
+      { property: "og:image:height", content: "630" },
+      { name: "twitter:card", content: "summary_large_image" },
+      { name: "twitter:image", content: `${SITE_ORIGIN}/og.png` },
     ],
-    // The docs index for agents, advertised the same way the homepage's
-    // `Link` header does.
-    link: [{ rel: "describedby", href: "/llms.txt", type: "text/markdown" }],
+    link: [
+      { rel: "canonical", href: canonical },
+      { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" },
+      // The docs index for agents, advertised the same way the homepage's
+      // `Link` header does.
+      { rel: "describedby", href: "/llms.txt", type: "text/markdown" },
+    ],
+    script: breadcrumbs
+      ? [
+          {
+            type: "application/ld+json",
+            children: JSON.stringify(breadcrumbs),
+          },
+        ]
+      : [],
     fonts: [inter],
   };
 }

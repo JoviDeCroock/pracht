@@ -1,13 +1,6 @@
 ---
-title: Content Collections
-lead: One server-only registry for content routes, locales, source and compiled documents, and generated static files.
-breadcrumb: Content
-prev:
-  href: /docs/data-loading
-  title: Data Loading
-next:
-  href: /docs/api-routes
-  title: API Routes
+title: Content collections
+lead: Register Markdown and other content once to get routes, locales, compiled documents, and generated files such as `llms.txt`.
 ---
 
 ## Install

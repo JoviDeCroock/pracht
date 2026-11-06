@@ -1,13 +1,6 @@
 ---
-title: A full pracht app, end to end
-lead: A walkthrough of Launchpad — a realistic SaaS example that mixes render modes, two shells, auth middleware, and Markdown content negotiation in one codebase.
-breadcrumb: Demo Comparison
-prev:
-  href: /docs/why-pracht
-  title: Why Pracht?
-next:
-  href: /docs/routing
-  title: Routing
+title: Example app tour
+lead: A tour of Launchpad, a SaaS example that mixes render modes, two shells, auth middleware, and Markdown content negotiation.
 ---
 
 Launchpad is a fictional product-management SaaS that shows pracht's pieces composed in one app. It has marketing pages, a blog, pricing, an authenticated dashboard, project pages, settings, and a Markdown briefing for agents, and each picks the render mode that fits.

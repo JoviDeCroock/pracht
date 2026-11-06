@@ -1,13 +1,6 @@
 ---
 title: Adapters
-lead: Adapters are thin layers that translate between a platform's native request handling and pracht's Web Request/Response interface. pracht ships adapters for Cloudflare Workers, Vercel, Netlify, Node.js, and pure static export.
-breadcrumb: Adapters
-prev:
-  href: /docs/deployment
-  title: Deployment
-next:
-  href: /docs/prefetching
-  title: Prefetching
+lead: "Build output and options for each deploy target: Cloudflare Workers, Vercel, Netlify, Node.js, and static hosts."
 ---
 
 ## Architecture

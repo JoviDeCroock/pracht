@@ -1,13 +1,6 @@
 ---
 title: Authentication
-lead: Session-based auth with @pracht/session — encrypted cookies, middleware gates, login/logout API routes, and password hashing that works on every adapter.
-breadcrumb: Authentication
-prev:
-  href: /docs/recipes/i18n
-  title: i18n
-next:
-  href: /docs/recipes/csp
-  title: Content Security Policy
+lead: "Session auth with `@pracht/session`: encrypted cookies, middleware gates, login and logout routes, and password hashing on every adapter."
 ---
 
 ## Architecture

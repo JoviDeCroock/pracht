@@ -1,13 +1,6 @@
 ---
 title: CLI
-lead: The `@pracht/cli` package covers development, production builds, inspection, verification, evaluation, scaffolding, previews, offline docs, and agent integrations.
-breadcrumb: CLI
-prev:
-  href: /docs/env
-  title: Environment Variables
-next:
-  href: /docs/deployment
-  title: Deployment
+lead: "`pracht` commands for development, builds, previews, inspection, verification, evals, scaffolding, offline docs, and agent setup."
 ---
 
 ## create-pracht

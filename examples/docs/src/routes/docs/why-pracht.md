@@ -1,13 +1,6 @@
 ---
-title: Why Pracht?
-lead: How pracht compares to other full-stack frameworks — and when it's the right fit.
-breadcrumb: Why Pracht?
-prev:
-  href: /docs/getting-started
-  title: Getting Started
-next:
-  href: /docs/demo-comparison
-  title: Launchpad walkthrough
+title: Why pracht
+lead: How pracht differs from other full-stack frameworks, and when it fits.
 ---
 
 ## Design philosophy

@@ -1,13 +1,6 @@
 ---
 title: Prefetching
-lead: pracht prefetches route data before navigation so page transitions feel instant. Prefetching is automatic by default and can be configured per route.
-breadcrumb: Prefetching
-prev:
-  href: /docs/adapters
-  title: Adapters
-next:
-  href: /docs/performance
-  title: Performance
+lead: "pracht fetches route data before navigation: automatically by default, and configurable per route and per link."
 ---
 
 ## How It Works

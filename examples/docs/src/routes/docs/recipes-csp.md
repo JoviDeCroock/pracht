@@ -1,13 +1,6 @@
 ---
 title: Content Security Policy
-lead: Add a focused Content Security Policy with route or shell headers, then verify it against dynamic and prerendered pages.
-breadcrumb: CSP
-prev:
-  href: /docs/recipes/auth
-  title: Authentication
-next:
-  href: /docs/recipes/forms
-  title: Forms
+lead: Set a Content Security Policy from route or shell headers, then verify it on dynamic and prerendered pages.
 ---
 
 ## Starter Policy

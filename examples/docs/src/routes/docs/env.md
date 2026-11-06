@@ -1,13 +1,6 @@
 ---
-title: Environment Variables
-lead: Typed, safe-by-default env access. Server secrets stay on the server, client-visible config is opt-in via a naming prefix, and the build fails when a non-public variable is referenced in client code.
-breadcrumb: Environment
-prev:
-  href: /docs/images
-  title: Images
-next:
-  href: /docs/cli
-  title: CLI
+title: Environment variables
+lead: Read typed environment variables. Secrets stay on the server, prefixed variables reach the client, and the build fails if client code reads a secret.
 ---
 
 ## The Model

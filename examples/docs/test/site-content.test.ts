@@ -21,6 +21,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { LLMS_SECTIONS } from "../content.ts";
+import { NAV_PAGES } from "../src/nav.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const siteRoot = resolve(here, "..");
@@ -28,6 +29,7 @@ const docsDir = resolve(siteRoot, "src/routes/docs");
 
 const MAX_BLOCK_CHARS = 600;
 const MAX_PAGE_WORDS = 2_500;
+const MAX_LEAD_CHARS = 160;
 
 /** Pages allowed over `MAX_PAGE_WORDS`, capped at their current size. */
 const PAGE_WORD_CEILINGS: Record<string, number> = {
@@ -193,18 +195,39 @@ describe("docs site content", () => {
     expect(broken).toEqual([]);
   });
 
-  it("files every page in exactly one llms.txt section, listed in sidebar order", () => {
+  it("lists every page in the sidebar exactly once", () => {
+    // The sidebar (src/nav.ts) also drives the breadcrumb, previous/next links,
+    // llms.txt sections, and the docs MCP table of contents.
+    const listed = NAV_PAGES.map((page) => page.href);
+    expect(new Set(listed).size).toBe(listed.length);
+    expect([...listed].sort()).toEqual(pages.map((page) => routeFor(page.file)).sort());
+  });
+
+  it("files every page in exactly one llms.txt section", () => {
     // A page missing from LLMS_SECTIONS would vanish from llms.txt and every
     // full-text file; one listed twice would be fetched twice by an agent.
     const sectioned = LLMS_SECTIONS.flatMap((section) => [...section.pages]);
     expect([...sectioned].sort()).toEqual(pages.map((page) => routeFor(page.file)).sort());
+  });
 
-    const shell = readFileSync(resolve(siteRoot, "src/shells/docs.tsx"), "utf-8");
-    const nav = [...shell.matchAll(/href: "(\/docs\/[^"]+)"/g)].map((match) => match[1]);
-    const order = (path: string) => nav.indexOf(path);
-    for (const section of LLMS_SECTIONS) {
-      const indexes = section.pages.map(order);
-      expect(indexes, section.heading).toEqual([...indexes].sort((a, b) => a - b));
+  it(`gives every page a title and a lead of at most ${MAX_LEAD_CHARS} characters`, () => {
+    // The lead is the page's meta description, its llms.txt summary, and its
+    // search snippet, so it has to fit a search result.
+    const offenders: string[] = [];
+    for (const { file, source } of pages) {
+      const frontmatter = /^---\n([\s\S]*?)\n---\n/.exec(source)?.[1] ?? "";
+      const fields = new Map(
+        [...frontmatter.matchAll(/^(\w+):\s*(.*)$/gm)].map((match) => [match[1], match[2]]),
+      );
+      const lead = (fields.get("lead") ?? "").replace(/^"|"$/g, "").replace(/`/g, "");
+      if (!fields.get("title")) offenders.push(`${file}: no title`);
+      if (!lead) offenders.push(`${file}: no lead`);
+      else if (lead.length > MAX_LEAD_CHARS)
+        offenders.push(`${file}: lead is ${lead.length} chars`);
+      for (const key of fields.keys()) {
+        if (key !== "title" && key !== "lead") offenders.push(`${file}: unknown field ${key}`);
+      }
     }
+    expect(offenders).toEqual([]);
   });
 });

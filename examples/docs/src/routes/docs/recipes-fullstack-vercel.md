@@ -1,13 +1,6 @@
 ---
-title: Full-Stack Vercel
-lead: Build a full-stack app on Vercel with Vercel Postgres (Neon), KV (Upstash Redis), and Blob storage. This recipe covers project setup, database provisioning, and accessing services from loaders and API routes.
-breadcrumb: Full-Stack Vercel
-prev:
-  href: /docs/recipes/fullstack-cloudflare
-  title: Full-Stack Cloudflare
-next:
-  href: /docs/migrate/nextjs
-  title: Migrate from Next.js
+title: Full-stack Vercel
+lead: "Build an app on Vercel with Postgres (Neon), KV (Upstash Redis), and Blob: setup, provisioning, and access from loaders and API routes."
 ---
 
 ## What You Get

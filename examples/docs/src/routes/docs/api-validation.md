@@ -1,13 +1,6 @@
 ---
-title: API Validation & Typed Fetch
-lead: Validate API inputs once on the server, generate route contracts, and call them from the client with path, method, body, query, params, and response types connected end to end.
-breadcrumb: API Validation
-prev:
-  href: /docs/api-routes
-  title: API Routes
-next:
-  href: /docs/openapi
-  title: OpenAPI
+title: API validation and typed fetch
+lead: Validate request input on the server, then call API routes from the client with typed params, query, body, and response.
 ---
 
 ## Define a validated handler

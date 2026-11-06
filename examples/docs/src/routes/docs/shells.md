@@ -1,13 +1,6 @@
 ---
 title: Shells
-lead: Layout wrappers that surround route content. Shells are decoupled from URL structure — a flat route like `/settings` can share a shell with `/dashboard` without nesting.
-breadcrumb: Shells
-prev:
-  href: /docs/middleware
-  title: Middleware
-next:
-  href: /docs/styling
-  title: Styling
+lead: Layouts that wrap routes. The manifest assigns them, so routes can share a shell without sharing a URL prefix.
 ---
 
 ## Defining a Shell

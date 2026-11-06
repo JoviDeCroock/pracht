@@ -1,13 +1,6 @@
 ---
 title: TanStack Query
-lead: Use TanStack Query in a pracht app with @pracht/query. Queries fetched on the server arrive in the browser cache with the page and with every client navigation, so components render from the cache instead of fetching again.
-breadcrumb: TanStack Query
-prev:
-  href: /docs/recipes/forms
-  title: Forms
-next:
-  href: /docs/recipes/view-transitions
-  title: View Transitions
+lead: "Use TanStack Query with `@pracht/query`: queries fetched on the server arrive in the browser cache with the page and on every navigation."
 ---
 
 ## Install

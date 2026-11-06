@@ -1,7 +1,7 @@
 export async function loader() {
   return new Response(null, {
     status: 302,
-    headers: { location: "/docs/routing" },
+    headers: { location: "/docs/getting-started" },
   });
 }
 

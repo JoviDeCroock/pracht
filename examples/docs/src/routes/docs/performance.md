@@ -1,13 +1,6 @@
 ---
 title: Performance
-lead: What pracht costs a page, how those numbers are measured, and the automatic code splitting, module preloading, and vendor chunk extraction you get without configuring anything.
-breadcrumb: Performance
-prev:
-  href: /docs/prefetching
-  title: Prefetching
-next:
-  href: /docs/agents
-  title: The Agentic Web
+lead: What pracht adds to a page, how it is measured, and the code splitting and preloading you get without configuration.
 ---
 
 ## What pracht costs a page

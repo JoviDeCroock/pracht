@@ -1,13 +1,6 @@
 ---
-title: Server-Sent Events & WebSockets
-lead: Push live updates to the browser with first-party Server-Sent Events helpers — createEventStream on the server, useEventSource in components — and wire WebSockets per adapter.
-breadcrumb: SSE & WebSockets
-prev:
-  href: /docs/recipes/logging
-  title: Logging
-next:
-  href: /docs/recipes/fullstack-cloudflare
-  title: Full-Stack Cloudflare
+title: Server-Sent Events and WebSockets
+lead: Push live updates with `createEventStream` on the server and `useEventSource` in components, and wire WebSockets per adapter.
 ---
 
 > [!NOTE]

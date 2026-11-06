@@ -1,13 +1,6 @@
 ---
 title: Fonts
-lead: Self-host fonts with `defineFont()` — typed `@font-face` generation, automatic preload links, deduped head output, and layout-shift-free fallbacks. No files are fetched at build time.
-breadcrumb: Fonts
-prev:
-  href: /docs/styling
-  title: Styling
-next:
-  href: /docs/images
-  title: Images
+lead: "Self-host fonts with `defineFont()`: generated `@font-face` rules, preload links, and size-matched fallbacks that prevent layout shift."
 ---
 
 ## Quick Start

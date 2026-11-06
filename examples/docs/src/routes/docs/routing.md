@@ -1,13 +1,6 @@
 ---
 title: Routing
-lead: "pracht uses a hybrid routing model: route modules live as files by convention, but their wiring — shells, middleware, render modes, and URL patterns — is declared explicitly in a single `src/routes.ts` manifest."
-breadcrumb: Routing
-prev:
-  href: /docs/demo-comparison
-  title: Launchpad walkthrough
-next:
-  href: /docs/rendering
-  title: Rendering Modes
+lead: Declare routes, shells, middleware, and render modes in one `src/routes.ts` manifest, or let the pages router discover them from files.
 ---
 
 ## Route Manifest

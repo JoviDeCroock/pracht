@@ -1,13 +1,6 @@
 ---
-title: Configuration Reference
-lead: Every option accepted by the `pracht()` Vite plugin and by `defineApp()`, with its default and a pointer to the guide that explains it.
-breadcrumb: Configuration
-prev:
-  href: /docs/reference/api
-  title: API Reference
-next:
-  href: /docs/reference/i18n
-  title: i18n Reference
+title: Configuration reference
+lead: Every option of the `pracht()` Vite plugin and `defineApp()`, with its default and a link to the guide that explains it.
 ---
 
 ## `pracht()` — the Vite plugin

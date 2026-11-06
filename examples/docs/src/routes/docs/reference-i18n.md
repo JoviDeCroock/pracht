@@ -1,10 +1,6 @@
 ---
-title: i18n Reference
-lead: The full API of `@pracht/i18n` — locale detection, typed lazy dictionaries, translation helpers, locale-prefixed paths, and hreflang. For a walkthrough, start with the i18n recipe.
-breadcrumb: i18n
-prev:
-  href: /docs/reference/config
-  title: Configuration
+title: i18n reference
+lead: "The `@pracht/i18n` API: locale detection, typed lazy dictionaries, translation helpers, locale-prefixed paths, and hreflang."
 ---
 
 `@pracht/i18n` is an optional package. The [i18n recipe](/docs/recipes/i18n)
