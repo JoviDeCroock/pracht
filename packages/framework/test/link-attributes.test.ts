@@ -80,6 +80,20 @@ describe("<Link> data attributes", () => {
     );
   });
 
+  it("ignores raw router attributes passed as props", () => {
+    const anchor = renderLink({
+      "data-pracht-preserve-scroll": "false",
+      "data-pracht-view-transition": "",
+      "data-pracht-prefetch": "viewport",
+      "data-pracht-speculate": "on",
+    });
+
+    expect(anchor.hasAttribute("data-pracht-preserve-scroll")).toBe(false);
+    expect(anchor.hasAttribute("data-pracht-view-transition")).toBe(false);
+    expect(anchor.hasAttribute("data-pracht-prefetch")).toBe(false);
+    expect(anchor.hasAttribute("data-pracht-speculate")).toBe(false);
+  });
+
   it("rejects a passed href even when route is present", () => {
     expect(() => renderLink({ href: "https://evil.example/" })).toThrow(
       /navigates by route id, not href/,

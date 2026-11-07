@@ -537,7 +537,7 @@ export function Link<TRoute extends RouteId>(props: LinkProps<TRoute>) {
   return h<JSX.IntrinsicElements["a"]>("a", anchorProps as JSX.IntrinsicElements["a"]);
 }
 
-/** Props `<Link>` consumes instead of passing to its `<a>`. */
+/** Props `<Link>` consumes or owns instead of passing through to its `<a>`. */
 function isLinkOnlyProp(name: string): boolean {
   switch (name) {
     case "route":
@@ -549,6 +549,12 @@ function isLinkOnlyProp(name: string): boolean {
     case "preserveScroll":
     case "viewTransition":
     case "speculate":
+    // The router's own attributes come only from the props above, as they
+    // did when the computed values overwrote whatever the caller passed.
+    case PREFETCH_ATTRIBUTE:
+    case PRESERVE_SCROLL_ATTRIBUTE:
+    case VIEW_TRANSITION_ATTRIBUTE:
+    case SPECULATE_ATTRIBUTE:
       return true;
     default:
       return false;
