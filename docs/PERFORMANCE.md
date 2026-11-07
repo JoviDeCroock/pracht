@@ -21,6 +21,16 @@ resolver because route tables there are normally small and the client-byte
 budget is the more important constraint. Keep new typed URL surfaces on the
 shared href builder so they inherit both execution paths.
 
+## Server-rendered document bodies
+
+`htmlResponse()` encodes the rendered document to UTF-8 once and builds the
+`Response` from those bytes. A string body would be converted to a USVString
+by the `Response` constructor (a full scan that also flattens the concatenated
+document) and then encoded again when the adapter reads it. On a 280 KB
+document that conversion cost more CPU than rendering the page, and dropping it
+cut server CPU per request by about 18% on Node 24. Streamed documents are
+unaffected: they already enqueue encoded chunks.
+
 ## Tree-shaking framework imports
 
 `@pracht/core` is published as unbundled ESM so downstream bundlers can follow
