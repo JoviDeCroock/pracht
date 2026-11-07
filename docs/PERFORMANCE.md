@@ -13,8 +13,15 @@ complete based path for static routes. Subsequent `<Link>` renders,
 `createHref()` calls, typed `navigate()` calls, and typed `prefetch()` calls use
 the same O(1) lookup; static links return their cached path, while dynamic links
 substitute parameters without allocating filtered segment arrays, sets, or a
-normalized parameter object per call. The cache is weakly keyed by the route
-array so short-lived generated or test tables remain collectible.
+normalized parameter object per call. A parameter made only of letters, digits,
+`_`, `-`, `.`, and `~` (ids, slugs, UUIDs) is used as is instead of going
+through `encodeURIComponent()`. The cache is weakly keyed by the route array so
+short-lived generated or test tables remain collectible.
+
+`<Link>` itself builds a single props object for its `<a>` and only sets the
+router's `data-pracht-*` attributes that carry a value, so the renderer does not
+inspect unset keys on every link. Together these cut server CPU per request by
+about 10% on a page with 1,000 links.
 
 This compilation is server-only. Browser builds retain the smaller linear
 resolver because route tables there are normally small and the client-byte
