@@ -76,7 +76,12 @@ import {
   writeWebResponse,
 } from "./node-request.ts";
 import type { SharedHeadersManifest } from "@pracht/core/server";
-import { applyHeadersManifest, resolveStaticFile, type HeadersManifest } from "./node-static.ts";
+import {
+  applyHeadersManifest,
+  resolveStaticFile,
+  type HeadersManifest,
+  type StaticFileResult,
+} from "./node-static.ts";
 
 const ROUTE_STATE_REQUEST_HEADER = "x-pracht-route-state-request";
 // What browsers see on an ISG page whose render set no Cache-Control: always
@@ -202,6 +207,36 @@ export interface NodeRequestHandler {
 
 let warnedAboutMissingCanonicalOrigin = false;
 
+/** How long a path with no static file skips the filesystem lookup. */
+const STATIC_MISS_TTL_MS = 1000;
+/** Most remembered misses; past this the cache starts over. */
+const STATIC_MISS_LIMIT = 1024;
+
+/**
+ * Paths that recently had no static file. Every rendered route path misses the
+ * static lookup, which costs two failed `lstat` calls (each a thread-pool round
+ * trip and a thrown error) on every request. Remembering the miss for a second
+ * keeps that off the hot path while a file added to the static directory at
+ * runtime (new assets copied in during a deploy, say) is still found within the
+ * second. Bounded, so requests for random paths cannot grow it.
+ */
+class StaticMissCache {
+  private readonly expiries = new Map<string, number>();
+
+  has(pathname: string): boolean {
+    const expiry = this.expiries.get(pathname);
+    if (expiry === undefined) return false;
+    if (expiry > performance.now()) return true;
+    this.expiries.delete(pathname);
+    return false;
+  }
+
+  add(pathname: string): void {
+    if (this.expiries.size >= STATIC_MISS_LIMIT) this.expiries.clear();
+    this.expiries.set(pathname, performance.now() + STATIC_MISS_TTL_MS);
+  }
+}
+
 export function createNodeRequestHandler<TContext = unknown>(
   options: NodeAdapterOptions<TContext>,
 ): NodeRequestHandler {
@@ -214,6 +249,7 @@ export function createNodeRequestHandler<TContext = unknown>(
   const compressionEnabled = options.compression !== false;
   const earlyHintsEnabled = options.earlyHints === true;
   const compressedAssetCache = new CompressedAssetCache();
+  const staticMisses = new StaticMissCache();
   const isgWriteGuard = createISGSnapshotWriteGuard();
   // A Node process outlives its responses, so registered work finishes on its
   // own; the tracker is what lets a graceful shutdown wait for it instead of
@@ -321,7 +357,13 @@ export function createNodeRequestHandler<TContext = unknown>(
         );
         if (served) return;
       }
-      const staticResult = await resolveStaticFile(staticDir, routePathname, isgManifest);
+      let staticResult: StaticFileResult | null = null;
+      if (!staticMisses.has(routePathname)) {
+        staticResult = await resolveStaticFile(staticDir, routePathname, isgManifest);
+        // Only a lookup that ran starts the window, so a busy path still
+        // checks the filesystem once a second.
+        if (!staticResult) staticMisses.add(routePathname);
+      }
       // A prerendered page answers one spelling under `pracht({ trailingSlash })`.
       const trailingSlashRedirect = staticResult?.document ? redirectToCanonicalPage() : null;
       if (trailingSlashRedirect) {
