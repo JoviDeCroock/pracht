@@ -31,6 +31,13 @@ document that conversion cost more CPU than rendering the page, and dropping it
 cut server CPU per request by about 18% on Node 24. Streamed documents are
 unaffected: they already enqueue encoded chunks.
 
+The Node adapter then writes those bytes directly (`unreadDocumentBody()` in
+`@pracht/core/server`, internal) instead of reading the body back through a web
+stream, and sends `Content-Length` when the response is not compressed. The
+lookup is keyed by the `Response` object and only answers while its body is
+unread and unlocked, so middleware that replaced the response, consumed its
+body, or wrapped its stream falls back to the streamed write.
+
 ## Tree-shaking framework imports
 
 `@pracht/core` is published as unbundled ESM so downstream bundlers can follow

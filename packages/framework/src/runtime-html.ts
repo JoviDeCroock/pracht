@@ -471,14 +471,32 @@ function joinDocumentLines(parts: string[], indent: string): string {
 
 const htmlEncoder = new TextEncoder();
 
+/** The encoded body of each document `htmlResponse()` built; see `unreadDocumentBody`. */
+const documentBodies = new WeakMap<Response, Uint8Array>();
+
 export function htmlResponse(html: string, status = 200, initHeaders?: HeadersInit): Response {
   // Encoded here rather than handed over as a string: a string body is
   // converted to a USVString (a full scan, and a flatten of the concatenated
   // document) and then encoded again when the body is read, which costs more
   // than rendering a large document. A byte body is read as is.
-  return ownResponse(
-    new Response(htmlEncoder.encode(html), { status, headers: htmlResponseHeaders(initHeaders) }),
+  const body = htmlEncoder.encode(html);
+  const response = ownResponse(
+    new Response(body, { status, headers: htmlResponseHeaders(initHeaders) }),
   );
+  documentBodies.set(response, body);
+  return response;
+}
+
+/**
+ * @internal The bytes of a document `htmlResponse()` built, while its body is
+ * still unread, so an adapter can write them without reading the body back
+ * through a stream. `Response` copies a byte body on construction, so these
+ * are the same bytes the body holds. Middleware that replaced the response, or
+ * read or locked its body, gets `undefined` and the body is read as usual.
+ */
+export function unreadDocumentBody(response: Response): Uint8Array | undefined {
+  if (response.bodyUsed || response.body?.locked) return undefined;
+  return documentBodies.get(response);
 }
 
 /** The headers `htmlResponse()` sends, for a document that has to describe them. */

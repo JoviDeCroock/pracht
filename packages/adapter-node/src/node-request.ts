@@ -1,6 +1,10 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { Readable } from "node:stream";
-import { applyDefaultSecurityHeaders, normalizeResponseHeaders } from "@pracht/core/server";
+import {
+  applyDefaultSecurityHeaders,
+  normalizeResponseHeaders,
+  unreadDocumentBody,
+} from "@pracht/core/server";
 
 import {
   COMPRESSION_MIN_SIZE,
@@ -410,6 +414,23 @@ export async function writeWebResponse(
 
   if (!response.body) {
     res.end();
+    return;
+  }
+
+  // A document the framework rendered is already encoded: write those bytes
+  // instead of reading them back through a web stream, which costs more than
+  // the write. With identity encoding its length is known, so it goes out with
+  // `Content-Length` rather than chunked.
+  const documentBody = unreadDocumentBody(response);
+  if (documentBody) {
+    if (!encoding && !res.hasHeader("content-length")) {
+      res.setHeader("content-length", documentBody.byteLength);
+    }
+    const source = Readable.from([documentBody], { objectMode: false });
+    await pipeToResponse(
+      encoding ? createCompressedStream(source, encoding, { incremental: false }) : source,
+      res,
+    );
     return;
   }
 
