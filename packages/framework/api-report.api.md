@@ -1211,6 +1211,7 @@ staticContentType: function
 staticPathCandidates: function
 stripBase: function
 stripISGSecretHeaders: function
+takeDocumentBody: function @internal
 timeRevalidate: function
 useServerIslandData: function
 validateIslandProps: function

@@ -72,6 +72,8 @@ export {
   preventHeuristicCaching,
   PrachtRuntimeProvider,
 } from "./runtime.ts";
+/** @internal Lets an adapter write a document's bytes without streaming them back. */
+export { takeDocumentBody } from "./runtime-html.ts";
 export {
   buildAppGraph,
   detectApiExports,
