@@ -8,15 +8,28 @@
 export const STOPWORDS: ReadonlySet<string> = new Set(
   (
     "about all also and any are because been but can could did does doing done for from " +
-    "get gets had has have how into its just let like more most not now off one only onto " +
+    "had has have how into its just let like more most not now off one only onto " +
     "other our out over should some such than that the their them then there these they " +
-    "this those through use used uses using via was way what when where which while who " +
+    "this those through via was way what when where which while who " +
     "why will with within without would yet you your"
   ).split(" "),
 );
 
-/** Shorter words ("is", "ui", "id") are neither indexed nor searched. */
+/** Shorter words ("is", "an") are neither indexed nor searched, except `SHORT_TERMS`. */
 export const MIN_WORD_LENGTH = 3;
+
+/**
+ * Two-letter terms that name things in these docs. Any two-character token
+ * with a digit (`D1`, `R2`, `H2`) is kept as well.
+ */
+const SHORT_TERMS: ReadonlySet<string> = new Set("ai ci db kv og ui".split(" "));
+
+/** Whether a lower-case word is indexed and searched (the header search filters queries with it too). */
+export function searchable(lower: string): boolean {
+  if (STOPWORDS.has(lower)) return false;
+  if (lower.length >= MIN_WORD_LENGTH) return true;
+  return lower.length === 2 && (SHORT_TERMS.has(lower) || /\d/.test(lower));
+}
 
 /**
  * Reduce a lowercase word to a root shared by its common inflections, so
@@ -48,7 +61,7 @@ export function* textStems(text: string): Generator<{ stem: string; index: numbe
     const candidates = parts.length > 1 ? [word, ...parts] : [word];
     for (const candidate of candidates) {
       const lower = candidate.toLowerCase();
-      if (lower.length < MIN_WORD_LENGTH || STOPWORDS.has(lower)) continue;
+      if (!searchable(lower)) continue;
       yield { stem: stem(lower), index: match.index };
     }
   }

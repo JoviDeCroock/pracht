@@ -639,6 +639,12 @@ Two operational consequences worth knowing before you turn this on:
   against one long-lived server proposes a new operation without weakening
   replay protection.
 
+- **A throwing principal resolver closes the gate too.** The call is refused
+  before any proposal is recorded.
+- **Approval records are sensitive.** They hold the validated input and the
+  raw application principal. Gate review endpoints with application auth, do
+  not log records wholesale, and delete them after expiry.
+
 `singleUse` is ignored while a store is registered — the store enforces single
 use durably.
 

@@ -1,57 +1,25 @@
 ---
-title: Logging & Observability
-lead: Capture request duration, status, and failures from loaders and API routes with one wrap-around middleware — no per-handler instrumentation.
-breadcrumb: Logging
-prev:
-  href: /docs/recipes/testing
-  title: Testing
-next:
-  href: /docs/recipes/streaming
-  title: Server-Sent Events & WebSockets
+title: Logging
+lead: Record request duration, status, and failures from loaders and API routes with one wrap-around middleware.
 ---
 
-## What pracht Logs on Its Own
+This recipe adds one structured log record per request, with a request id, duration, status, and any thrown error, shipped to your sink after the response.
 
-A loader, render, or API handler that throws answers 500 and prints one line to
-the server's console before anything of yours runs:
+## What pracht logs by default
+
+A loader, render, or API handler that throws answers 500 and prints one line, followed by the stack, to the server console:
 
 ```text
 [pracht] loader error in route "blog" (./routes/blog.tsx) at /blog/hello: post 42 is gone
 ```
 
-It names the phase, route id, source file, request path, and message, followed
-by the stack, and reads the same in `pracht dev` and production. A
-`throw notFound()` is a routing outcome, not a crash, and stays quiet.
+The line names the phase, route id, source file, request path, and message, and reads the same in `pracht dev` and production. `throw notFound()` is a routing outcome and logs nothing.
 
-That line has no request id, no duration, no status for successful requests,
-and no way to reach your sink. Add the middleware below for those.
+The default line has no request id, no duration, no record of successful requests, and no way to reach your sink. The steps below add those.
 
----
+## 1. Create a request logger in context
 
-## Recommended Shape
-
-Pracht middleware wraps the rest of the request via `next()`, so one
-middleware can `try / catch / finally` around every loader and API handler.
-Put request logging, OpenTelemetry spans, and anything else that needs the
-final status or a thrown error there.
-
-- **Manifest apps** (those with `routes.ts`): use a tracing/logging middleware
-  registered with `defineApp`. One middleware covers loaders, API routes, and
-  inner middleware in one wrapper.
-- **Pages router** apps: `src/pages/_middleware.ts` is one wrapper around every
-  page route, but it does not wrap API routes, capability HTTP endpoints, or
-  `/mcp` — wrap those handlers with a small higher-order function instead.
-- **Adapter-level wrappers** are only needed when you want to observe the
-  outer HTTP cycle including framework-internal failures, since pracht
-  converts loader/handler errors into responses before they leave its
-  runtime.
-
----
-
-## Create a Request Logger in Context
-
-Adapters load a context factory from `createContextFrom`. Create the request
-id and logger there, shared by loaders, middleware, and API handlers.
+Adapters load a context factory from `createContextFrom`. Create the request id and logger there, so loaders, middleware, and API handlers share them:
 
 ```ts [vite.config.ts]
 import { nodeAdapter } from "@pracht/adapter-node";
@@ -107,12 +75,71 @@ declare module "@pracht/core" {
 }
 ```
 
----
+## 2. Write the logging middleware
 
-## Wrap-Around Logging Middleware
+Middleware wraps the rest of the request through `next()`, so one `try / catch / finally` sees the final status and any thrown error from every loader, API handler, and inner middleware:
 
-Register the middleware once in the manifest. Apply it globally for API
-routes via `api.middleware`, and on a group/route for page routes:
+```ts [src/middleware/request-log.ts]
+import { PrachtHttpError, type MiddlewareFn } from "@pracht/core";
+
+export const middleware: MiddlewareFn = async (
+  { context, request, route, url, waitUntil },
+  next,
+) => {
+  const startedAt = performance.now();
+  let response: Response | undefined;
+  let thrown: unknown;
+
+  try {
+    response = await next();
+    return response;
+  } catch (error) {
+    thrown = error;
+    throw error;
+  } finally {
+    const durationMs = Math.round(performance.now() - startedAt);
+    const status = statusOf(response, thrown);
+
+    context.logger.event({
+      durationMs,
+      // Redirects and 4xx answers are outcomes, not failures.
+      error: status >= 500 ? serializeError(thrown) : undefined,
+      method: request.method,
+      path: url.pathname,
+      requestId: context.requestId,
+      route: route.path,
+      status,
+    });
+
+    // Ship the events after the response instead of blocking it.
+    waitUntil(context.logger.flush());
+  }
+};
+
+/** The status pracht answers with for what `next()` returned or threw. */
+function statusOf(response: Response | undefined, thrown: unknown): number {
+  if (response) return response.status;
+  // `throw redirect(...)` from an API handler or middleware: sent as-is.
+  if (thrown instanceof Response) return thrown.status;
+  // `throw notFound()` and other `PrachtHttpError`s keep their status.
+  if (thrown instanceof PrachtHttpError) return thrown.status;
+  return 500;
+}
+
+function serializeError(error: unknown) {
+  if (!error) return undefined;
+  if (error instanceof Error) {
+    return { message: error.message, name: error.name, stack: error.stack };
+  }
+  return { message: String(error), name: "Error" };
+}
+```
+
+[`waitUntil()`](/docs/data-loading#waituntil) sends the response first and keeps the flush alive on every adapter; `await flush()` would delay the response.
+
+## 3. Register the middleware
+
+Apply it to API routes through `api.middleware` and to page routes on a group:
 
 ```ts [src/routes.ts]
 import { defineApp, group, route } from "@pracht/core";
@@ -133,65 +160,16 @@ export const app = defineApp({
 });
 ```
 
-```ts [src/middleware/request-log.ts]
-import type { MiddlewareFn } from "@pracht/core";
+Request `/dashboard`: your sink receives one record with `route: "/dashboard"`, the status, and the duration. A loader that throws `redirect()` logs the 3xx and `throw notFound()` logs 404, both without an error; any other throw logs `status: 500` with the serialized error.
 
-export const middleware: MiddlewareFn = async (
-  { context, request, route, url, waitUntil },
-  next,
-) => {
-  const startedAt = performance.now();
-  let response: Response | undefined;
-  let thrown: unknown;
+pracht turns loader and handler errors into responses inside its runtime. To observe the outer HTTP cycle, including framework-internal failures, wrap the adapter's server instead.
 
-  try {
-    response = await next();
-    return response;
-  } catch (error) {
-    thrown = error;
-    throw error;
-  } finally {
-    const durationMs = Math.round(performance.now() - startedAt);
-    const status = response?.status ?? 500;
+## Pages router: wrap API handlers
 
-    context.logger.event({
-      durationMs,
-      error: serializeError(thrown),
-      method: request.method,
-      path: url.pathname,
-      requestId: context.requestId,
-      route: route.path,
-      status,
-    });
-
-    // Ship the events after the response instead of blocking it.
-    waitUntil(context.logger.flush());
-  }
-};
-
-function serializeError(error: unknown) {
-  if (!error) return undefined;
-  if (error instanceof Error) {
-    return { message: error.message, name: error.name, stack: error.stack };
-  }
-  return { message: String(error), name: "Error" };
-}
-```
-
-The middleware sees the final response status and any thrown error.
-[`waitUntil()`](/docs/data-loading#waituntil) sends the response first and keeps
-the flush alive on every adapter, where `await flush()` would delay the response.
-
----
-
-## Pages Router: Higher-Order Wrapper
-
-`src/pages/_middleware.ts` covers every page route with the same `MiddlewareFn`
-a manifest registers. It does not cover API routes, capability HTTP endpoints,
-or `/mcp`, so log those by wrapping the handlers:
+In a [pages router](/docs/pages-router) app, `src/pages/_middleware.ts` wraps every page route with the same `MiddlewareFn`. It does not wrap API routes, capability HTTP endpoints, or `/mcp`, so log those with a higher-order handler:
 
 ```ts [src/lib/with-request-logging.ts]
-import type { ApiRouteHandler } from "@pracht/core";
+import { PrachtHttpError, type ApiRouteHandler } from "@pracht/core";
 
 export function withRequestLogging(handler: ApiRouteHandler): ApiRouteHandler {
   return async (args) => {
@@ -206,14 +184,18 @@ export function withRequestLogging(handler: ApiRouteHandler): ApiRouteHandler {
       thrown = error;
       throw error;
     } finally {
+      // A thrown redirect or `notFound()` answers with its own status.
+      const status =
+        response?.status ??
+        (thrown instanceof Response || thrown instanceof PrachtHttpError ? thrown.status : 500);
       args.context.logger.event({
         durationMs: Math.round(performance.now() - startedAt),
-        error: thrown ? String(thrown) : undefined,
+        error: status >= 500 && thrown ? String(thrown) : undefined,
         method: args.request.method,
         path: args.url.pathname,
         requestId: args.context.requestId,
         route: args.route.path,
-        status: response?.status ?? 500,
+        status,
       });
       // Ship the events after the response instead of blocking it.
       args.waitUntil(args.context.logger.flush());
@@ -233,13 +215,11 @@ export const POST = withRequestLogging(async ({ request, context }) => {
 });
 ```
 
-Multiple wrappers compose: `withRequestLogging(withAuth(handler))`.
+Wrappers compose: `withRequestLogging(withAuth(handler))`.
 
----
+## Log agent traffic
 
-## Agent Traffic
-
-Capability dispatches get their own structured event: one per call, on every transport, including nested `invokeCapability()` calls. No per-capability instrumentation is needed.
+Register a capability audit listener to get one structured event per capability call, on every transport, including nested `invokeCapability()` calls:
 
 ```ts [src/server/audit.ts]
 import { addCapabilityAuditListener } from "@pracht/core/server";
@@ -267,16 +247,16 @@ if (import.meta.hot) {
 }
 ```
 
-Import it from an eagerly loaded module: add `import "./audit.ts"` to the `createContextFrom` module above, or import it from a custom server entry. Route, API route, middleware, and `src/server/` registry modules load lazily and can miss earlier calls. Keep the HMR `dispose` hook so the dev server never keeps a stale listener.
+Import it from an eagerly loaded module: add `import "./audit.ts"` to the `createContextFrom` module above, or to a custom server entry. Route, API route, middleware, and `src/server/` registry modules load lazily and can miss earlier calls. The HMR `dispose` hook stops the dev server from keeping a stale listener.
 
-Sinks run synchronously, so keep the work before the first `await` cheap. A returned promise goes to [`waitUntil()`](/docs/data-loading#waituntil), so an `async` exporter finishes after the response on every adapter. A sink that throws is swallowed, with one `console.warn` per named registration.
+Listeners run synchronously, so keep the work before the first `await` cheap. A returned promise goes to [`waitUntil()`](/docs/data-loading#waituntil), so an `async` exporter finishes after the response. A listener that throws is swallowed, with one `console.warn` per named registration.
 
-The three metrics worth deriving from these events:
+Metrics to derive from these events:
 
 | Metric | Derivation | What it tells you |
 | --- | --- | --- |
-| Activation | Count verified identities, MCP, and MCP-caused composition; keep top-level unsigned HTTP, HTTP-caused composition, and client-declared WebMCP separate | Whether attributable agents are visiting, without trusting spoofable client markers or counting human forms as agents |
-| Task completion | Ratio where `outcome === "ok"` or status is 2xx, per `capability` | Whether they can finish what they came for, including successful middleware short-circuits without counting middleware redirects |
-| Contract failures | Count of `invalid_input` / `invalid_output` / `unauthorized` | Whether your schemas or auth are what is blocking them |
+| Activation | Count verified identities, MCP calls, and compositions MCP caused. Count unsigned HTTP, HTTP-caused composition, and client-declared WebMCP separately | Whether attributable agents are visiting, without trusting spoofable client markers or counting human form posts |
+| Task completion | Share of calls per `capability` where `outcome === "ok"` or the status is 2xx | Whether agents finish what they came for |
+| Contract failures | Count of `invalid_input`, `invalid_output`, and `unauthorized` | Whether your schemas or auth are blocking them |
 
-In development, the **Agents** section of `/_pracht` shows the last 200 dispatches, and `/_pracht.json` exposes them under `agentTraffic`. Adapter-owned dev servers such as Cloudflare `workerd` return 404 for both; check the sink's own output there. See [Agent trust](/docs/agent-trust#audit-trail) for the full event shape and an OpenTelemetry recipe.
+In development, the **Agents** section of `/_pracht` shows the last 200 dispatches, and `/_pracht.json` exposes them under `agentTraffic`. Adapter-owned dev servers such as Cloudflare `workerd` return 404 for both; check the listener's own output there. See [Audit trail](/docs/agent-audit) for the full event shape and an OpenTelemetry recipe.

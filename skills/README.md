@@ -21,7 +21,7 @@ collide with other skill packs installed in the same app.
 
 | Skill              | Use when                                                     |
 | ------------------ | ------------------------------------------------------------ |
-| `/pracht-scaffold` | Generate routes, shells, middleware, or API handlers.        |
+| `/pracht-scaffold` | Generate routes, shells, middleware, API handlers, or capabilities. |
 | `/pracht-debug`    | Investigate route matching, loader, rendering, or HMR bugs.  |
 | `/pracht-deploy`   | Configure an adapter and deploy to Node, Cloudflare, Vercel, or a static host. |
 | `/migrate-nextjs`  | Convert a Next.js app (App or Pages Router) to pracht.       |
@@ -81,12 +81,12 @@ collide with other skill packs installed in the same app.
 - The same capabilities are available as native MCP tools via `pracht dev-mcp`
   (inspect, doctor, verify, and generate) — see [The Authoring MCP Server](https://pracht.resynapse.dev/docs/coding-agents#the-authoring-mcp-server).
   Prefer the MCP tools when the client has the server registered; every skill
-  carries a reminder near its first CLI invocation.
+  carries a one-line `MCP:` reminder near its first CLI invocation.
 - State prerequisites: `pracht inspect` needs a vite config that registers the
   pracht plugin; `inspect build`, the analyze report, the headers manifest,
   and the env-safety report all need a prior `pracht build`. The canonical
   headers manifest is `dist/server/headers-manifest.json`. Every serverful
-  target currently publishes a client copy; only Cloudflare reads it there.
+  target publishes a client copy; only Cloudflare reads it there.
   Pure static exports omit that public copy.
 - Use `pracht typegen` to refresh `src/pracht.d.ts` and
   `src/pracht-routes.ts` after route ids or paths change — and
@@ -106,8 +106,9 @@ collide with other skill packs installed in the same app.
 - Skills are budgeted for context. A `description` is in the agent's system
   prompt for every session whether the skill runs or not, so it is one sentence
   of what the skill does plus the trigger phrases — nothing else — capped at 500
-  characters, with the catalog capped at 12,000. A body is loaded whole on
-  invocation and capped at 20,000 bytes: prefer tables over prose, drop
+  characters, with the catalog capped at 12,000. Write it as one sentence
+  followed by `Use for "…", "…".` trigger phrases. A body is loaded whole on
+  invocation and capped at 20,000 UTF-8 bytes: prefer tables over prose, drop
   rationale that does not change what the agent does, and keep a trailing
   `## Rules` section only for constraints the steps do not already state.
 - `skills/skills.test.ts` enforces these conventions in CI (frontmatter shape,

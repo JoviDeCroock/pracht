@@ -2,12 +2,11 @@
 name: add-images
 version: 1.1.0
 description: |
-  Wire `@pracht/image`: the CLS-safe zero-runtime `<Image>`, the loader for your
-  target (sharp endpoint, Cloudflare, Vercel, Netlify, passthrough), `?pracht` build-time
-  imports with blur placeholders, prebuilt WebP variants, and the optimization
-  endpoint's security settings.
+  Wire `@pracht/image`: the `<Image>` component, a loader for the deploy target,
+  `?pracht` build-time imports with blur placeholders, and the optimization
+  endpoint.
   Use for "add images", "optimize images", "responsive images", "next/image
-  equivalent", "blur placeholders", "my images cause layout shift".
+  equivalent", "blur placeholders", "images cause layout shift".
 allowed-tools:
   - Bash
   - Read
@@ -27,8 +26,7 @@ zero hydration, works with `hydration: "none"`.
 
 ## Step 1: Choose the backend for the deployment target
 
-MCP: when the pracht MCP server is registered (`pracht dev-mcp`), prefer its
-`inspect_routes`/`inspect_build`/`doctor`/`verify` tools over shelling out.
+MCP: if `pracht dev-mcp` is registered, prefer its `inspect_*`, `doctor`, and `verify` tools to the CLI.
 
 ```bash
 pracht inspect build --json   # adapterTarget (requires a prior `pracht build`)
@@ -44,8 +42,7 @@ pracht inspect build --json   # adapterTarget (requires a prior `pracht build`)
 | Any target, no runtime service | `?pracht&pracht-static` imports | prebuilt WebP variants, no loader involved |
 
 Confirm the choice with `AskUserQuestion` when the app deploys to more than one
-target — a per-target `configureImage()` behind an env flag is the usual answer
-(`examples/basic` does exactly this).
+target — a per-target `configureImage()` behind an env flag is the usual answer.
 
 ## Step 2: Install
 

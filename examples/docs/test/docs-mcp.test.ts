@@ -27,7 +27,7 @@ import {
   type DocsIndex,
 } from "../src/server/docs-index";
 import { stem, textStems } from "../src/server/docs-text";
-import { NAV } from "../src/shells/docs";
+import { NAV } from "../src/nav";
 import { docsIndex as docsIndexPlugin, DOCS_INDEX_MODULE } from "../vite-plugin-docs-index";
 
 let index: DocsIndex;
@@ -98,11 +98,11 @@ describe("docs MCP index", () => {
     const listed = groups.flatMap((group) => group.pages.map((page) => page.page));
     expect(new Set(listed).size).toBe(listed.length);
     expect(listed.sort()).toEqual(index.pages.map((page) => page.path).sort());
-    // A page missing from the sidebar would land in "Other"; add it to NAV in src/shells/docs.tsx.
+    // A page missing from the sidebar would land in "Other"; add it to NAV in src/nav.ts.
     expect(groups.map((group) => group.label)).not.toContain("Other");
     expect(groups[0].pages[0]).toMatchObject({
       page: "/docs/getting-started",
-      title: "Getting Started",
+      title: "Quick start",
     });
     expect(groups[0].pages[0].lead.length).toBeGreaterThan(0);
   });
@@ -120,7 +120,7 @@ describe("docs_search", () => {
     ["islands hydration client strategy", "/docs/islands#loading-strategies", 5],
     ["timeRevalidate webhook", "/docs/rendering#isg--incremental-static-generation", 1],
     ["add authentication", "/docs/recipes/auth", 2],
-    ["how to set page title", "/docs/data-loading#head-metadata", 3],
+    ["how to set page title", "/docs/head#head-metadata", 3],
     ["loader", "/docs/data-loading#loaders", 3],
     ["what is pracht", "/docs/why-pracht", 3],
   ] as const)("ranks %j with %s in the top %i", (query, expected, count) => {
@@ -154,6 +154,15 @@ describe("docs_search", () => {
       "defin",
       "capabiliti",
     ]);
+  });
+
+  it("finds two-character product names", () => {
+    // `D1`, `R2`, and `KV` are whole queries people type; dropping every
+    // short word made them return nothing.
+    for (const query of ["D1", "R2", "KV"]) {
+      const pages = searchDocs(index, query, 5).results.map((result) => result.page);
+      expect(pages, query).toContain("/docs/recipes/fullstack-cloudflare");
+    }
   });
 
   it("explains a query with nothing searchable", () => {
@@ -226,27 +235,21 @@ describe("docs_read", () => {
   });
 
   it("returns one section, subsections included, without the page outline", () => {
-    const direct = readDoc(
-      index,
-      "/docs/capabilities",
-      "#remote-mcp-tools-for-agents-without-a-browser",
-    );
+    const direct = readDoc(index, "/docs/mcp-tools", "#webmcp-tools-for-in-browser-agents");
     const viaUrl = readDoc(
       index,
-      "https://pracht.resynapse.dev/docs/capabilities#remote-mcp-tools-for-agents-without-a-browser",
+      "https://pracht.resynapse.dev/docs/mcp-tools#webmcp-tools-for-in-browser-agents",
     );
     expect(direct.found).toBe(true);
     expect(viaUrl.markdown).toBe(direct.markdown);
-    expect(direct.markdown.startsWith("## Remote MCP: Tools for Agents Without a Browser")).toBe(
-      true,
-    );
-    expect(direct.markdown).toContain("### Talking to It");
-    expect(direct.markdown).not.toContain("## Private by Default");
+    expect(direct.markdown.startsWith("## WebMCP: tools for in-browser agents")).toBe(true);
+    expect(direct.markdown).toContain("### Hosts and the origin trial");
+    expect(direct.markdown).not.toContain("## Remote MCP: tools for agents without a browser");
     expect(direct.sections).toEqual([]);
   });
 
   it("explains an unknown section with the closest anchors and the outline", () => {
-    const result = readDoc(index, "capabilities", "talking-to");
+    const result = readDoc(index, "mcp-tools", "talking-to");
     expect(result.found).toBe(false);
     expect(result.suggestions).toContain("talking-to-it");
     expect(result.sections.length).toBeGreaterThan(0);

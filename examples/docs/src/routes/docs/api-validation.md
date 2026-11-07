@@ -1,19 +1,11 @@
 ---
-title: API Validation & Typed Fetch
-lead: Validate API inputs once on the server, generate route contracts, and call them from the client with path, method, body, query, params, and response types connected end to end.
-breadcrumb: API Validation
-prev:
-  href: /docs/api-routes
-  title: API Routes
-next:
-  href: /docs/openapi
-  title: OpenAPI
+title: API validation and typed fetch
+lead: Validate request input on the server, then call API routes from the client with typed params, query, body, and response.
 ---
 
 ## Define a validated handler
 
-`defineApi()` accepts any [Standard Schema](https://standardschema.dev) validator, including Zod,
-Valibot, and ArkType. Invalid input never reaches the handler.
+Wrap an API handler with `defineApi()` and give it [Standard Schema](https://standardschema.dev) validators (Zod, Valibot, ArkType):
 
 ```ts [src/api/items.ts]
 import { defineApi, json } from "@pracht/core";
@@ -32,23 +24,26 @@ export const GET = defineApi({
 });
 ```
 
-Schemas can validate `body`, `query`, and route `params`; page routes validate their query with a
-[`search` export](/docs/routing#search-params). Query and param values cross the wire as
-strings, so numeric inputs need coercion or a transform. Generated calls reject concrete query or
-params schema keys that cannot accept strings. Repeated query keys arrive as string arrays.
+Invalid input never reaches the handler. The caller gets a `422` with `{ error: "validation", issues }`, where each issue has `in` (`"body"`, `"query"`, or `"params"`), `message`, and `path`.
 
-A `body` schema reads at most 1 MiB on every adapter; a larger request gets a 413. Set
-`maxBodySize` (in bytes) on the handler that accepts uploads, and raise the Node adapter's
-[`maxBodySize`](/docs/adapters#origin-proxy-and-body-size-options) to match.
+| Option | Validates |
+| ------ | --------- |
+| `body` | JSON, `application/x-www-form-urlencoded`, or `multipart/form-data` request bodies |
+| `query` | The query string; values are strings, and repeated keys arrive as string arrays |
+| `params` | Route params; values are strings |
+| `maxBodySize` | Largest body `body` validation reads, in bytes (default 1 MiB) |
 
-When the validator also implements Standard JSON Schema (Zod 4 does), the same object can be a
-[capability](/docs/capabilities) `input` or `output`, so an existing validated API operation becomes
-an agent contract without a second schema.
+Query and param values cross the wire as strings, so numeric inputs need coercion or a transform. Typed calls reject query or params schema keys that cannot accept a string. Page routes validate their query with a [`search` export](/docs/routing#search-params) instead.
 
-Handlers can return JSON-safe values directly. Use `json(value, init)` for a custom status or
-headers without losing the payload type. Values that JSON would change, such as `Date`, `BigInt`,
-`undefined`, class instances, and `NaN`, are rejected: convert them first, or return a plain
-`Response`.
+A body that cannot be parsed gets a `400`, and one larger than `maxBodySize` gets a `413`. To accept larger uploads, raise `maxBodySize` on that handler and the Node adapter's [`maxBodySize`](/docs/adapters/node#origin-proxy-and-body-size-options) to match.
+
+## Return values
+
+Return a JSON-safe value and pracht sends it with `Response.json()`. Use `json(value, init)` for a custom status or headers without losing the payload type, or return any `Response` for full control.
+
+Values that JSON would change, such as `Date`, `BigInt`, `undefined`, class instances, and `NaN`, are rejected at compile time and at runtime. Convert them first, or return a plain `Response`.
+
+When the validator also implements Standard JSON Schema (Zod 4 does), the same schema can be a [capability](/docs/capabilities) `input` or `output`, so a validated API operation becomes an agent contract without a second schema.
 
 ## Generate the route contract
 
@@ -58,9 +53,7 @@ Run type generation once after adding pracht to a project:
 pracht typegen
 ```
 
-This creates `src/pracht.d.ts` and `src/pracht-routes.ts`. From then on, `pracht dev` keeps them
-current as route files and the route manifest change. Run `pracht typegen --check` in CI to catch
-stale generated files.
+This writes `src/pracht.d.ts` and `src/pracht-routes.ts`. `pracht dev` then keeps them current as route files and the manifest change. Run `pracht typegen --check` in CI to catch stale files.
 
 ## Call the route with `apiFetch()`
 
@@ -69,24 +62,32 @@ import { apiFetch } from "@pracht/core";
 
 const created = await apiFetch("/api/items", {
   method: "POST",
-  body: { name: "Pracht" },
+  body: { name: "pracht" },
 });
-// created is { created: string }
+// created: { created: string }
 
 const page = await apiFetch("/api/items", {
   query: { page: 2 },
 });
 ```
 
-Generated types reject unknown paths, unsupported methods, missing params, and mismatched body or
-query values. Without generated types, `apiFetch()` still works but accepts any path and returns
-`unknown`.
+With generated types, unknown paths, unsupported methods, missing params, and mismatched body or query values are type errors. Without them, `apiFetch()` accepts any path and returns `unknown`.
 
-Plain object bodies are JSON encoded. Send `FormData` when a schema contains `File` or `Blob` values.
+| Option | Purpose |
+| ------ | ------- |
+| `method` | HTTP method; defaults to `GET` |
+| `params` | Values for `:param` segments in the path |
+| `query` | Query string values |
+| `body` | Plain objects are JSON-encoded; pass `FormData` for `File` or `Blob` values |
+| `headers`, `signal` | Passed to `fetch()` |
+| `baseUrl` | Prefix for the request URL, such as an absolute origin during SSR |
+| `fetch` | Custom fetch implementation for tests or server-to-server calls |
+
 For other binary data or streams, use a plain API handler and read the `Request` body directly.
 
-Non-2xx responses throw `ApiFetchError`. Validation failures expose normalized issues for field-level
-UI:
+### Handle errors
+
+Non-2xx responses throw `ApiFetchError` with `status`, `response`, and the parsed `body`. Validation failures also set `issues`:
 
 ```ts
 import { ApiFetchError, apiFetch } from "@pracht/core";
@@ -102,9 +103,7 @@ try {
 
 ## Use the same issues with `<Form>`
 
-`<Form schema>` validates before submitting. `onValidationIssues` receives both client-side failures
-and the standardized server response (HTTP 400 or 422). `onResponse` receives every non-redirect
-fetch response without consuming its body.
+Pass the schema to `<Form schema>` to validate before submitting:
 
 ```tsx
 import { Form } from "@pracht/core";
@@ -124,5 +123,6 @@ import { Form } from "@pracht/core";
 </Form>;
 ```
 
-Enhanced submissions honor the clicked button's `formaction` and `formmethod`, so multi-action forms
-keep the same behavior they have with native browser submission.
+`onValidationIssues` receives both client-side failures and the server's validation response (HTTP 400 or 422). `onResponse` receives every non-redirect response without consuming its body.
+
+Enhanced submissions honor the clicked button's `formaction` and `formmethod`, so multi-action forms behave as they do with native submission.

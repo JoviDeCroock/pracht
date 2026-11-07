@@ -21,7 +21,7 @@ import { extractDocsSection } from "../src/docs.ts";
 afterEach(cleanupTempDirs);
 
 const siteDocs = resolve(repoRoot, "examples/docs/src/routes/docs");
-const siteShell = resolve(repoRoot, "examples/docs/src/shells/docs.tsx");
+const siteNav = resolve(repoRoot, "examples/docs/src/nav.ts");
 
 function sourceDir(pages) {
   const dir = createTempDir("pracht-sync-docs-");
@@ -31,7 +31,7 @@ function sourceDir(pages) {
 
 describe("sync-docs", () => {
   it("bundles every site page, and nothing else", () => {
-    const { pages } = buildDocsBundle({ sourceDir: siteDocs, shellFile: siteShell });
+    const { pages } = buildDocsBundle({ sourceDir: siteDocs, navFile: siteNav });
     const sitePages = readdirSync(siteDocs)
       .filter((name) => name.endsWith(".md"))
       .map((name) => name.slice(0, -3));
@@ -43,7 +43,7 @@ describe("sync-docs", () => {
   });
 
   it("leaves no site-relative link that would not resolve offline", () => {
-    const { pages } = buildDocsBundle({ sourceDir: siteDocs, shellFile: siteShell });
+    const { pages } = buildDocsBundle({ sourceDir: siteDocs, navFile: siteNav });
     const slugs = new Set(pages.map((page) => page.slug));
     const broken = [];
 
@@ -60,7 +60,7 @@ describe("sync-docs", () => {
   });
 
   it("resolves every cross-page anchor to a section of the target page", () => {
-    const { pages } = buildDocsBundle({ sourceDir: siteDocs, shellFile: siteShell });
+    const { pages } = buildDocsBundle({ sourceDir: siteDocs, navFile: siteNav });
     const bySlug = new Map(pages.map((page) => [page.slug, page.markdown]));
     const broken = [];
 
@@ -164,9 +164,9 @@ describe("sync-docs", () => {
   });
 
   it("reads sidebar sections in order", () => {
-    const sections = parseNavSections(readFileSync(siteShell, "utf-8"));
+    const sections = parseNavSections(readFileSync(siteNav, "utf-8"));
 
-    expect(sections[0].label).toBe("Getting Started");
+    expect(sections[0].label).toBe("Get started");
     expect(sections.flatMap((section) => section.paths)).toContain("/docs/recipes/auth");
   });
 

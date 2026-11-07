@@ -2,12 +2,11 @@
 name: upgrade-pracht
 version: 1.3.0
 description: |
-  Upgrade the `@pracht/*` packages safely: inventory installed versions, read the
-  changelogs between installed and target, map breaking changes to real usage,
-  apply, then walk the verification ladder (doctor, typegen, verify, build,
-  tests).
-  Use for "upgrade pracht", "update @pracht packages", "bump the framework", "what
-  changed in the new pracht version", "is this upgrade safe".
+  Upgrade `@pracht/*` packages: inventory versions, read the changelogs, map
+  breaking changes to the app's code, apply, and verify with doctor, typegen,
+  build, and tests.
+  Use for "upgrade pracht", "update @pracht packages", "what changed in the new
+  pracht version", "is this upgrade safe".
 allowed-tools:
   - Bash
   - Read
@@ -36,7 +35,7 @@ The family, in full: `@pracht/core`, `@pracht/cli`, `@pracht/vite-plugin`,
 `@pracht/adapter-static`, `@pracht/preact-ssr-precompile`,
 `@pracht/capabilities`, `@pracht/content`, `@pracht/markdown`,
 `@pracht/openapi`, `@pracht/image`, `@pracht/i18n`, `@pracht/session`,
-`@pracht/test`, plus the `create-pracht` scaffolder (which is not a runtime
+`@pracht/query`, `@pracht/test`, plus the `create-pracht` scaffolder (which is not a runtime
 dependency and does not need to move with the rest). Get the latest published
 versions with `npm view <pkg> version`.
 
@@ -51,8 +50,8 @@ version". Two consequences:
 1. **Internal ranges stop at the minor.** Published packages depend on their
    siblings with caret ranges on 0.x (e.g. `@pracht/core: ^0.20.0`), and a 0.x
    caret never crosses a minor. `@pracht/vite-plugin`, the adapters,
-   `@pracht/session`, `@pracht/i18n`, `@pracht/query`, and `@pracht/test` take
-   `@pracht/core` as a peer, so upgrading core past their range fails with
+   `@pracht/content`, `@pracht/openapi`, `@pracht/session`, `@pracht/i18n`,
+   `@pracht/query`, and `@pracht/test` take `@pracht/core` as a peer, so upgrading core past their range fails with
    `ERESOLVE` under npm and warns under pnpm; forcing it through
    (`--legacy-peer-deps`, `--force`) can install a second core that splits the
    runtime. Upgrade the whole family in one move.
@@ -90,6 +89,7 @@ https://raw.githubusercontent.com/JoviDeCroock/pracht/main/packages/<dir>/CHANGE
 | `@pracht/image` | `packages/image` |
 | `@pracht/i18n` | `packages/i18n` |
 | `@pracht/session` | `packages/session` |
+| `@pracht/query` | `packages/query` |
 | `@pracht/test` | `packages/test` |
 | `create-pracht` | `packages/start` |
 
@@ -105,8 +105,9 @@ generated-file shapes it names, and record: affected files, the migration the
 changelog prescribes, and whether it can be applied mechanically. Also
 re-check peer ranges after a major target bump — `@pracht/vite-plugin`
 requires `vite` (^8), `@pracht/adapter-cloudflare` requires `vite` and
-`wrangler` (^4.81), `@pracht/core` requires `preact` (^10) and
-`preact-render-to-string` (^6.7).
+`wrangler` (^4.81), `@pracht/core` requires `preact` (^10 or an 11 prerelease)
+and `preact-render-to-string` (^6.7), and `@pracht/query` requires
+`@tanstack/preact-query` (^5.91).
 
 Present the plan as a table:
 
@@ -116,7 +117,17 @@ Present the plan as a table:
 ## Step 5: Confirm, then apply
 
 Use `AskUserQuestion` before touching anything when breaking migrations are
-required: confirm the target versions and which migrations to apply. Then:
+required: confirm the target versions and which migrations to apply.
+
+Start from a clean tree so the upgrade can be undone without touching the
+user's own work:
+
+```bash
+git status --porcelain        # must print nothing
+```
+
+If it prints anything, ask the user to commit or `git stash push -u` their
+changes first; never upgrade on top of unrelated edits. Then:
 
 ```bash
 pnpm up '@pracht/core@<v>' '@pracht/cli@<v>' '@pracht/vite-plugin@<v>' <adapters...>
@@ -127,6 +138,10 @@ agreed code migrations with minimal diffs, one changelog entry at a time.
 Then read the page behind each changed API with `pracht docs <topic>`, which
 serves the docs bundled with the newly installed CLI. A CLI without that
 command predates it; use https://pracht.resynapse.dev/llms.txt instead.
+
+Keep the whole upgrade, including fixes made during Step 6, in one dedicated
+commit when the user agrees to commits. Otherwise, once Step 6 passes, record it as a patch:
+`git add -A && git diff --cached --binary > ../pracht-upgrade.patch`.
 
 ## Step 6: Verification ladder
 
@@ -155,9 +170,15 @@ If the ladder cannot be made green, roll back rather than shipping a
 half-upgrade:
 
 ```bash
-git restore package.json pnpm-lock.yaml && pnpm install
-git checkout -- <migrated files>   # or revert the upgrade commit
+git revert --no-edit <upgrade-commit>          # committed upgrade
+git apply -R --index ../pracht-upgrade.patch   # recorded patch
+pnpm install
 ```
+
+Both undo only the upgrade's own changes; never `git restore` or
+`git checkout --` whole files, which also erases the user's edits to them. If
+the reverse patch does not apply cleanly, stop and ask. Then `git stash pop`
+if Step 5 stashed.
 
 Because internal ranges stop at the minor, a *partial* rollback (one package
 back, the rest forward) hits the peer conflicts or duplicate core from Step 2 —

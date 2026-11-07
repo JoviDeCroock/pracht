@@ -2,12 +2,10 @@
 name: audit-csrf
 version: 1.2.1
 description: |
-  Check CSRF posture across every form and mutation API. Pracht enforces
-  same-origin on mutation API requests by default (`api.requireSameOrigin`); this
-  verifies the default is intact and that cookies, middleware, or tokens cover
-  what it does not.
-  Use for "audit CSRF", "check CSRF protection", "are forms safe", "review session
-  security".
+  Check CSRF protection on every form and mutation API, on top of the built-in
+  same-origin check (`api.requireSameOrigin`).
+  Use for "audit CSRF", "check CSRF protection", "are my forms safe", "review
+  session security".
 allowed-tools:
   - Bash
   - Read
@@ -70,9 +68,7 @@ Grep for `<Form ` across `src/`. For each occurrence:
 pracht inspect api --json
 ```
 
-MCP: when the pracht MCP server is registered (`pracht dev-mcp`), prefer its
-`inspect_routes`/`inspect_api`/`inspect_build`/`doctor`/`verify` tools over
-shelling out.
+MCP: if `pracht dev-mcp` is registered, prefer its `inspect_*`, `doctor`, and `verify` tools to the CLI.
 
 For each API route, read the exported `methods`. Mutation methods: `POST`,
 `PUT`, `PATCH`, `DELETE`. Caveat: a `default`-export handler serves ALL
@@ -123,7 +119,7 @@ If Step 0 found `requireSameOrigin: false`, look for middleware that:
 - Compares against `url.origin` and an allowlist.
 - Rejects unsafe-method requests on mismatch.
 
-The canonical shape is in `recipes-auth.md` (the `origin-check.ts` example).
+The canonical shape is the `origin-check.ts` example in https://pracht.resynapse.dev/docs/recipes/auth.md.
 
 Verify the wiring: the middleware name must appear in
 `defineApp({ api: { middleware: [...] } })` — that single global list applies

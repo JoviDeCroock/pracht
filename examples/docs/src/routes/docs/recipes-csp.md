@@ -1,19 +1,13 @@
 ---
 title: Content Security Policy
-lead: Add a focused Content Security Policy with route or shell headers, then verify it against dynamic and prerendered pages.
-breadcrumb: CSP
-prev:
-  href: /docs/recipes/auth
-  title: Authentication
-next:
-  href: /docs/recipes/forms
-  title: Forms
+lead: Set a Content Security Policy from route or shell headers, then verify it on dynamic and prerendered pages.
 ---
 
-## Starter Policy
+This recipe adds a Content Security Policy to every page under a shell, then allows the inline code some pracht features generate.
 
-For an app that only uses same-origin scripts, styles, images, fonts, and API
-calls, put the policy on the shell that wraps those pages:
+## 1. Set a starter policy
+
+Return the policy from the `headers()` export of the shell that wraps your pages:
 
 ```ts [src/shells/public.tsx]
 export function headers() {
@@ -34,12 +28,11 @@ export function headers() {
 }
 ```
 
-This allows Pracht's generated module script and same-origin assets while
-blocking cross-origin script execution and plugin embeds by default.
+Every page under the shell now carries the header. It allows pracht's module script and same-origin assets and blocks cross-origin scripts and plugin embeds.
 
-## Add Origins Deliberately
+## 2. Add the origins you use
 
-Only add the external origins your app actually uses:
+List only the external origins your app loads from:
 
 ```ts [src/shells/public.tsx]
 export function headers() {
@@ -60,15 +53,27 @@ export function headers() {
 }
 ```
 
-Avoid `'unsafe-eval'`. Avoid `'unsafe-inline'` unless an audited integration
-requires it and the exception is documented.
+Avoid `'unsafe-eval'`. Avoid `'unsafe-inline'` unless an audited integration requires it and the exception is documented.
 
-## Framework-Generated Styles
+## 3. Allow framework inline code
 
-`defineFont()`, `pracht({ inlineCss: true })`, and
-`defineApp({ viewTransitions: true })` emit inline style elements.
-For SSR, return a request-specific `styleNonce` from the shell head and use the
-same value in `style-src`:
+Some features emit inline `<style>` or `<script>` elements. On SSR routes, allow them with a nonce generated per request. Set it on the context in a middleware:
+
+```ts [src/middleware/csp-nonce.ts]
+import type { MiddlewareFn } from "@pracht/core";
+
+export const middleware: MiddlewareFn = ({ context }, next) => {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  context.cspNonce = btoa(String.fromCharCode(...bytes));
+  return next();
+};
+```
+
+Register it in `defineApp({ middleware })` and add it to the group that uses the shell. See [Middleware](/docs/middleware).
+
+### Framework-generated styles
+
+`defineFont()`, `pracht({ inlineCss: true })`, and `defineApp({ viewTransitions: true })` emit inline `<style>` elements. Return the nonce as `styleNonce` from the shell's `head()` and allow it in `style-src`:
 
 ```ts [src/shells/public.tsx]
 export function head({ context }) {
@@ -82,19 +87,18 @@ export function headers({ context }) {
 }
 ```
 
-`fontNonce` overrides the nonce for fonts only; prefer `styleNonce`. SSG/ISG
-output cannot reuse a request nonce, so keep linked CSS and use a stable hash
-or external stylesheet policy for static documents. The `viewTransitions` style
-never changes, so allow it with
-`'sha256-SREix9zPMZHrSuo8zRSjb672r1gsHIh96MJuaZq6iJo='`.
+`fontNonce` overrides the nonce for font styles only; prefer `styleNonce`.
 
-## Framework-Generated Scripts
+SSG and ISG output cannot reuse a request nonce. For static documents, keep CSS linked rather than inlined, or allow the exact inline content by hash. The `viewTransitions` style never changes, so allow it with `'sha256-SREix9zPMZHrSuo8zRSjb672r1gsHIh96MJuaZq6iJo='`.
 
-Buffered pages need no executable inline scripts. Streaming routes
-(`streaming: true`) emit inline scripts for deferred data and boundary swaps,
-and routes that opt into `speculation` emit a speculation rules script. Return
-the request nonce as `scriptNonce` from the shell head and allow it in
-`script-src`:
+### Framework-generated scripts
+
+Buffered pages need no inline scripts. Two features emit them:
+
+- Streaming routes (`streaming: true`) emit scripts for deferred data and Suspense boundary swaps.
+- Routes with `speculation` emit a speculation rules script.
+
+Return the nonce as `scriptNonce` from the shell's `head()` and allow it in `script-src`:
 
 ```ts [src/shells/public.tsx]
 export function head({ context }) {
@@ -108,30 +112,18 @@ export function headers({ context }) {
 }
 ```
 
-## Inline Script Entries
+[Server islands](/docs/server-islands) need nothing extra: the script that fills them is a same-origin module covered by `script-src 'self'` and `connect-src 'self'`.
 
-Pracht does not require app-authored executable inline scripts for normal page
-rendering. If a route `head()` returns inline `script` entries, such as JSON-LD,
-test that route with the CSP enabled and prefer route-specific hashes for exact
-inline content.
+## 4. Verify
 
-[Server islands](/docs/server-islands) need nothing extra: the script that fills
-them is a same-origin module covered by `script-src 'self'` and
-`connect-src 'self'`.
+1. Load an SSR page and an SSG or ISG page in a browser.
+2. Navigate client-side between routes.
+3. Check the console. A blocked resource logs a `Content-Security-Policy` violation naming the directive; widen only that directive.
 
-## SSG/ISG Header Safety
+## Inline script entries in `head()`
 
-Headers on SSG and ISG pages are stored with the static output, replayed to
-every visitor, and public on some adapters. Keep them to public, replay-safe
-values.
+pracht renders pages without app-authored inline scripts. If a route's `head()` returns inline `script` entries, such as JSON-LD, test that route with the CSP enabled and allow the exact content with a hash.
 
-Prerendering fails if they include `Set-Cookie`, authentication headers such as
-`Authorization`, or secret-shaped custom `x-*` headers. Set cookies from API
-routes, middleware `Response`s, or SSR-only routes instead.
+## Headers on SSG and ISG pages
 
-## Verify
-
-- Load an SSR page and an SSG/ISG page in a browser.
-- Navigate client-side between routes.
-- Check the console for CSP violations.
-- Keep `script-src` and `connect-src` as small as possible.
+Headers on SSG and ISG pages are stored with the output and replayed to every visitor, so keep them public and replay-safe. Prerendering fails if they include `Set-Cookie`, authentication headers such as `Authorization`, or secret-shaped custom `x-*` headers; set those from API routes, middleware responses, or SSR routes.

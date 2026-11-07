@@ -2,11 +2,10 @@
 name: add-db
 version: 1.2.1
 description: |
-  Wire Drizzle ORM into a pracht app: pick the target (D1, PlanetScale, Neon,
-  Supabase, Turso, Postgres, MySQL, SQLite), then generate driver setup, schema,
-  migration workflow, and a typed client for loaders, middleware, and API routes.
-  Use for "add database", "set up Drizzle", "wire D1", "add Postgres", "set up an
-  ORM", "I need a DB".
+  Wire Drizzle ORM into a pracht app for D1, PlanetScale, Neon, Supabase, Turso,
+  Postgres, MySQL, or SQLite: driver, schema, migrations, and a typed client.
+  Use for "add a database", "set up Drizzle", "wire D1", "add Postgres", "set up
+  an ORM".
 allowed-tools:
   - Bash
   - Read
@@ -25,24 +24,24 @@ client factory wired to the project's adapter. Never overwrite an existing
 `drizzle.config.ts`, `wrangler.toml`, or `package.json` script — diff, merge,
 and ask about collisions.
 
-MCP: when the pracht MCP server is registered (`pracht dev-mcp`), prefer its
-`inspect_routes`/`inspect_api`/`inspect_build`/`doctor`/`verify`/`generate_*`
-tools over shelling out. `pracht inspect` needs the pracht plugin in the vite
-config; `inspect build` needs a prior `pracht build`.
+MCP: if `pracht dev-mcp` is registered, prefer its `inspect_*`, `generate_*`, `doctor`, and `verify` tools to the CLI.
+`pracht inspect build` needs a prior `pracht build`.
 
 ## Step 1: Pick the target
 
 Ask with `AskUserQuestion`, then **cross-check against the project's adapter**
-(`pracht inspect build --json`) and flag mismatches — `node-postgres` on
-Cloudflare Workers will not work.
+(`pracht inspect build --json`) and flag mismatches. On Cloudflare Workers,
+TCP drivers (`pg`, `postgres`) need a Hyperdrive binding plus
+`compatibility_flags = ["nodejs_compat"]` in the wrangler config; without
+Hyperdrive, use an HTTP/WebSocket driver (Neon, PlanetScale, Turso) or D1.
 
 | Provider                         | Driver import                                | Extra package | Runtimes |
 | -------------------------------- | -------------------------------------------- | ------------- | -------- |
 | Cloudflare D1                    | `drizzle-orm/d1`                             | — (Workers binding) | Edge |
-| Cloudflare Hyperdrive (Postgres) | `drizzle-orm/postgres-js` or `node-postgres` | `postgres` / `pg` | Edge (binding) |
+| Cloudflare Hyperdrive (Postgres) | `drizzle-orm/postgres-js` or `node-postgres` | `postgres` / `pg` | Workers (Hyperdrive + `nodejs_compat`) |
 | PlanetScale                      | `drizzle-orm/planetscale-serverless`         | `@planetscale/database` | Node + edge |
 | Neon                             | `drizzle-orm/neon-serverless` or `neon-http` | `@neondatabase/serverless` | Node + edge |
-| Supabase Postgres                | `drizzle-orm/postgres-js`                    | `postgres` | Node + edge (HTTP) |
+| Supabase Postgres                | `drizzle-orm/postgres-js`                    | `postgres` | Node; Workers via Hyperdrive |
 | Turso (libSQL)                   | `drizzle-orm/libsql`                         | `@libsql/client` | Node + edge |
 | Vanilla Postgres                 | `drizzle-orm/node-postgres`                  | `pg` + `-D @types/pg` | Node only |
 | Vanilla MySQL                    | `drizzle-orm/mysql2`                         | `mysql2` | Node only |

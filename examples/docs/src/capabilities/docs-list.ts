@@ -1,6 +1,6 @@
 import { defineCapability } from "@pracht/capabilities";
 
-import { NAV } from "../shells/docs.tsx";
+import { NAV } from "../nav.ts";
 import { listDocs } from "../server/docs-index.ts";
 import { docsIndex } from "../server/docs-runtime.ts";
 

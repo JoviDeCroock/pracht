@@ -1,26 +1,17 @@
 ---
-title: i18n Reference
-lead: The full API of `@pracht/i18n` — locale detection, typed lazy dictionaries, translation helpers, locale-prefixed paths, and hreflang. For a walkthrough, start with the i18n recipe.
-breadcrumb: i18n
-prev:
-  href: /docs/reference/config
-  title: Configuration
+title: i18n reference
+lead: "The `@pracht/i18n` API: locale detection, typed lazy dictionaries, translation helpers, locale-prefixed paths, and hreflang."
 ---
 
-`@pracht/i18n` is an optional package. The [i18n recipe](/docs/recipes/i18n)
-walks through both strategies: locale-prefixed routes, and one URL per page with
-a cookie.
+Install `@pracht/i18n`, then follow the [i18n recipe](/docs/recipes/i18n) for either strategy: locale-prefixed routes, or one URL per page with a cookie.
 
 ```sh
-npm install @pracht/i18n
+pnpm add @pracht/i18n
 ```
-
----
 
 ## `defineI18n(config)`
 
-Creates the i18n instance: detection middleware plus the path and hreflang
-helpers, all bound to one locale list.
+Create the i18n instance once in a shared module. It holds the detection middleware and the path and hreflang helpers, all bound to one locale list.
 
 ```ts [src/i18n.ts]
 import { defineI18n } from "@pracht/i18n";
@@ -33,16 +24,16 @@ export const i18n = defineI18n({
 
 | Config field | Default | Description |
 | --- | --- | --- |
-| `locales` | — | **Required.** Every locale the app serves. Only these can ever win detection |
+| `locales` | — | **Required.** Every locale the app serves, BCP 47-shaped (`en`, `en-US`). Only these can win detection |
 | `defaultLocale` | — | **Required.** Fallback when nothing matches. Must be in `locales` |
 | `detect` | `["path", "cookie", "header"]` | Detection order: an explicit URL prefix beats a remembered cookie beats `Accept-Language` |
-| `cookie` | enabled | Cookie options, or `false` to disable both persistence and the `"cookie"` detection source |
+| `cookie` | enabled | [Cookie options](#cookie-options), or `false` to disable both persistence and the `"cookie"` detection source |
 
 ### The returned instance
 
 | Member | Description |
 | --- | --- |
-| `middleware` | Locale-detection middleware. Resolves the locale, sets `context.locale`, and persists it in the cookie when a URL prefix chose it. Under a deploy base the prefix is read after the base (`/my-project/nl/about` is `nl`). Register it in `defineApp({ middleware })` |
+| `middleware` | Locale-detection middleware. Sets `context.locale`, adds `Vary` for the sources it read, and on SSR and SPA routes stores the locale in the cookie when a URL prefix chose it. Under a deploy base the prefix is read after the base (`/my-project/nl/about` is `nl`). Re-export it from `src/middleware/i18n.ts` and register that file in `defineApp({ middleware })` |
 | `locales`, `defaultLocale` | The configured values, readonly |
 | `cookieName` | The cookie name in use, or `null` when the cookie is disabled |
 | `isLocale(value)` | Type guard — `true` only for registered locales |
@@ -54,12 +45,30 @@ export const i18n = defineI18n({
 | `splitLocale(path)` | Split a pathname into `{ locale, pathname }` |
 | `hreflang(path, options?)` | Build `link[]` alternate entries for a `head()` export |
 
-Merge `I18nRequestContext` into the framework's `Register` interface so loaders
-see a typed `context.locale` without casts — the [recipe](/docs/recipes/i18n)
-shows the declaration.
+`localeCookie()` and `setLocaleCookie()` take `{ url, secure }`. `Secure` is inferred from `url`, as the middleware does; `secure` forces it.
 
-`localeCookie()` and `setLocaleCookie()` take `{ url, secure }`. `Secure` is
-inferred from `url`, as the middleware does; `secure` forces it.
+For a typed `context.locale` in loaders, merge `I18nRequestContext` into the framework's `Register` interface:
+
+```ts [src/env.d.ts]
+import type { I18nRequestContext } from "@pracht/i18n";
+
+declare module "@pracht/core" {
+  interface Register {
+    context: I18nRequestContext<"en" | "nl" | "fr">;
+  }
+}
+```
+
+### Cookie options
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `name` | `"pracht_locale"` | Cookie name, also exported as `DEFAULT_LOCALE_COOKIE` |
+| `maxAge` | one year | `Max-Age` in seconds |
+| `path` | `"/"` | Cookie `Path` |
+| `domain` | host-only | Cookie `Domain` |
+| `sameSite` | `"Lax"` | `"Lax"`, `"Strict"`, or `"None"` |
+| `secure` | automatic | Set on https requests and always with `sameSite: "None"` |
 
 ### `hreflang(path, options?)`
 
@@ -68,13 +77,9 @@ inferred from `url`, as the middleware does; `secure` forces it.
 | `origin` | *(none)* | Absolute origin prepended to every href. Google expects absolute hreflang URLs; omit it only for same-origin previews |
 | `xDefault` | the unprefixed path | The `x-default` target. Pass a registered locale to point at that locale's URL, or `false` to omit the entry |
 
----
-
 ## Dictionaries
 
-`createDictionaries()` registers one lazy loader per locale. The default
-locale's dictionary defines the key set and fills any key a translation is
-missing, so every key always resolves.
+Register one lazy loader per locale with `createDictionaries()`. The default locale's dictionary defines the key set and fills any key a translation is missing, so every key resolves.
 
 ```ts [src/dictionaries.ts]
 import { createDictionaries } from "@pracht/i18n";
@@ -93,9 +98,7 @@ export const dictionaries = createDictionaries(
 | `load(locale)` | Load and cache one locale's dictionary, merged over the default locale's. Unknown locales get the default |
 | `locales`, `defaultLocale` | The configured values, readonly |
 
-Keys are typed from the default locale's shape, so a typo in `t()` is a compile
-error. `$`-prefixed keys are reserved. A failed import is retried on the next
-`load()`.
+Keys are typed from the default locale's shape, so a typo in `t()` is a compile error. `$`-prefixed keys are reserved; the loaded messages carry the resolved locale as `$locale`. A failed import is retried on the next `load()`.
 
 Load the dictionary in a loader and return the messages as route data:
 
@@ -104,8 +107,6 @@ export async function loader({ context }: LoaderArgs) {
   return { messages: await dictionaries.load(context.locale) };
 }
 ```
-
----
 
 ## Translating
 
@@ -124,17 +125,14 @@ t(messages, "greeting", { name: "Ada" });   // "Hello, Ada"
 tPlural(messages, "items", cart.length);    // "3 items"
 ```
 
----
-
 ## `Accept-Language`
 
-The detection middleware uses these. Call them to negotiate a locale yourself,
-e.g. in an API route.
+Call these to negotiate a locale yourself, for example in an API route. The detection middleware uses the same functions.
 
 | Export | Description |
 | --- | --- |
 | `parseAcceptLanguage(header)` | Parse the header into entries, highest q-value first. Malformed and `q=0` entries are dropped |
-| `matchAcceptLanguage(header, locales, options?)` | Pick the best registered locale, or `null` when nothing matches |
+| `matchAcceptLanguage(header, locales, options?)` | Pick the best registered locale, or `null` when nothing matches. `{ wildcard: locale }` makes a `*` entry resolve to that locale; without it `*` is ignored |
 
 Matching runs per entry in q-value order:
 
@@ -142,4 +140,4 @@ Matching runs per entry in q-value order:
 2. RFC 4647 lookup, truncating the tag from the right — `zh-Hant-TW` → `zh-Hant` → `zh`, so `nl-BE` → `nl`
 3. A registered locale sharing the tag's primary language — `en-GB` → `en-US`
 
-The steps first consider only locales in the tag's script, written (`zh-Hant-TW`) or implied by its region (`zh-TW`, `zh-HK`), so `zh-TW` gets `zh-Hant` rather than `zh-Hans`. When none of those matches, they run again without that preference.
+The steps first consider only locales in the tag's script, written (`zh-Hant-TW`) or implied by its region (`zh-TW`, `zh-HK`), so `zh-TW` gets `zh-Hant` rather than `zh-Hans`. When none of those match, the steps run again without that preference.

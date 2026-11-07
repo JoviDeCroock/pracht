@@ -1,8 +1,8 @@
 import { redirect, type LoaderArgs } from "@pracht/core";
 
 /**
- * The docs "Agents" section used to be eight pages. It is four now:
- * /docs/agents, /docs/capabilities, /docs/agent-trust, /docs/coding-agents.
+ * The docs "Agents" section used to be eight pages, and five of their URLs
+ * were retired when it was consolidated.
  *
  * The five retired URLs stay routable and answer a redirect so existing links,
  * bookmarks, and anything an agent recorded from an older `llms.txt` still
@@ -14,7 +14,7 @@ import { redirect, type LoaderArgs } from "@pracht/core";
  * the target page still has that heading. Two were worth preserving deliberately
  * because other pages linked them: `#destructive-tools` and
  * `#oauth-letting-a-real-host-connect`, both kept verbatim on
- * `/docs/capabilities`. Every other old fragment has no counterpart on the page
+ * `/docs/mcp-tools`. Every other old fragment has no counterpart on the page
  * that absorbed it and simply lands at the top, which is the intended outcome —
  * the surrounding content moved, so a stale anchor has nothing to point at.
  *
@@ -27,7 +27,7 @@ const TARGETS: Record<string, string> = {
   "/docs/agent-workflow": "/docs/coding-agents",
   "/docs/agent-skills": "/docs/coding-agents",
   "/docs/mcp": "/docs/coding-agents",
-  "/docs/remote-mcp": "/docs/capabilities",
+  "/docs/remote-mcp": "/docs/mcp-tools",
 };
 
 export async function loader({ request, url }: LoaderArgs) {

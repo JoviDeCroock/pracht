@@ -2,11 +2,11 @@
 name: pracht-test-api
 version: 1.2.1
 description: |
-  Generate Vitest request/response tests for every handler in `src/api/`: build a
-  `Request`, call the exported method handler directly, assert on the returned
-  `Response` — no server boot.
-  Use for "test my API routes", "scaffold API tests", "generate tests for
-  src/api", "add tests for this endpoint".
+  Generate Vitest tests for every handler in `src/api/` that build a `Request`,
+  call the handler directly, and assert on the `Response` without starting a
+  server.
+  Use for "test my API routes", "scaffold API tests", "add tests for this
+  endpoint".
 allowed-tools:
   - Bash
   - Read
@@ -19,7 +19,7 @@ allowed-tools:
 
 # Pracht Test API
 
-Pracht API handlers are plain functions: `(args: ApiRouteArgs) => Response |
+pracht API handlers are plain functions: `(args: ApiRouteArgs) => Response |
 Promise<Response>` (`ApiRouteArgs` is `BaseRouteArgs` with `route` narrowed
 to `ResolvedApiRoute`). They test cleanly in Vitest without booting the
 framework.
@@ -31,10 +31,7 @@ prompt the user to). This skill does not handle Vitest setup.
 
 ## Step 2: Enumerate API handlers
 
-MCP: when the pracht MCP server is registered (`pracht dev-mcp`), prefer its
-`inspect_routes`/`inspect_api`/`inspect_build`/`doctor`/`verify`/`generate_*`
-tools over shelling out. `pracht inspect` needs the pracht plugin in the vite
-config.
+MCP: if `pracht dev-mcp` is registered, prefer its `inspect_*`, `generate_*`, `doctor`, and `verify` tools to the CLI.
 
 ```bash
 pracht inspect api --json

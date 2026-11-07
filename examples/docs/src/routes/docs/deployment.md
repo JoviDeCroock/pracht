@@ -1,29 +1,31 @@
 ---
 title: Deployment
-lead: pracht apps deploy anywhere via platform adapters. Pick one, build, and ship; the Adapters reference covers each platform's options in depth.
-breadcrumb: Deployment
-prev:
-  href: /docs/cli
-  title: CLI
-next:
-  href: /docs/adapters
-  title: Adapters Reference
+lead: Pick an adapter, build, and deploy to Cloudflare Workers, Vercel, Netlify, Node.js, or a static host.
 ---
+
+## Choose an adapter
+
+Pass one adapter to `pracht()` in `vite.config.ts`. Each section below has the config and commands for one target; [Adapters](/docs/adapters) lists what each one emits and every option.
+
+| Target | Package | Runs as |
+| --- | --- | --- |
+| [Node.js](#nodejs) | `@pracht/adapter-node` | A standalone `node:http` server |
+| [Cloudflare Workers](#cloudflare-workers) | `@pracht/adapter-cloudflare` | A Worker with bindings, Durable Objects, and WebSockets |
+| [Vercel](#vercel) | `@pracht/adapter-vercel` | An Edge Function; ISG routes use Vercel ISR |
+| [Netlify](#netlify) | `@pracht/adapter-netlify` | A Functions v2 handler; ISG uses Netlify's CDN cache |
+| [Static hosts](#static-hosts) | `@pracht/adapter-static` | Plain files; `ssg` and loaderless `spa` routes only |
+
+Every adapter except static supports all render modes, middleware, and API routes. `pracht preview` builds the app and serves it locally the way the Node, Cloudflare, and static targets run it.
 
 ## Node on the build image
 
-The machine that runs `pracht build` needs **Node 22.18 or newer**. Hosted build
-images often default to something older: Cloudflare Pages and Netlify read
-`.nvmrc`, and Vercel reads `engines.node` from `package.json`. `create-pracht`
-writes both; add them yourself when migrating an existing project.
+Run `pracht build` on **Node 22.18 or newer**. Hosted build images often default to something older: Cloudflare Pages and Netlify read `.nvmrc`, and Vercel reads `engines.node` from `package.json`. `create-pracht` writes both; add them yourself when migrating an existing project.
 
 ```txt [.nvmrc]
 22
 ```
 
 ## Node.js
-
-The default adapter. Generates a standalone Node.js server with static file serving and ISG support.
 
 ```ts [vite.config.ts]
 import { defineConfig } from "vite";
@@ -42,21 +44,13 @@ export default defineConfig({
 ```
 
 ```sh
-# Build and run
 pracht build
-pracht preview
-# or: node dist/server/server.js
+node dist/server/server.js     # listens on $PORT, default 3000
 ```
 
-Set `canonicalOrigin` so request URLs never come from the `Host` header.
-Proxy, body-size, and compression options are in the
-[adapter reference](/docs/adapters#nodejs).
-
----
+Set `canonicalOrigin` so request URLs never come from the `Host` header; without it the server logs a warning at startup. Proxy, body-size, compression, and shutdown options are in the [adapter reference](/docs/adapters/node).
 
 ## Cloudflare Workers
-
-Deploys as a Cloudflare Worker with static assets served via the `ASSETS` binding.
 
 ```ts [vite.config.ts]
 import { defineConfig } from "vite";
@@ -68,25 +62,29 @@ export default defineConfig({
 });
 ```
 
-```sh
-# Build and deploy
-pracht build
-wrangler deploy
+```jsonc [wrangler.jsonc]
+{
+  "name": "my-app",
+  "compatibility_date": "2026-04-06",
+  "assets": {
+    "binding": "ASSETS",
+    "html_handling": "drop-trailing-slash",
+    "run_worker_first": ["/*", "!/assets/*"],
+  },
+}
 ```
 
-Configure bindings (KV, D1, R2) in `wrangler.jsonc`; loaders and API routes
-read them from `context.env`. `pracht preview` runs Wrangler locally and reads
-local secrets from a gitignored `.dev.vars` file.
+```sh
+pracht preview          # build, then run wrangler dev locally
+pracht build
+npx wrangler deploy
+```
 
-Durable Objects, Workflows, queue and cron handlers, and ISG caching are
-covered in the [adapter reference](/docs/adapters#composing-the-worker).
+Configure bindings (KV, D1, R2) in `wrangler.jsonc`; loaders and API routes read them from `context.env`. `pracht preview` reads local secrets from a gitignored `.dev.vars` file, and production secrets come from `wrangler secret`.
 
----
+The [adapter reference](/docs/adapters/cloudflare) covers what the `assets` keys do, named environments, ISG caching, Durable Objects, cron and queue handlers, and deploying with Void.
 
 ## Vercel
-
-Deploys with Vercel's Build Output API: static SSG pages, an Edge Function for
-SSR and API routes, and Vercel's native ISR for ISG routes.
 
 ```ts [vite.config.ts]
 import { defineConfig } from "vite";
@@ -99,21 +97,13 @@ export default defineConfig({
 ```
 
 ```sh
-# Build and deploy
 pracht build
-vercel deploy --prebuilt
+npx vercel deploy --prebuilt
 ```
 
-For webhook revalidation, set `PRACHT_REVALIDATE_TOKEN` at build time, not only
-at runtime. `pracht preview` doesn't emulate Vercel; use `vercel build` and
-`vercel dev`. See the [adapter reference](/docs/adapters#vercel).
-
----
+For webhook revalidation, set `PRACHT_REVALIDATE_TOKEN` at build time, not only at runtime. `pracht preview` does not emulate Vercel; use `vercel build` and `vercel dev`. See the [adapter reference](/docs/adapters/vercel-netlify#vercel).
 
 ## Netlify
-
-Deploys through a Netlify Functions v2 handler, with SSG and ISG pages stored in
-Netlify's durable CDN cache.
 
 ```ts [vite.config.ts]
 import { defineConfig } from "vite";
@@ -135,23 +125,15 @@ export default defineConfig({
 ```
 
 ```sh
-pracht build && netlify dev
+pracht build && netlify dev        # run the build locally
 netlify deploy --build --prod
 ```
 
-Add extra static prefixes with `netlifyAdapter({ excludedPath: [...] })`, but
-never exclude page URLs. `pracht preview` doesn't emulate Netlify; use
-`netlify dev` after building. See the
-[adapter reference](/docs/adapters#netlify-functions).
-
----
+`pracht preview` does not emulate Netlify's Functions or CDN cache, so run `netlify dev` after building. Caching and `excludedPath` are in the [adapter reference](/docs/adapters/vercel-netlify#netlify-functions).
 
 ## Static hosts
 
-An app whose routes are all `ssg` (or loaderless `spa` with full hydration),
-with no middleware, API routes, or exposed capabilities, can deploy as plain
-files with `@pracht/adapter-static` — GitHub Pages, S3, nginx, Netlify, any file
-host.
+Deploy as plain files to GitHub Pages, S3, nginx, Netlify, or any file host when every route is `ssg` (or loaderless `spa` with full hydration) and the app has no middleware, API routes, or exposed capabilities.
 
 ```ts [vite.config.ts]
 import { defineConfig } from "vite";
@@ -164,30 +146,21 @@ export default defineConfig({
 ```
 
 ```sh
-# Build and preview
 pracht build      # dist/client/ is the whole deployment
-pracht preview
+pracht preview    # build, then serve dist/client/ the way a static host does
 ```
 
-The build fails with a list of offenders when something needs a server. It
-writes the `notFound` page as `404.html` and, with
-`staticAdapter({ fallback: "200.html" })`, an SPA fallback for hosts that can
-rewrite unknown URLs. See the [adapter reference](/docs/adapters#static-export)
-for host configuration.
+When something needs a server, the build fails and lists every offender. It writes the `notFound` page as `404.html`, and with `staticAdapter({ fallback: "200.html" })` also an SPA fallback for hosts that rewrite unknown URLs. Host requirements are in the [adapter reference](/docs/adapters/static).
 
----
+## Tabs open across a deploy
 
-## Tabs Open Across a Deploy
+When a deploy removes the previous build's hashed chunks, open tabs point at files that no longer exist. If a client navigation cannot load the next route's chunk, the router loads that URL as a full page, which picks up the new build.
 
-A deploy that removes the previous build's hashed chunks leaves open tabs pointing at files that no longer exist. When a client navigation cannot load the next route's chunk, the router loads that URL as a full page instead, which picks up the new build. Route chunks need no `vite:preloadError` listener; one that calls `location.reload()` reloads the page the visitor is leaving rather than the link they clicked.
+Route chunks need no `vite:preloadError` listener. A listener that calls `location.reload()` reloads the page the visitor is leaving rather than the link they clicked.
 
----
+## Sub-path deploys
 
-## Sub-Path Deploys
-
-Set Vite's `base` to serve the app under a path rather than an origin root — a
-GitHub Pages *project* site (`https://user.github.io/my-project/`), an S3 key
-prefix, a reverse-proxy mount point:
+Set Vite's `base` to serve the app under a path rather than an origin root, such as a GitHub Pages *project* site (`https://user.github.io/my-project/`), an S3 key prefix, or a reverse-proxy mount point:
 
 ```ts [vite.config.ts]
 export default defineConfig({
@@ -196,27 +169,15 @@ export default defineConfig({
 });
 ```
 
-The output tree doesn't change: `dist/client/` still contains
-`about/index.html`, and you upload the whole directory to the sub-path. Every
-URL the build emits includes the base: scripts, stylesheets, route-state
-fetches, `llms.txt` links, and hrefs from `<Link route>`, `href()`,
-`useNavigate()`, and `prefetch()`.
+The output tree does not change: `dist/client/` still contains `about/index.html`, and you upload the whole directory to the sub-path. Every URL the build emits includes the base: scripts, stylesheets, route-state fetches, `llms.txt` links, and hrefs from `<Link route>`, `href()`, `useNavigate()`, and `prefetch()`.
 
-Route paths in the manifest stay base-free, while `useLocation()` reports the
-URL as the visitor sees it, base included. `pracht dev` and `pracht preview`
-serve the app under the same base, and redirect a bare `/my-project` to
-`/my-project/`.
+Route paths in the manifest stay base-free, while `useLocation()` reports the URL as the visitor sees it, base included. `pracht dev` and `pracht preview` serve the app under the same base and redirect a bare `/my-project` to `/my-project/`.
 
 ### Hand-written links do not get the base
 
-`<a href="/about">` means the origin root in HTML, and pracht does not rewrite
-it — the same rule as Next's `basePath` and SvelteKit's `base`. Use
-`<Link route="about">` or `href("about")` for internal navigation and the base
-is applied for you.
+`<a href="/about">` means the origin root in HTML, and pracht does not rewrite it. Use `<Link route="about">` or `href("about")` for internal navigation and the base is applied for you.
 
-For the paths you do write by hand — a root-absolute `<a href>`, a `fetch()` to
-your own endpoint, an asset URL built at runtime — three helpers move a path
-across the base:
+For paths you write by hand, such as a root-absolute `<a href>`, a `fetch()` to your own endpoint, or an asset URL built at runtime, move the path across the base with these helpers:
 
 ```ts
 import { PRACHT_BASE, withBase, stripBase } from "@pracht/core";
@@ -227,8 +188,7 @@ stripBase("/my-project/about"); // "/about"  URL path → route path
 stripBase("/elsewhere"); // null — outside the base, so not this app
 ```
 
-At the default base of `/` both functions are the identity, so code written this
-way costs nothing until the app moves under a sub-path.
+At the default base of `/` both functions return their input unchanged, so code written this way keeps working when the app moves under a sub-path.
 
 ### Base values that are build errors
 
@@ -241,22 +201,16 @@ Use `/` or a root-absolute path such as `/my-project/`.
 
 ### Behind a proxy that strips the base
 
-The Node adapter expects the base to still be on the forwarded path. When a
-trusted proxy removes it first, say so; the proxy then owns the trailing-slash
-redirect:
+The Node adapter expects the base to still be on the forwarded path. When a trusted proxy removes it first, set `basePathStripped`; the proxy then owns the trailing-slash redirect:
 
 ```ts [vite.config.ts]
 pracht({ adapter: nodeAdapter({ basePathStripped: true }) });
 ```
 
-Pracht can't detect this: a forwarded `/my-project/about` could be the base
-plus `/about`, or a route whose own path is `/my-project/about`.
+pracht cannot detect this itself: a forwarded `/my-project/about` could be the base plus `/about`, or a route whose own path is `/my-project/about`.
 
-Cloudflare, Netlify, and Vercel deployments always keep the base and handle the
-redirect themselves.
+Cloudflare, Netlify, and Vercel deployments always keep the base and handle the redirect themselves.
 
 ### Static hosts
 
-The [static adapter](/docs/adapters#static-export) requires `/` or a
-root-absolute base. `pracht preview` answers anything outside the base with a
-404, matching what a correctly configured host does.
+The [static adapter](/docs/adapters/static) requires `/` or a root-absolute base. `pracht preview` answers anything outside the base with a 404, matching a correctly configured host.

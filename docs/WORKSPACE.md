@@ -116,7 +116,8 @@ mirrors `content.ts`.
 A user-facing change is not finished when `docs/` is updated. Adding a page
 means three edits: the Markdown file, a `route()` in
 `examples/docs/src/routes.ts`, and a nav entry in
-`examples/docs/src/shells/docs.tsx`. Sub-path ids (`recipes-`, `migrate-`,
+`examples/docs/src/nav.ts`, which also drives the breadcrumb, previous/next
+links, and llms.txt sections. Sub-path ids (`recipes-`, `migrate-`,
 `reference-`) are mapped to nested URLs by the `route()` hook in
 `examples/docs/content.ts`.
 

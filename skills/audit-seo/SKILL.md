@@ -2,11 +2,10 @@
 name: audit-seo
 version: 1.1.1
 description: |
-  Per-route SEO audit: `head()` coverage, title and description presence, Open
-  Graph and Twitter cards, canonicals, robots rules, plus a `sitemap.xml`
-  generated from the route manifest.
-  Use for "audit SEO", "check meta tags", "generate a sitemap", "are my OG cards
-  set", "review robots.txt".
+  Audit SEO per pracht route (`head()` titles, descriptions, Open Graph,
+  canonicals, robots) and generate a `sitemap.xml` from the route manifest.
+  Use for "audit SEO", "check meta tags", "generate a sitemap", "check OG
+  cards", "review robots.txt".
 allowed-tools:
   - Bash
   - Read
@@ -17,15 +16,13 @@ allowed-tools:
 
 # Pracht Audit SEO
 
-Pracht owns the document. Per-route SEO lives in the `head()` export
+pracht owns the document. Per-route SEO lives in the `head()` export
 returning `{ title?, lang?, meta?, link?, script? }`. This skill audits
 coverage and generates the static SEO artifacts.
 
 ## Step 1: Inventory
 
-MCP: when the pracht MCP server is registered (`pracht dev-mcp`), prefer its
-`inspect_routes`/`inspect_api`/`inspect_build`/`doctor`/`verify` tools over
-shelling out.
+MCP: if `pracht dev-mcp` is registered, prefer its `inspect_*`, `doctor`, and `verify` tools to the CLI.
 
 ```bash
 pracht inspect routes --json
@@ -73,7 +70,7 @@ candidate" if they don't already declare it.
 ## Step 4: `robots.txt`
 
 `robots.txt` MUST be served at the origin root (`/robots.txt`) — crawlers
-never look anywhere else. Pracht API routes are always mounted under `/api/`
+never look anywhere else. pracht API routes are always mounted under `/api/`
 (a `src/api/robots.ts` handler serves `/api/robots`, never `/robots.txt`), so
 an API handler cannot provide it. The workable option is the static asset:
 

@@ -2,11 +2,10 @@
 name: add-auth
 version: 2.1.1
 description: |
-  Wire session-based auth into a pracht app with `@pracht/session`: encrypted
-  cookie sessions, gate middleware, login/logout/signup API routes, `<Form>`
-  pages, and public vs. protected route groups.
-  Use for "add auth", "set up login", "wire authentication", "add session
-  middleware", "I need users".
+  Wire `@pracht/session` auth into a pracht app: encrypted cookie sessions, gate
+  middleware, login/logout/signup routes, and protected route groups.
+  Use for "add auth", "set up login", "add sessions", "protect routes", "I need
+  users".
 allowed-tools:
   - Bash
   - Read
@@ -28,10 +27,7 @@ encryption, expiry inside the payload, secret rotation, the `Secure`/`HttpOnly`
 attributes, and the 4 KB size ceiling — every one of which the hand-rolled
 version got wrong.
 
-MCP: when the pracht MCP server is registered (`pracht dev-mcp`), prefer its
-`inspect_routes`/`inspect_api`/`inspect_build`/`doctor`/`verify`/`generate_*`
-tools over shelling out. `pracht inspect` needs the pracht plugin in the vite
-config.
+MCP: if `pracht dev-mcp` is registered, prefer its `inspect_*`, `generate_*`, `doctor`, and `verify` tools to the CLI.
 
 ## Step 1: Confirm the scope
 
@@ -315,7 +311,8 @@ preserve the existing shells, middleware, and routes.
 Add `SESSION_SECRET=<generate with: openssl rand -base64 32>` to
 `.env.example`, and confirm `.env*` is gitignored. Secrets shorter than 16
 characters are rejected. To rotate, put the new secret first and keep the old
-one for one release.
+one until every cookie sealed with it has expired (`maxAge`, one week by
+default).
 
 ## Step 9: Verify
 

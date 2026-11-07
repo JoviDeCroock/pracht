@@ -2,10 +2,10 @@
 name: audit-loaders
 version: 1.2.0
 description: |
-  Audit pracht route loaders for serializability, leaked secrets, unsafe
-  `loaderCache`, browser-only API use, and missing `AbortSignal` plumbing.
-  Use for "audit loaders", "check loader data", "find serialization bugs", "loader
-  security review".
+  Audit pracht loaders for non-serializable data, leaked secrets, unsafe
+  `loaderCache`, browser-only APIs, and missing `AbortSignal` use.
+  Use for "audit loaders", "check loader data", "find serialization bugs",
+  "loader security review".
 allowed-tools:
   - Bash
   - Read
@@ -21,9 +21,7 @@ ends up in the browser — including secrets you never meant to expose.
 
 ## Step 1: Enumerate routes
 
-MCP: when the pracht MCP server is registered (`pracht dev-mcp`), prefer its
-`inspect_routes`/`inspect_api`/`inspect_build`/`doctor`/`verify` tools over
-shelling out.
+MCP: if `pracht dev-mcp` is registered, prefer its `inspect_*`, `doctor`, and `verify` tools to the CLI.
 
 ```bash
 pracht inspect routes --json

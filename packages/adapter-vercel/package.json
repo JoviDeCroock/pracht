@@ -15,7 +15,7 @@
     "framework"
   ],
   "license": "MIT",
-  "homepage": "https://github.com/JoviDeCroock/pracht/tree/main/packages/adapter-vercel",
+  "homepage": "https://pracht.resynapse.dev/docs/adapters",
   "bugs": {
     "url": "https://github.com/JoviDeCroock/pracht/issues"
   },

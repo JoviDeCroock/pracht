@@ -1,28 +1,17 @@
 ---
-title: Full-Stack Vercel
-lead: Build a full-stack app on Vercel with Vercel Postgres (Neon), KV (Upstash Redis), and Blob storage. This recipe covers project setup, database provisioning, and accessing services from loaders and API routes.
-breadcrumb: Full-Stack Vercel
-prev:
-  href: /docs/recipes/fullstack-cloudflare
-  title: Full-Stack Cloudflare
-next:
-  href: /docs/migrate/nextjs
-  title: Migrate from Next.js
+title: Full-stack Vercel
+lead: "Build an app on Vercel with Neon Postgres, Upstash Redis, and Blob: provisioning through the Vercel Marketplace and access from loaders and API routes."
 ---
 
-## What You Get
+This recipe builds a posts app on Vercel: a Postgres table read in loaders and written from an API route, with a Redis cache in front of an expensive query. The adapter serves SSG pages from the CDN and runs SSR and API routes in an Edge Function; storage connects through environment variables that Vercel injects when you connect a store to the project.
 
-Vercel provides managed infrastructure you can connect to from Edge Functions:
+| Store | SDK | Environment variables |
+| --- | --- | --- |
+| Postgres (Neon) | `@neondatabase/serverless` | `DATABASE_URL` |
+| Redis (Upstash) | `@upstash/redis` | `KV_REST_API_URL`, `KV_REST_API_TOKEN` |
+| Blob (file storage) | `@vercel/blob` | `BLOB_READ_WRITE_TOKEN` |
 
-- **Vercel Postgres** — Serverless Postgres powered by Neon, accessible via `@vercel/postgres`
-- **Vercel KV** — Redis-compatible store powered by Upstash
-- **Vercel Blob** — File storage with a simple upload/download API
-
-pracht's Vercel adapter deploys your app as an Edge Function with SSG pages served from the CDN.
-
----
-
-## 1. Project Setup
+## 1. Set up the project
 
 ```sh
 # Create a new pracht app
@@ -30,7 +19,7 @@ pnpm create pracht my-app
 cd my-app
 
 # Install the Vercel adapter and storage SDKs
-pnpm add @pracht/adapter-vercel @vercel/postgres @vercel/kv
+pnpm add @pracht/adapter-vercel @neondatabase/serverless @upstash/redis
 ```
 
 ```ts [vite.config.ts]
@@ -43,27 +32,25 @@ export default defineConfig({
 });
 ```
 
----
+## 2. Provision storage
 
-## 2. Provision a Database
-
-Create a Postgres database from the Vercel dashboard or CLI:
+In the Vercel dashboard, open **Storage** and add **Neon** (Postgres) and **Upstash** (Redis) from the Marketplace, connecting both to the project. Then link the project and pull its environment:
 
 ```sh
 npx vercel link
 npx vercel env pull .env.local
 ```
 
-After linking a Vercel Postgres store, your `.env.local` will contain `POSTGRES_URL` and related connection strings. These are automatically available as environment variables in production.
+`.env.local` now contains `DATABASE_URL`, `KV_REST_API_URL`, and `KV_REST_API_TOKEN`, plus related connection strings. Production deployments receive the same variables.
 
----
+## 3. Create the schema
 
-## 3. Database Schema
-
-Use any migration tool you like. Here's a simple approach with `@vercel/postgres`:
+Use any migration tool. This script runs in Node, so it reads `process.env` directly:
 
 ```ts [scripts/migrate.ts]
-import { sql } from "@vercel/postgres";
+import { neon } from "@neondatabase/serverless";
+
+const sql = neon(process.env.DATABASE_URL!);
 
 async function migrate() {
   await sql`
@@ -81,36 +68,38 @@ migrate();
 ```
 
 ```sh
-# Run locally with .env.local loaded
-npx dotenv -e .env.local -- npx tsx scripts/migrate.ts
+# Run locally with .env.local loaded (Node 20.6+)
+npx tsx --env-file=.env.local scripts/migrate.ts
 ```
 
----
+The script prints `Migration complete`.
 
-## 4. Type Your Context
+## 4. Query Postgres in a loader
 
-```ts [src/env.d.ts]
-import "@pracht/core";
+Create the clients in one server module. Read credentials from [`serverEnv`](/docs/env) and pass them explicitly: the edge server bundle replaces raw `process.env` reads with an empty object, so `Redis.fromEnv()` and `process.env.DATABASE_URL` find nothing there.
 
-declare module "@pracht/core" {
-  interface Register {
-    context: {
-      // Vercel's edge context is available here.
-      // Add custom values returned from createContext.
-    };
-  }
+```ts [src/server/db.ts]
+import { neon } from "@neondatabase/serverless";
+import { Redis } from "@upstash/redis";
+import { serverEnv } from "@pracht/core/env/server";
+
+export function sql(strings: TemplateStringsArray, ...params: unknown[]) {
+  return neon(serverEnv.DATABASE_URL as string)(strings, ...params);
+}
+
+export function redis() {
+  return new Redis({
+    url: serverEnv.KV_REST_API_URL as string,
+    token: serverEnv.KV_REST_API_TOKEN as string,
+  });
 }
 ```
 
----
-
-## 5. Query Postgres in Loaders
-
-`@vercel/postgres` reads connection info from environment variables automatically — no binding wiring needed:
+The Neon driver queries over HTTPS, so it runs in the Edge Function without a connection pool.
 
 ```ts [src/routes/posts.tsx]
-import { sql } from "@vercel/postgres";
 import type { LoaderArgs, RouteComponentProps } from "@pracht/core";
+import { sql } from "../server/db.ts";
 
 interface Post {
   id: number;
@@ -120,13 +109,13 @@ interface Post {
 }
 
 export async function loader(_args: LoaderArgs) {
-  const { rows } = await sql<Post>`
+  const posts = (await sql`
     SELECT id, title, body, created_at
     FROM posts
     ORDER BY created_at DESC
-  `;
+  `) as Post[];
 
-  return { posts: rows };
+  return { posts };
 }
 
 export function Component({ data }: RouteComponentProps<typeof loader>) {
@@ -136,7 +125,7 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
       <ul>
         {data.posts.map((post) => (
           <li key={post.id}>
-            <a href={`/posts/${post.id}`}>{post.title}</a>
+            {post.title}
             <time>{post.created_at}</time>
           </li>
         ))}
@@ -147,13 +136,15 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
 }
 ```
 
----
+Register the route with `render: "ssr"`: the data changes per request.
 
-## 6. Mutations via API Routes
+## 5. Write from an API route
+
+The `sql` template tag parameterizes every interpolated value, so user input cannot inject SQL:
 
 ```ts [src/api/posts.ts]
-import { sql } from "@vercel/postgres";
-import type { ApiRouteArgs } from "@pracht/core";
+import { redirect, type ApiRouteArgs } from "@pracht/core";
+import { sql } from "../server/db.ts";
 
 export async function POST({ request }: ApiRouteArgs) {
   const form = await request.formData();
@@ -164,20 +155,13 @@ export async function POST({ request }: ApiRouteArgs) {
     return Response.json({ error: "Title and body are required" }, { status: 400 });
   }
 
-  const { rows } = await sql`
-    INSERT INTO posts (title, body)
-    VALUES (${title}, ${body})
-    RETURNING id
-  `;
+  await sql`INSERT INTO posts (title, body) VALUES (${title}, ${body})`;
 
-  return new Response(null, {
-    status: 302,
-    headers: { location: `/posts/${rows[0].id}` },
-  });
+  return redirect("/posts", { request });
 }
 ```
 
-Use a form to submit:
+Submit to it with a form:
 
 ```tsx [src/routes/posts/new.tsx]
 import { Form } from "@pracht/core";
@@ -199,68 +183,62 @@ export function Component() {
 }
 ```
 
----
+Submitting creates the row and lands back on `/posts`, with the new post first.
 
-## 7. Use Vercel KV for Caching
+## 6. Cache in Redis
 
-```sh
-pnpm add @vercel/kv
-```
+Cache an expensive query's result in Redis:
 
 ```ts [src/routes/dashboard.tsx]
-import { kv } from "@vercel/kv";
-import { sql } from "@vercel/postgres";
 import type { LoaderArgs } from "@pracht/core";
+import { redis, sql } from "../server/db.ts";
+
+interface Stats {
+  total: number;
+  latest: string | null;
+}
 
 export async function loader(_args: LoaderArgs) {
+  const cache = redis();
+
   // Check Redis cache first
-  const cached = await kv.get("dashboard:stats");
+  const cached = await cache.get<Stats>("dashboard:stats");
   if (cached) return cached;
 
   // Expensive query
-  const { rows } = await sql`
-    SELECT COUNT(*) as total, MAX(created_at) as latest FROM posts
-  `;
+  const rows = (await sql`
+    SELECT COUNT(*)::int AS total, MAX(created_at) AS latest FROM posts
+  `) as Stats[];
   const stats = rows[0];
 
   // Cache for 5 minutes
-  await kv.set("dashboard:stats", stats, { ex: 300 });
+  await cache.set("dashboard:stats", stats, { ex: 300 });
 
   return stats;
 }
 ```
 
----
-
-## 8. Local Development
-
-Pull your environment variables and run the dev server:
+## 7. Develop locally
 
 ```sh
 npx vercel env pull .env.local
 pnpm dev
-# Loaders and API routes connect to your Vercel Postgres and KV stores
 ```
 
-> [!INFO]
-> Vercel Postgres and KV connect over the network even in development. Your local dev server talks to the same remote databases as production. Use a separate "preview" database for development if you want isolation.
+> [!WARNING]
+> Neon and Upstash are remote even in development, so `pracht dev` reads and writes the same databases as production unless you point `.env.local` at a separate development store.
 
----
-
-## 9. Deploy
+## 8. Deploy
 
 ```sh
 pracht build
 npx vercel deploy --prebuilt
 ```
 
-Or connect your Git repository in the Vercel dashboard for automatic deployments on push.
+Or connect the repository in the Vercel dashboard to deploy on every push.
 
----
+## Production notes
 
-## Tips
-
-- Use `render: "ssr"` for any route that reads from Postgres — data changes per request.
-- The `sql` template tag from `@vercel/postgres` automatically parameterizes queries — it's safe against SQL injection by default.
-- Pracht's Vercel adapter emits native Build Output API prerender functions for ISG routes. Set `PRACHT_REVALIDATE_TOKEN` if you want webhook revalidation through `/__pracht/revalidate`.
-- Vercel Edge Functions have a 25MB size limit and a 30-second execution timeout. Keep loaders fast and move heavy work to background jobs.
+- To pass your own values on `context`, give the adapter a `createContext` function; see [Adapters](/docs/adapters).
+- ISG routes run as Vercel prerender functions. Set `PRACHT_REVALIDATE_TOKEN` at build time to enable webhook revalidation through `/__pracht/revalidate`.
+- Edge Functions have code-size and response-time limits that depend on your plan; see Vercel's [function limits](https://vercel.com/docs/functions/limitations). Keep loaders fast and move heavy work to background jobs.

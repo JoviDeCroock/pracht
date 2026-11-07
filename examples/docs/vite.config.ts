@@ -5,11 +5,12 @@ import { prachtImage } from "@pracht/image/vite";
 import { pracht } from "@pracht/vite-plugin";
 import { cloudflareAdapter } from "@pracht/adapter-cloudflare";
 import { docsContent } from "./content";
+import { SITE_ORIGIN } from "./src/site";
 import { sitemap } from "./vite-plugin-sitemap";
 import { agentSkills } from "./vite-plugin-agent-skills";
 import { docsIndex } from "./vite-plugin-docs-index";
+import { searchIndex } from "./vite-plugin-search-index";
 
-const SITE_ORIGIN = "https://pracht.resynapse.dev";
 const routesFile = fileURLToPath(new URL("./src/routes.ts", import.meta.url));
 const skillsDir = fileURLToPath(new URL("../../skills", import.meta.url));
 
@@ -31,6 +32,7 @@ export default defineConfig({
     }),
     agentSkills({ origin: SITE_ORIGIN, skillsDir }),
     docsIndex({ collection: docsContent }),
+    searchIndex({ collection: docsContent }),
     pracht({ adapter: cloudflareAdapter() }),
   ],
 });

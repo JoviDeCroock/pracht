@@ -1,20 +1,27 @@
 ---
-title: The Agentic Web
-lead: "The web has two users now — people, and the agents acting on their behalf. pracht resolves your app into one explicit graph and projects that graph to both: components for humans, typed and trust-gated tools for agents."
-breadcrumb: Agents
-prev:
-  href: /docs/performance
-  title: Performance
-next:
-  href: /docs/capabilities
-  title: Capabilities
+title: Agents overview
+lead: "How pracht serves agents: typed capabilities over HTTP, WebMCP, and remote MCP, plus Markdown pages and `llms.txt` for reading."
 ---
 
-## The Web Has Two Users Now
+## Agent surfaces
 
-When an AI agent needs to book a slot or file a ticket today, it scrapes: load the page, read the DOM, guess which `<button>` is real, and click. That is slow, brittle, and anonymous, and the same guessing that fills a search box can hit "delete account."
+pracht gives agents two things: operations they can call, and pages they can read. Each surface is opt-in. An app that registers no capabilities and configures no `agents` ships none of the agent runtime.
 
-Your app already knows its own operations. pracht asks you to write each one down **once**, in a form a machine can trust:
+| Surface | Use it when | Turn it on | Details |
+| --- | --- | --- | --- |
+| Capability over HTTP | Any client, agent or browser, should call an operation | `expose: { http: true }` | [Capabilities](/docs/capabilities) |
+| WebMCP page tool | An agent in the user's browser tab should act as the signed-in user | `expose: { http: true, webmcp: true }` plus the route's `capabilities` list | [WebMCP](/docs/mcp-tools#webmcp-tools-for-in-browser-agents) |
+| Remote MCP tool | An agent with no browser (an assistant, a scheduled job) should call your deployed app | `defineApp({ agents: { mcp } })` plus `expose: { mcp: true }` | [Remote MCP](/docs/mcp-tools#remote-mcp-tools-for-agents-without-a-browser) |
+| Markdown by `Accept` | Agents should read a page without markup or scripts | A `markdown` export on the route | [Markdown](#discovery-markdown-and-llmstxt) |
+| `.md` files | Agents that never send `Accept`, or a static host | On by default for qualifying SSG pages | [`.md` URLs](#a-md-url-for-static-markdown-pages) |
+| `llms.txt` | Agents should discover your pages, endpoints, and capabilities | `pracht({ llmsTxt })` | [llms.txt](#llmstxt) |
+| Agent trust | You need to know who is calling, gate destructive calls, and audit them | `defineApp({ agents })` | [Agent trust](/docs/agent-trust), [Audit trail](/docs/agent-audit) |
+
+Agents that edit your source code are a separate audience; see [Coding agents](/docs/coding-agents).
+
+## Define a capability
+
+Install `@pracht/capabilities` (`pnpm add @pracht/capabilities`), write each operation once as a capability, and register it in `defineApp({ capabilities })`, next to your routes:
 
 ```ts [src/capabilities/book-appointment.ts]
 import { defineCapability } from "@pracht/capabilities";
@@ -31,49 +38,28 @@ export default defineCapability({
 });
 ```
 
-Register it in the same `defineApp()` manifest as your routes, shells, and middleware, and pracht projects that one contract everywhere.
-
----
-
-## One Graph, Four Projections
-
-pracht resolves the manifest once and aims it at four audiences.
-
-**Your own code.** A loader calls `invokeCapability("appointments.book", …)` and gets the same validation, middleware, and pipeline. The human UI and the agent surface are the same function, so they cannot drift.
-
-**The browser.** An island calls the generated `capabilities.appointments.book({ … })` client, or a `<Form capability>` posts to it without JavaScript. Only the name, endpoint, and effect class reach the client; importing the capability module from client code fails the build.
-
-**An agent in the user's tab.** With `expose.webmcp` and the capability listed in a route's `capabilities`, the page registers it as a [WebMCP](https://developer.chrome.com/docs/ai/webmcp) tool. Navigating away swaps in the next route's tools. The agent acts as the signed-in user, and every check still runs on your server.
-
-**An agent without a browser.** With `expose.mcp`, the same contract is a tool on your app's own remote MCP endpoint at `/mcp`. No SDK, no second server, and the same validation, middleware, identity checks, and audit events.
-
-Every projection runs one pipeline:
+Every caller goes through the same pipeline, so the rules your UI relies on also apply to agents:
 
 ```text
 input validation → middleware chain → run() → output validation → audit event
 ```
 
-The full API is on [Capabilities](/docs/capabilities).
+| Caller | How it calls |
+| --- | --- |
+| Your server code | `invokeCapability("appointments.book", input, { request, context })` from `@pracht/core/server` |
+| Your browser code | The generated client `capabilities.appointments.book(input)` from `virtual:pracht/capabilities`, or `<Form capability>` |
+| An agent in the tab | The WebMCP tool the route registers, which calls the HTTP endpoint with the user's cookies |
+| An agent without a browser | `tools/call` on your app's own remote MCP endpoint (`/mcp` by default) |
 
----
+Only the name, endpoint, and effect class reach the client. Importing a capability module from client code fails the build. The full API is on [Capabilities](/docs/capabilities).
 
 ## Discovery: Markdown and llms.txt
 
 Agents also need to find and read your app. Both mechanisms below are opt-in.
 
-### One URL, Two Representations
+### Serve Markdown by `Accept`
 
-A route can serve both rendered HTML and raw Markdown. Browsers get HTML; agents that ask for Markdown get the source document without navigation or hydration noise.
-
-```sh
-# Human-readable HTML
-curl https://pracht.resynapse.dev/docs/routing
-
-# Agent-readable Markdown
-curl -H "Accept: text/markdown" https://pracht.resynapse.dev/docs/routing
-```
-
-A route opts in by exporting a `markdown` string. When the request prefers `text/markdown`, pracht returns it without rendering:
+Export a `markdown` string from a route. A request that prefers `text/markdown` gets that string instead of rendered HTML:
 
 ```tsx [src/routes/pricing.tsx]
 export const markdown = `# Pricing
@@ -88,19 +74,11 @@ export function Component() {
 }
 ```
 
-Markdown routes compiled by [`defineMarkdownCollection`](/docs/content), like every page on this site, get that export generated for them.
-
-If middleware produces the Markdown instead, for example one dynamic route serving a document corpus, declare it in route metadata:
-
-```ts [src/routes.ts]
-route("/guide/:version/:name", "./routes/guide.tsx", {
-  markdown: true,
-  middleware: ["guideMarkdown"],
-  render: "ssg",
-});
+```sh
+curl -H "Accept: text/markdown" https://pracht.resynapse.dev/docs/routing
 ```
 
-Your middleware still does the negotiation. The flag makes adapters let Markdown requests reach it instead of serving prerendered HTML, adds `Vary: Accept`, and annotates the route in `llms.txt`.
+Markdown routes compiled by [`defineMarkdownCollection`](/docs/content), like every page on this site, get the export generated for them.
 
 pracht switches to Markdown only when the client explicitly prefers it:
 
@@ -112,23 +90,37 @@ pracht switches to Markdown only when the client explicitly prefers it:
 | `Accept: text/html;q=0.8, text/markdown;q=1.0` | Raw Markdown  |
 | `Accept: text/html;q=1.0, text/markdown;q=0.5` | Rendered HTML |
 
-Both representations carry `Vary: Accept`, so caches keep them apart. Routes without Markdown ignore `Accept` and always serve HTML.
+Both representations carry `Vary: Accept`. Routes without Markdown ignore `Accept` and always serve HTML.
+
+When middleware produces the Markdown instead, for example one dynamic route serving a document corpus, set `markdown: true` in the route metadata:
+
+```ts [src/routes.ts]
+route("/guide/:version/:name", "./routes/guide.tsx", {
+  markdown: true,
+  middleware: ["guideMarkdown"],
+  render: "ssg",
+});
+```
+
+Your middleware still does the negotiation. The flag makes adapters pass Markdown requests to it instead of serving prerendered HTML, adds `Vary: Accept`, and marks the route in `llms.txt`.
 
 ### A `.md` URL for static Markdown pages
 
-Many agent fetchers never send `Accept`, and a static host cannot negotiate. So `pracht build` also writes a page's `markdown` export to a file next to the page: `/docs/routing` becomes `/docs/routing.md`, and `/` becomes `/index.md`. The page's HTML links it, so an agent that fetched the HTML can find it:
-
-```html
-<link rel="alternate" type="text/markdown" href="/docs/routing.md">
-```
+`pracht build` writes each qualifying page's Markdown to a file next to the page, for fetchers that never send `Accept` and for static hosts that cannot negotiate. `/docs/routing` becomes `/docs/routing.md`, and `/` becomes `/index.md`:
 
 ```sh
 curl https://pracht.resynapse.dev/docs/routing.md
 ```
 
-A page gets a file only when its Markdown is the same for every visitor: an SSG route with a `markdown` string export and no middleware. The build then requests the page with `Accept: text/markdown`, as a cookieless visitor would, and writes only a Markdown answer, so a loader that redirects or returns 401 keeps the file out. Other routes keep `Accept` negotiation only, as does a page marked `noindex` (by `X-Robots-Tag` or a robots `<meta>`) or sent with `Cache-Control: private`. The build prints a note naming each Markdown page left without a file and why.
+The page's HTML links the file:
 
-A file already at that path, such as `public/docs/routing.md`, is never overwritten. `pracht dev` serves the same `.md` URLs, except that it does not render pages, so it still serves one for a page whose `noindex` or `private` headers keep it out of the build.
+```html
+<link rel="alternate" type="text/markdown" href="/docs/routing.md">
+```
+
+A page qualifies when its Markdown is the same for every visitor: an SSG route with a `markdown` string export and no middleware, whose build-time Markdown request succeeds without cookies. Pages marked `noindex` or sent with `Cache-Control: private` keep `Accept` negotiation only. The build prints a note naming each Markdown page left without a file and why.
+
+A file already at that path, such as `public/docs/routing.md`, is never overwritten. `pracht dev` serves the same `.md` URLs.
 
 To keep Markdown behind `Accept` only, turn the files off:
 
@@ -138,7 +130,7 @@ pracht({ adapter: nodeAdapter(), markdownFiles: false });
 
 ### llms.txt
 
-The Vite plugin's `llmsTxt` option emits [`/llms.txt`](https://llmstxt.org) from your app graph: every page, every API endpoint with its methods, and every HTTP-exposed [capability](/docs/capabilities) with its endpoint, effect class, and description. A page with a `.md` file is listed by that URL (`- [/docs/routing](/docs/routing.md): Markdown version of ...`); other Markdown routes are marked as supporting `Accept: text/markdown`.
+Set the Vite plugin's `llmsTxt` option to emit [`/llms.txt`](https://llmstxt.org) from your app graph:
 
 ```ts [vite.config.ts]
 pracht({
@@ -147,11 +139,11 @@ pracht({
 });
 ```
 
-`pracht build` writes `dist/client/llms.txt`; the dev server serves it live at `/llms.txt`.
+`pracht build` writes `dist/client/llms.txt`, and the dev server serves it live at `/llms.txt`. It lists every page, every API endpoint with its methods, and every HTTP-exposed [capability](/docs/capabilities) with its endpoint, effect class, and description. A page with a `.md` file is listed by that URL; other Markdown routes are marked as supporting `Accept: text/markdown`.
 
-An agent can go from "never heard of this site" to a validated call in two requests: read `/llms.txt`, then POST the capability endpoint. A wrong input comes back path-scoped (`/limit: must be <= 20`) so the agent can correct itself.
+An agent can then reach a validated call in two requests: read `/llms.txt`, then POST the capability endpoint. Invalid input comes back path-scoped (`/limit: must be <= 20`) so the agent can correct it.
 
-For curated sections, Markdown links, and full-text files with whole pages inlined, use the [`@pracht/content` collection](/docs/content) instead. This site does:
+For curated sections and full-text files with whole pages inlined, use a [`@pracht/content` collection](/docs/content) instead. This site does:
 
 ```ts [examples/docs/content.ts]
 import { llmsTxtArtifacts } from "@pracht/content";
@@ -182,7 +174,7 @@ export const docsContent = defineMarkdownCollection({
 });
 ```
 
-That yields `/llms.txt`, a map of titles, descriptions, and `.md` links grouped like the sidebar. Each group's pages are also bundled into one file, such as `/llms-agents.txt`, and `/llms-full.txt` holds every page:
+That produces `/llms.txt` grouped like the sidebar, one full-text file per group such as `/llms-agents.txt`, and `/llms-full.txt` with every page:
 
 ```sh
 curl https://pracht.resynapse.dev/llms.txt
@@ -191,26 +183,22 @@ curl https://pracht.resynapse.dev/llms-full.txt
 ```
 
 > [!NOTE]
-> `llms.txt` here means *your app's* index, generated from *your* graph. `pracht llms` is a different thing: it prints the framework's own authoring guide for a coding agent working in your repo. See [Coding Agents](/docs/coding-agents#teaching-the-agent-pracht-llms-and-pracht-docs).
+> This `llms.txt` is your app's index, for agents using your site. `pracht llms` is unrelated: it prints the framework's authoring guide for a coding agent editing your repo. See [Coding agents](/docs/coding-agents#teaching-the-agent-pracht-llms-and-pracht-docs).
 
----
+## Agent trust
 
-## Trust Is the Framework's Job
+Configure trust in `defineApp({ agents })`. Each rule applies on every transport:
 
-Turning schemas into tools is the easy part. What makes an agent surface deployable is the trust layer, and pracht ships it in the framework:
+- **Identity.** Agents that sign requests with Web Bot Auth ([RFC 9421](https://www.rfc-editor.org/rfc/rfc9421) HTTP Message Signatures) appear as a verified `context.agent`. On the remote MCP endpoint, OAuth adds `context.tokenAuth`: the user the agent acts for.
+- **Confirmation.** A `destructive` call never runs on first contact. The server answers `confirmation_required` with a token bound to this caller, this operation, and this exact input.
+- **Audit.** Every dispatch emits one structured event: capability, effect, transport, outcome, latency, and verified identity.
+- **Evals.** `pracht eval` runs scripted agent tasks against your running app in CI, over HTTP or MCP `tools/call`.
 
-- **Who is calling?** Agents that sign with Web Bot Auth ([RFC 9421](https://www.rfc-editor.org/rfc/rfc9421) HTTP Message Signatures) appear as a verified `context.agent`. On the remote MCP endpoint, OAuth also identifies *on whose behalf* the agent acts.
-- **May they do this?** A `destructive` call cannot run on first contact. The server answers `confirmation_required` with a token bound to this caller, this operation, and this exact input.
-- **What happened?** Every dispatch emits one structured audit event: capability, effect, transport, outcome, latency, and verified identity.
-- **Will it keep working?** `pracht eval` runs scripted agent tasks against your live app in CI, over HTTP or real MCP `tools/call`.
+The full API is on [Agent trust](/docs/agent-trust).
 
-The full API is on [Agent Trust](/docs/agent-trust).
+## Try it locally
 
----
-
-## Try It in Five Minutes
-
-Everything above works with plain `curl`. The repository's [`examples/basic`](https://github.com/JoviDeCroock/pracht/tree/main/examples/basic) app registers five capabilities around a notes store:
+The repository's [`examples/basic`](https://github.com/JoviDeCroock/pracht/tree/main/examples/basic) app registers five capabilities around a notes store:
 
 ```sh
 git clone https://github.com/JoviDeCroock/pracht && cd pracht
@@ -219,7 +207,7 @@ cd examples/basic
 PRACHT_CONFIRMATION_SECRET=dev-secret pnpm pracht dev
 ```
 
-Discover the app the way an agent would, then call a capability:
+Read the index an agent would read, then call a capability:
 
 ```sh
 curl -s http://localhost:3000/llms.txt
@@ -229,19 +217,6 @@ curl -s -X POST http://localhost:3000/api/capabilities/notes/search \
 # { "ok": true, "data": { "notes": [...] } }
 ```
 
-Visit [`/notes`](http://localhost:3000/notes) for the human side of the same contracts, and `/_pracht` to watch capability traffic with agent attribution. Then continue on Agent Trust with the [destructive confirmation exchange](/docs/agent-trust#destructive-capabilities-preparecommit) and [the same flow as a `pracht eval` scenario](/docs/agent-trust#pracht-eval-prove-agent-flows-in-ci).
+Open [`/notes`](http://localhost:3000/notes) for the human UI built on the same capabilities, and `/_pracht` to watch capability calls with agent attribution. Next, try the [destructive confirmation exchange](/docs/agent-trust#destructive-capabilities-preparecommit) and [the same flow as a `pracht eval` scenario](/docs/agent-eval).
 
-The [`showcase`](https://github.com/JoviDeCroock/pracht/tree/main/examples/showcase) example goes further: six operations projected to the browser, progressively enhanced forms, in-page WebMCP agents, signed remote callers, and MCP tools at `/mcp`, behind one set of policies.
-
----
-
-## Where to Go Next
-
-| Page | What it covers |
-| --- | --- |
-| [Capabilities](/docs/capabilities) | `defineCapability`, `expose.http`/`webmcp`/`mcp`, effect classes, typed clients, `<Form capability>`, and the remote MCP endpoint |
-| [Agent Trust](/docs/agent-trust) | Web Bot Auth, `agentPolicy`, the confirmation flow, approval stores, audit sinks, `pracht eval` |
-| [Coding Agents](/docs/coding-agents) | The other kind of agent: `pracht dev-mcp`, Claude Code skills, constraints, app-graph snapshots, `pracht plan`/`report` |
-| [Testing](/docs/recipes/testing) | Vitest, Playwright, faking the WebMCP API, signing Web Bot Auth requests |
-
-Not built yet: MCP Apps UI views, where a capability returns interactive Preact UI into an agent's chat.
+The [`showcase`](https://github.com/JoviDeCroock/pracht/tree/main/examples/showcase) example combines browser forms, WebMCP page tools, signed remote callers, and MCP tools at `/mcp` behind one set of policies. For test patterns, including a fake WebMCP API and signed Web Bot Auth requests, see the [Testing recipe](/docs/recipes/testing).

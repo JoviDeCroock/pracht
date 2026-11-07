@@ -1,39 +1,10 @@
-# pracht docs — robots.txt
-# https://www.rfc-editor.org/rfc/rfc9309
+# pracht docs — robots.txt (RFC 9309)
+# One group for every crawler, AI crawlers included: a crawler that matches a
+# named group ignores the rules in this one.
 
 User-agent: *
 Allow: /
 Disallow: /_pracht/
-
-# Content Signals (https://contentsignals.org/)
 Content-Signal: search=yes, ai-input=yes, ai-train=yes
-
-# AI crawlers — explicit policy per agent
-User-agent: GPTBot
-Allow: /
-
-User-agent: OAI-SearchBot
-Allow: /
-
-User-agent: ChatGPT-User
-Allow: /
-
-User-agent: Claude-Web
-Allow: /
-
-User-agent: ClaudeBot
-Allow: /
-
-User-agent: Claude-SearchBot
-Allow: /
-
-User-agent: Google-Extended
-Allow: /
-
-User-agent: PerplexityBot
-Allow: /
-
-User-agent: CCBot
-Allow: /
 
 Sitemap: https://pracht.resynapse.dev/sitemap.xml

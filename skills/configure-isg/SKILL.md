@@ -2,12 +2,11 @@
 name: configure-isg
 version: 1.0.1
 description: |
-  Wire ISG revalidation for the project's adapter: route-level
-  `timeRevalidate`/`webhookRevalidate`, the authenticated `/__pracht/revalidate`
-  webhook, Cloudflare Workers Cache, Vercel ISR, and cache-key pitfalls — then
-  verify locally.
-  Use for "set up ISG", "configure revalidation", "add a revalidation webhook", "my
-  ISG page never updates", "cache this page at the edge".
+  Set up ISG revalidation for the project's adapter:
+  `timeRevalidate`/`webhookRevalidate`, the `/__pracht/revalidate` webhook,
+  Cloudflare and Vercel caching, and local verification.
+  Use for "set up ISG", "configure revalidation", "add a revalidation webhook",
+  "my ISG page never updates".
 allowed-tools:
   - Bash
   - Read
@@ -29,9 +28,7 @@ webhook, and the adapter-specific cache correctly.
 
 ## Step 1: Identify adapter and candidate routes
 
-MCP: when the pracht MCP server is registered (`pracht dev-mcp`), prefer its
-`inspect_routes`/`inspect_api`/`inspect_build`/`doctor`/`verify` tools over
-shelling out.
+MCP: if `pracht dev-mcp` is registered, prefer its `inspect_*`, `doctor`, and `verify` tools to the CLI.
 
 ```bash
 pracht inspect routes --json    # render + revalidate per route
@@ -116,7 +113,7 @@ they identify manifest routes rather than public deployment URLs.
 | Cloudflare (`cache: true`) | Edge-tier Workers Caching in front of the Worker for time-revalidated routes | Webhook-only routes keep the worker-managed path; time+webhook routes also get their edge entry purged |
 | Vercel | Build Output prerender functions: `.prerender-config.json` with `expiration` from the time policy and build HTML as fallback, next to a Node Serverless Function per ISG route (Vercel rejects ISR on an Edge Function) | For webhook revalidation, `x-vercel-cache` verifies the bypass; `PRACHT_REVALIDATE_TOKEN` becomes the `bypassToken` and **must be set at build time** (runtime-only setting → webhook paths report `failed` until you rebuild). Time-only ISR does not require the token. |
 
-Cloudflare specifics (<https://pracht.resynapse.dev/docs/adapters#isg-and-workers-caching>):
+Cloudflare specifics (<https://pracht.resynapse.dev/docs/adapters/cloudflare#isg-and-workers-caching>):
 
 - The default per-colo path needs **no extra config**. The `cache: true`
   upgrade needs both `cloudflareAdapter({ cache: true })` in vite config
@@ -134,7 +131,7 @@ Cloudflare specifics (<https://pracht.resynapse.dev/docs/adapters#isg-and-worker
 
 ## Step 5: Cache-key cardinality caveats
 
-See <https://pracht.resynapse.dev/docs/adapters#isg-and-workers-caching>. Node and worker-managed
+See <https://pracht.resynapse.dev/docs/adapters/cloudflare#isg-and-workers-caching>. Node and worker-managed
 Cloudflare ISG key generated pages by **pathname**. Workers Caching keys by
 exact path **plus query string** (param order and trailing slash included), so
 `/pricing?ref=a` and `/pricing?ref=b` are independent entries with independent

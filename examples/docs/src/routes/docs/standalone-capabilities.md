@@ -1,28 +1,19 @@
 ---
-title: Standalone Capabilities
-lead: Mount Pracht's validated capability pipeline in an existing Web-standard server without adopting the Pracht router, Vite plugin, or Preact.
-breadcrumb: Standalone Capabilities
-prev:
-  href: /docs/capabilities
-  title: Capabilities
-next:
-  href: /docs/agent-trust
-  title: Agent Trust
+title: Standalone capabilities
+lead: Run pracht's validated capability pipeline in an existing Web-standard server, without the pracht router, Vite plugin, or Preact.
 ---
 
-## Adopt One Contract at a Time
-
-`@pracht/capabilities` can host operations in an application that does not use the Pracht framework. You still get the same JSON Schema validation, named middleware, effect policy, destructive prepare/commit flow, audit events, HTTP envelope, remote MCP projection, and WebMCP registrar.
-
-The standalone surface uses Web-standard `Request` and `Response`. Hono, Next.js route handlers, and Workers can pass requests directly. Node frameworks with their own request types need their normal Web Request/Response adapter.
+## Install
 
 ```bash
-npm install @pracht/capabilities
+pnpm add @pracht/capabilities
 ```
 
-## Define the Capability
+`@pracht/capabilities` hosts capabilities in an app that does not use the pracht framework: the same validation, middleware, prepare/commit flow, audit events, HTTP envelope, remote MCP, and WebMCP. It speaks Web-standard `Request` and `Response`, so Hono, Next.js route handlers, and Workers pass requests directly; other Node frameworks need their usual Web Request adapter.
 
-Wrap an existing service function with the same contract a Pracht app uses:
+## Define a capability
+
+Wrap an existing service function in a capability contract:
 
 ```ts [capabilities/notes-search.ts]
 import { defineCapability, type CapabilityRunArgs } from "@pracht/capabilities";
@@ -53,19 +44,13 @@ export default defineCapability({
 });
 ```
 
-Annotating `run()` with `CapabilityRunArgs<Input>` types the input while preserving inference for the concrete output. The standalone host uses the same capability object and typing rule as a Pracht app.
+Annotating `run()` with `CapabilityRunArgs<Input>` types the input and keeps the output inferred.
 
-If the application already validates this operation with a Standard Schema
-that also implements Standard JSON Schema, pass that validator directly as
-`input` or `output`. Zod 4 schemas work without conversion glue. The host runs
-the original validator — including async checks, defaults, and transforms —
-while projecting the derived JSON Schema to MCP and WebMCP. The embedding app
-keeps its schema library server-side; only the JSON descriptor belongs in a
-browser registration.
+To reuse an existing validator, pass a Standard Schema that also implements Standard JSON Schema, such as a Zod 4 schema, as `input` or `output`. The host runs your validator, transforms included, and projects its JSON Schema to MCP and WebMCP.
 
-## Mount the Host
+## Mount the host
 
-`createCapabilityHost()` registers capability objects at runtime. Its `fetch()` method returns a response for a capability HTTP path, the configured MCP path, or OAuth protected-resource metadata. It returns `null` for unrelated URLs, without creating application context or verifying agent signatures, so it is safe to place before the rest of a wildcard router.
+Create a host with `createCapabilityHost()`:
 
 ```ts [server/capability-host.ts]
 import { createCapabilityHost } from "@pracht/capabilities/server";
@@ -79,7 +64,7 @@ export const capabilityHost = createCapabilityHost({
 });
 ```
 
-Mount it in Hono, or any server that already exposes a Web-standard request:
+`capabilityHost.fetch(request)` answers capability HTTP paths, the MCP endpoint, and OAuth protected-resource metadata, and resolves to `null` for every other URL. Put it in front of your router:
 
 ```ts [server.ts]
 import { Hono } from "hono";
@@ -94,13 +79,20 @@ app.use("*", async (context, next) => {
 });
 ```
 
-The host owns unknown URLs below `/api/capabilities/` and answers them with a typed 404 envelope. URLs outside its generated and custom capability paths fall through to your router.
+Unknown URLs under `/api/capabilities/` get a `404 unknown_capability` envelope instead of falling through.
 
-The default protections match the framework host: non-GET browser calls require same-origin provenance, errors are redacted, and default security headers are applied. Set `requireSameOrigin`, `exposeErrors`, or `securityHeaders` only when the embedding server deliberately owns that policy. Each request gets a 30-second budget: the `signal` that middleware and `run()` receive aborts when it runs out or the client disconnects. Set `loaderTimeoutMs` to change it, as you would in `defineApp()`.
+Override these defaults only when your server owns the policy:
 
-## Context, Middleware, and Trust
+| Option | Default | Effect |
+| --- | --- | --- |
+| `requireSameOrigin` | `true` | Non-GET browser calls must be same-origin. |
+| `exposeErrors` | `false` | Internal error details are redacted. |
+| `securityHeaders` | `true` | Default security headers are added. |
+| `loaderTimeoutMs` | `30000` | Request budget; the `signal` passed to middleware and `run()` aborts when it runs out. |
 
-Register middleware functions by name and create context only for traffic the host owns:
+## Context, middleware, and trust
+
+Register middleware by name, and create context only for requests the host owns:
 
 ```ts
 export const capabilityHost = createCapabilityHost({
@@ -130,18 +122,18 @@ export const capabilityHost = createCapabilityHost({
 });
 ```
 
-Standalone differences are limited to registration:
+The `agents` config matches [Agent trust](/docs/agent-trust), with these differences:
 
-- Middleware and the MCP token verifier are functions rather than module paths.
-- There is no app manifest or static discovery; capability names are the keys in `capabilities`.
-- The confirmation secret still comes from `PRACHT_CONFIRMATION_SECRET` or `setCapabilityConfirmationSecret()`.
-- Destructive remote MCP tools still require `agents.mcp.destructive` and a durable approval store.
+- Middleware and the MCP token `verify` are functions, not module paths.
+- Capability names are the keys of `capabilities`; there is no manifest or file discovery.
+- The confirmation secret comes from `PRACHT_CONFIRMATION_SECRET` or `setCapabilityConfirmationSecret()`.
+- Destructive remote MCP tools need `agents.mcp.destructive` and a durable approval store.
 
-For server-side composition, `capabilityHost.invoke("notes.search", input)` runs private or exposed capabilities through the same validation and middleware pipeline.
+To call a capability from server code, use `capabilityHost.invoke("notes.search", input)`. It runs validation and the capability's own middleware, skips `apiMiddleware`, and works for unexposed capabilities.
 
-## Register WebMCP Tools
+## Register WebMCP tools
 
-`@pracht/capabilities/webmcp` is the browser-side registrar. Keep authorization and validation on the server by dispatching each page tool through the hosted HTTP endpoint:
+Register page tools in the browser with `registerWebmcpTools()` from `@pracht/capabilities/webmcp`, and dispatch each call to the host's HTTP endpoint so validation and authorization stay on the server:
 
 ```ts [webmcp.ts]
 import { registerWebmcpTools } from "@pracht/capabilities/webmcp";
@@ -179,10 +171,16 @@ registerWebmcpTools(
 registrations.abort();
 ```
 
-Registration is a no-op when `document.modelContext` is absent. Each descriptor derives WebMCP's `readOnlyHint` and can carry `untrustedContentHint` or an explicit `consequentialHint`. Destructive page tools are refused.
+`registerWebmcpTools()` returns `false` and registers nothing when the browser has no `document.modelContext`.
 
-The optional registration object also accepts `exposedTo`; omit it unless a secure cross-origin document needs access, and tools stay restricted to their origin. Chrome recommends compact metadata and results: 30 characters per tool or parameter name, 500 per tool description, 150 per parameter description, and 1.5K per result.
+| Descriptor field | Effect |
+| --- | --- |
+| `effect` | `"read"` sets `readOnlyHint`. `"destructive"` tools are skipped with a console warning: `destructive operations cannot be exposed as page tools`. |
+| `untrustedContent` | Sets `untrustedContentHint`. |
+| `annotations` | Explicit hints, such as `consequentialHint`, merged over the derived ones. |
 
-## Moving to Pracht Later
+The third argument also accepts `exposedTo`, secure cross-origin documents allowed to use the tools; omit it to keep them same-origin. Chrome recommends at most 30 characters per tool or parameter name, 500 per tool description, 150 per parameter description, and 1.5K per result.
 
-Capability modules do not change. Move them to `src/capabilities/`, register them in `defineApp({ capabilities })` or let the pages router discover them, and remove the manual host. Pracht then adds generated typed clients, `<Form capability>`, static verification, route revalidation, generated WebMCP registration, `llms.txt`, and the development Agents panel. See [Capabilities](/docs/capabilities) for the integrated workflow.
+## Move to a pracht app
+
+Move capability modules unchanged into `src/capabilities/`, register them in `defineApp({ capabilities })` (or let the pages router discover them), and delete the manual host. You gain typed clients, `<Form capability>`, build-time verification, route revalidation, generated WebMCP registration, `llms.txt`, and the dev Agents panel. See [Capabilities](/docs/capabilities).

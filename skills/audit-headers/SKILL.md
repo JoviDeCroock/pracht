@@ -2,12 +2,10 @@
 name: audit-headers
 version: 1.2.1
 description: |
-  Audit security headers in a pracht app. The framework sets four defaults on
-  every response path; this covers the exceptions — static output served outside
-  first-party adapters, `headers()` exports that weaken defaults, and the choices
-  only you can make (HSTS, CSP).
-  Use for "audit security headers", "check CSP", "harden headers", "set up HSTS",
-  "review header policy".
+  Audit security headers in a pracht app: `headers()` exports that weaken the
+  defaults, static hosts that drop them, and HSTS and CSP choices.
+  Use for "audit security headers", "check CSP", "harden headers", "set up
+  HSTS".
 allowed-tools:
   - Bash
   - Read
@@ -50,7 +48,7 @@ The audit surface is therefore:
 Prerequisites: `pracht inspect` requires a vite config that registers the
 pracht plugin; `pracht inspect build` and
 `dist/server/headers-manifest.json` require a prior `pracht build`. Every
-serverful target currently publishes a client copy at
+serverful target publishes a client copy at
 `dist/client/_pracht/headers.json`; only Cloudflare reads it there. Pure static
 exports deliberately do not publish that copy.
 
@@ -61,9 +59,7 @@ pracht inspect routes --json
 pracht inspect api --json
 ```
 
-MCP: when the pracht MCP server is registered (`pracht dev-mcp`), prefer its
-`inspect_routes`/`inspect_api`/`inspect_build`/`doctor`/`verify` tools over
-shelling out.
+MCP: if `pracht dev-mcp` is registered, prefer its `inspect_*`, `doctor`, and `verify` tools to the CLI.
 
 Only route modules and shells have a `headers()` export — API handlers do not
 (there is no `headers` in the API module shape; API handlers set headers
@@ -116,7 +112,7 @@ then adjust it for speculation and add observed origins:
 3. Group by directive: `default-src`, `script-src`, `style-src`, `img-src`,
    `font-src`, `connect-src`, `frame-src`; always include `'self'` per
    directive, per the starter policy.
-4. Pracht injects hydration state in a non-executable
+4. pracht injects hydration state in a non-executable
    `<script id="pracht-state" type="application/json">` — it does not need
    `'unsafe-inline'`. Do not add `'unsafe-inline'` unless the app truly emits
    executable inline scripts and the tradeoff is documented.
@@ -141,7 +137,7 @@ and report each as `error` with the prerender failure it would cause.
 The real target is the `warn` class the framework cannot catch: innocuously
 named headers carrying user-specific values in
 `dist/server/headers-manifest.json`, which serverful adapters may replay across
-users on static responses. Every serverful build currently also copies that
+users on static responses. Every serverful build also copies that
 manifest into public client output; Cloudflare reads it through the assets
 binding, while the other adapters retain the public copy for compatibility. A
 pure static export omits the client copy and has no runtime to replay the server

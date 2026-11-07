@@ -2,10 +2,10 @@
 name: typed-routes
 version: 1.3.0
 description: |
-  Add or maintain pracht typed routes: run typegen, adopt route-id based links and
-  navigation, and replace hard-coded hrefs with generated helpers.
-  Use for "add typed routes", "fix typed links", "replace hard-coded hrefs", "run
-  typegen".
+  Generate typed route helpers with `pracht typegen` and replace hard-coded
+  hrefs and `navigate()` paths with route-id links.
+  Use for "add typed routes", "fix typed links", "replace hard-coded hrefs",
+  "run typegen".
 allowed-tools:
   - Bash
   - Read
@@ -24,10 +24,7 @@ Use this workflow to keep route ids, params, links, and navigation type-safe.
 
 The resolved app graph is the source of truth — not a manual glob of `src/`.
 
-MCP: when the pracht MCP server is registered (`pracht dev-mcp`), prefer its
-`inspect_routes`/`inspect_api`/`inspect_build`/`doctor`/`verify`/`generate_*`
-tools over shelling out. `pracht inspect` needs the pracht plugin in the vite
-config.
+MCP: if `pracht dev-mcp` is registered, prefer its `inspect_*`, `generate_*`, `doctor`, and `verify` tools to the CLI.
 
 ```bash
 pracht inspect routes --json

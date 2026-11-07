@@ -8,61 +8,25 @@
  *   - Tables → doc-table styled tables
  *   - Blockquotes with [!NOTE]/[!INFO] → callout boxes
  *   - `---` separators → doc-sep dividers
- *   - `prev`/`next` frontmatter → bottom navigation
+ *   - h2/h3 headings → the "On this page" rail
+ *
+ * The breadcrumb and previous/next links come from `src/nav.ts`, rendered by
+ * the docs shell.
  */
 
 import { llmsTxtArtifacts } from "@pracht/content";
 import { defineMarkdownCollection } from "@pracht/markdown";
 import { Marked, Renderer } from "marked";
 
+import { NAV, navContext } from "./src/nav";
+import { SITE_NAME, SITE_ORIGIN, absoluteUrl } from "./src/site";
+import { esc, highlight, languageLabel } from "./src/utils/highlight";
+import {
+  PACKAGE_MANAGERS,
+  convertShell,
+  hasPackageManagerVariants,
+} from "./src/utils/package-managers";
 import { slugify } from "./src/utils/heading-slug";
-
-// ── Inline highlight (same tokenizer as utils/highlight.ts) ──────────────────
-
-const KEYWORDS = new Set([
-  "import",
-  "export",
-  "from",
-  "as",
-  "default",
-  "const",
-  "let",
-  "var",
-  "function",
-  "async",
-  "await",
-  "return",
-  "type",
-  "interface",
-  "class",
-  "extends",
-  "implements",
-  "new",
-  "if",
-  "else",
-  "for",
-  "while",
-  "of",
-  "in",
-  "break",
-  "continue",
-  "throw",
-  "try",
-  "catch",
-  "finally",
-  "null",
-  "undefined",
-  "true",
-  "false",
-  "void",
-  "typeof",
-  "instanceof",
-  "keyof",
-]);
-
-function esc(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
 
 /**
  * Render a one-line Markdown string (the frontmatter `lead`) to HTML.
@@ -87,84 +51,39 @@ function renderLead(lead: string): string {
     .join("");
 }
 
-function highlight(code: string): string {
-  const out: string[] = [];
-  let i = 0;
-  const n = code.length;
-
-  while (i < n) {
-    if (code[i] === "/" && code[i + 1] === "/") {
-      const end = code.indexOf("\n", i);
-      const slice = end === -1 ? code.slice(i) : code.slice(i, end);
-      out.push(`<span class="cmt">${esc(slice)}</span>`);
-      i += slice.length;
-      continue;
-    }
-    if (code[i] === "/" && code[i + 1] === "*") {
-      const end = code.indexOf("*/", i + 2);
-      const slice = end === -1 ? code.slice(i) : code.slice(i, end + 2);
-      out.push(`<span class="cmt">${esc(slice)}</span>`);
-      i += slice.length;
-      continue;
-    }
-    if (code[i] === '"' || code[i] === "'" || code[i] === "`") {
-      const q = code[i];
-      let j = i + 1;
-      while (j < n) {
-        if (code[j] === "\\" && j + 1 < n) {
-          j += 2;
-          continue;
-        }
-        if (code[j] === q) {
-          j++;
-          break;
-        }
-        j++;
-      }
-      out.push(`<span class="str">${esc(code.slice(i, j))}</span>`);
-      i = j;
-      continue;
-    }
-    if (/[a-zA-Z_$]/.test(code[i])) {
-      let j = i;
-      while (j < n && /[a-zA-Z0-9_$]/.test(code[j])) j++;
-      const word = code.slice(i, j);
-      if (KEYWORDS.has(word)) {
-        out.push(`<span class="kw">${esc(word)}</span>`);
-      } else if (/^[A-Z]/.test(word)) {
-        out.push(`<span class="typ">${esc(word)}</span>`);
-      } else {
-        out.push(esc(word));
-      }
-      i = j;
-      continue;
-    }
-    if (/[0-9]/.test(code[i])) {
-      let j = i;
-      while (j < n && /[0-9._]/.test(code[j])) j++;
-      out.push(`<span class="num">${esc(code.slice(i, j))}</span>`);
-      i = j;
-      continue;
-    }
-    out.push(esc(code[i]));
-    i++;
-  }
-
-  return out.join("");
+/** The lead as plain text, for `<meta name="description">` and structured data. */
+export function plainLead(lead: string): string {
+  return lead
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
-// ── Frontmatter parser ───────────────────────────────────────────────────────
+function escAttr(s: string): string {
+  return esc(s).replace(/"/g, "&quot;");
+}
+
+// ── Frontmatter ──────────────────────────────────────────────────────────────
 
 interface Frontmatter {
   title: string;
   lead?: string;
-  breadcrumb?: string;
-  prev?: { href: string; title: string };
-  next?: { href: string; title: string };
   [key: string]: unknown;
 }
 
 // ── Marked renderer ──────────────────────────────────────────────────────────
+
+/** Fence languages whose pnpm commands get npm, yarn, and bun variants. */
+const SHELL_LANGS = new Set(["sh", "bash", "shell", "zsh", "console"]);
+
+const CALLOUTS: Record<string, string> = {
+  NOTE: "Note",
+  INFO: "Note",
+  TIP: "Tip",
+  IMPORTANT: "Important",
+  WARNING: "Warning",
+  CAUTION: "Caution",
+};
 
 function createRenderer(): Renderer {
   const renderer = new Renderer();
@@ -184,13 +103,15 @@ function createRenderer(): Renderer {
     const seen = usedSlugs.get(base) ?? 0;
     usedSlugs.set(base, seen + 1);
     const id = seen === 0 ? base : `${base}-${seen}`;
-    return `<h${depth} id="${id}">${inner}</h${depth}>`;
+    // An empty permalink keeps the heading text (and its accessible name)
+    // unchanged; the docs index reads the text back from this HTML.
+    return `<h${depth} id="${id}">${inner}<a class="heading-anchor" href="#${id}" aria-hidden="true" tabindex="-1"></a></h${depth}>`;
   };
 
   renderer.code = function ({ text, lang }: { text: string; lang?: string }) {
-    // Extract filename from lang like "ts [src/routes.ts]" or "ts filename="src/routes.ts""
+    // A fence info string may carry a filename: "ts [src/routes.ts]".
     let filename = "";
-    let language = lang || "";
+    let language = (lang || "").trim();
 
     const bracketMatch = language.match(/^(\w*)\s*\[([^\]]+)\]$/);
     if (bracketMatch) {
@@ -198,15 +119,42 @@ function createRenderer(): Renderer {
       filename = bracketMatch[2];
     }
 
-    const highlighted = highlight(text);
-
-    let header = "";
-    if (filename) {
-      header = `<div class="code-block-header"><div class="code-block-dots"><span></span><span></span><span></span></div><span class="code-block-title">${esc(filename)}</span></div>`;
+    if (SHELL_LANGS.has(language) && !filename && hasPackageManagerVariants(text)) {
+      return packageManagerBlock(text, language);
     }
 
-    return `<div class="code-block">${header}<pre><code>${highlighted}</code></pre></div>`;
+    const title = filename || languageLabel(language);
+    const header =
+      `<div class="code-block-header">` +
+      `<span class="code-block-title">${esc(title)}</span>` +
+      `<button type="button" class="code-copy" aria-label="Copy code">Copy</button>` +
+      `</div>`;
+
+    return `<div class="code-block" data-lang="${escAttr(language)}">${header}<pre><code>${highlight(text, language)}</code></pre></div>`;
   };
+
+  /**
+   * One `<pre>` per package manager, pnpm first and visible. The buttons do
+   * nothing until `DocsEnhancer` hydrates; it switches every block on the page
+   * at once and remembers the choice.
+   */
+  function packageManagerBlock(text: string, language: string): string {
+    const buttons = PACKAGE_MANAGERS.map(
+      (manager, index) =>
+        `<button type="button" class="pm-tab" data-pm="${manager}" aria-pressed="${index === 0}">${manager}</button>`,
+    ).join("");
+    const panes = PACKAGE_MANAGERS.map(
+      (manager, index) =>
+        `<pre data-pm="${manager}"${index === 0 ? "" : " hidden"}><code>${highlight(convertShell(text, manager), language)}</code></pre>`,
+    ).join("");
+    return (
+      `<div class="code-block pm-block" data-lang="${escAttr(language)}">` +
+      `<div class="code-block-header">` +
+      `<div class="pm-tabs" role="group" aria-label="Package manager">${buttons}</div>` +
+      `<button type="button" class="code-copy" aria-label="Copy code">Copy</button>` +
+      `</div>${panes}</div>`
+    );
+  }
 
   renderer.hr = function () {
     return '<div class="doc-sep"></div>';
@@ -214,17 +162,15 @@ function createRenderer(): Renderer {
 
   renderer.blockquote = function ({ tokens }: { tokens: import("marked").Tokens.Generic[] }) {
     // In marked v18 the blockquote callback receives the unparsed inline
-    // markdown as `text`; we have to render the child tokens ourselves to
-    // get HTML (otherwise `**bold**` and `` `code` `` come out raw).
+    // markdown as `text`; render the child tokens to get HTML.
     const inner = this.parser.parse(tokens);
-    // Support GitHub-style alerts: > [!NOTE] or > [!INFO]
-    const noteMatch = inner.match(/^\s*<p>\[!(NOTE|INFO|TIP|WARNING)\]\s*/);
-    if (noteMatch) {
-      const type = noteMatch[1].toLowerCase();
-      const cssClass = type === "info" ? "callout-info" : "callout-note";
-      const icon = type === "info" ? "\u2139\uFE0F" : "\uD83D\uDCA1";
-      const content = inner.replace(/^\s*<p>\[!(NOTE|INFO|TIP|WARNING)\]\s*/, "<p>");
-      return `<div class="callout ${cssClass}"><span class="callout-icon">${icon}</span><span>${content}</span></div>`;
+    // GitHub-style alerts: > [!NOTE], > [!TIP], > [!WARNING], …
+    const alert = inner.match(/^\s*<p>\[!(NOTE|INFO|TIP|IMPORTANT|WARNING|CAUTION)\]\s*/);
+    if (alert) {
+      const kind = alert[1];
+      const content = inner.replace(alert[0], "<p>");
+      const tone = kind === "WARNING" || kind === "CAUTION" ? "warning" : kind.toLowerCase();
+      return `<aside class="callout callout-${tone === "info" ? "note" : tone}" role="note"><p class="callout-title">${CALLOUTS[kind]}</p>${content}</aside>`;
     }
     return `<blockquote>${inner}</blockquote>`;
   };
@@ -234,144 +180,64 @@ function createRenderer(): Renderer {
 
 // ── Build full doc page HTML ─────────────────────────────────────────────────
 
+interface TocEntry {
+  id: string;
+  text: string;
+  depth: number;
+}
+
+/** h2/h3 headings from the compiled HTML, for the "On this page" rail. */
+function tableOfContents(html: string): TocEntry[] {
+  const entries: TocEntry[] = [];
+  for (const match of html.matchAll(/<h([23]) id="([^"]+)">([\s\S]*?)<\/h[23]>/g)) {
+    const text = match[3].replace(/<[^>]*>/g, "").trim();
+    entries.push({ depth: Number(match[1]), id: match[2], text });
+  }
+  return entries;
+}
+
 function buildDocPage(fm: Frontmatter, contentHtml: string): string {
-  const parts: string[] = [];
+  const article: string[] = [];
+  article.push(`<h1 class="doc-title">${esc(fm.title)}</h1>`);
+  if (fm.lead) article.push(`<p class="doc-lead">${renderLead(fm.lead)}</p>`);
+  article.push(contentHtml);
 
-  // Breadcrumb
-  const crumb = fm.breadcrumb || fm.title;
-  parts.push(
-    `<div class="breadcrumb"><a href="/">pracht</a><span class="breadcrumb-sep">/</span><span>${esc(crumb)}</span></div>`,
-  );
-
-  // Title
-  parts.push(`<h1 class="doc-title">${esc(fm.title)}</h1>`);
-
-  // Lead paragraph
-  if (fm.lead) {
-    parts.push(`<p class="doc-lead">${renderLead(fm.lead)}</p>`);
+  const toc = tableOfContents(contentHtml);
+  const items = toc
+    .map(
+      (entry) =>
+        `<li class="toc-depth-${entry.depth}"><a href="#${entry.id}">${entry.text}</a></li>`,
+    )
+    .join("");
+  const rail =
+    toc.length >= 2
+      ? `<nav class="doc-toc" aria-label="On this page"><p class="doc-toc-title">On this page</p><ul>${items}</ul></nav>`
+      : "";
+  // Below the rail's breakpoint the outline collapses above the content.
+  if (toc.length >= 2) {
+    article.splice(
+      fm.lead ? 2 : 1,
+      0,
+      `<details class="doc-toc-inline"><summary>On this page</summary><ul>${items}</ul></details>`,
+    );
   }
 
-  // Main content
-  parts.push(contentHtml);
-
-  // Prev/Next navigation
-  if (fm.prev || fm.next) {
-    parts.push('<div class="doc-nav">');
-    if (fm.prev) {
-      parts.push(
-        `<a href="${fm.prev.href}" class="doc-nav-card prev"><div class="doc-nav-dir">Previous</div><div class="doc-nav-title">\u2190 ${esc(fm.prev.title)}</div></a>`,
-      );
-    } else {
-      parts.push("<div></div>");
-    }
-    if (fm.next) {
-      parts.push(
-        `<a href="${fm.next.href}" class="doc-nav-card next"><div class="doc-nav-dir">Next</div><div class="doc-nav-title">${esc(fm.next.title)} \u2192</div></a>`,
-      );
-    } else {
-      parts.push("<div></div>");
-    }
-    parts.push("</div>");
-  }
-
-  return parts.join("\n");
+  return `<article class="doc-article">${article.join("\n")}</article>${rail}`;
 }
 
 // ── llms.txt sections ───────────────────────────────────────────────────────
 
-const SITE_ORIGIN = "https://pracht.resynapse.dev";
-
 /**
- * The llms.txt sections, in sidebar order (`src/shells/docs.tsx`); each
- * section's pages keep the order listed here. The sidebar's
- * Core Concepts group is split in two and its small Guides, Advanced, and
- * Migration groups are merged, so each section's full-text file stays one
- * comfortable fetch. `test/site-content.test.ts` checks that every page sits in
- * exactly one section.
+ * The llms.txt sections: the sidebar groups from `src/nav.ts`, in sidebar
+ * order, each with its own full-text file so one fetch loads one area of the
+ * docs. `test/site-content.test.ts` checks that every page sits in exactly one
+ * section.
  */
-export const LLMS_SECTIONS = [
-  {
-    heading: "Start here",
-    fullPath: "/llms-start.txt",
-    pages: ["/docs/getting-started", "/docs/why-pracht", "/docs/demo-comparison", "/docs/routing"],
-  },
-  {
-    heading: "Rendering and UI",
-    fullPath: "/llms-rendering.txt",
-    pages: [
-      "/docs/rendering",
-      "/docs/islands",
-      "/docs/server-islands",
-      "/docs/shells",
-      "/docs/styling",
-      "/docs/fonts",
-      "/docs/images",
-    ],
-  },
-  {
-    heading: "Data and APIs",
-    fullPath: "/llms-data.txt",
-    pages: [
-      "/docs/data-loading",
-      "/docs/content",
-      "/docs/api-routes",
-      "/docs/api-validation",
-      "/docs/openapi",
-      "/docs/middleware",
-      "/docs/env",
-    ],
-  },
-  {
-    heading: "Guides",
-    fullPath: "/llms-guides.txt",
-    pages: [
-      "/docs/cli",
-      "/docs/deployment",
-      "/docs/prefetching",
-      "/docs/performance",
-      "/docs/migrate/nextjs",
-    ],
-  },
-  {
-    heading: "Agents",
-    fullPath: "/llms-agents.txt",
-    pages: [
-      "/docs/agents",
-      "/docs/capabilities",
-      "/docs/standalone-capabilities",
-      "/docs/agent-trust",
-      "/docs/coding-agents",
-    ],
-  },
-  {
-    heading: "Recipes",
-    fullPath: "/llms-recipes.txt",
-    pages: [
-      "/docs/recipes/i18n",
-      "/docs/recipes/auth",
-      "/docs/recipes/csp",
-      "/docs/recipes/forms",
-      "/docs/recipes/tanstack-query",
-      "/docs/recipes/view-transitions",
-      "/docs/recipes/testing",
-      "/docs/recipes/logging",
-      "/docs/recipes/streaming",
-      "/docs/recipes/fullstack-cloudflare",
-      "/docs/recipes/fullstack-vercel",
-    ],
-  },
-  {
-    heading: "Reference",
-    fullPath: "/llms-reference.txt",
-    pages: [
-      "/docs/adapters",
-      "/docs/reference/api",
-      "/docs/reference/config",
-      "/docs/reference/i18n",
-      "/docs/examples",
-    ],
-  },
-] as const;
+export const LLMS_SECTIONS = NAV.map((section) => ({
+  heading: section.label,
+  fullPath: section.llms,
+  pages: section.links.map((link) => link.href),
+}));
 
 // ── Collection ───────────────────────────────────────────────────────────────
 
@@ -382,6 +248,7 @@ export const docsContent = defineMarkdownCollection<Frontmatter>({
   route({ id }) {
     if (id.startsWith("recipes-")) return `/docs/recipes/${id.slice("recipes-".length)}`;
     if (id.startsWith("migrate-")) return `/docs/migrate/${id.slice("migrate-".length)}`;
+    if (id.startsWith("adapters-")) return `/docs/adapters/${id.slice("adapters-".length)}`;
     if (id.startsWith("reference-")) return `/docs/reference/${id.slice("reference-".length)}`;
     return `/docs/${id}`;
   },
@@ -393,19 +260,48 @@ export const docsContent = defineMarkdownCollection<Frontmatter>({
     return `<div class="doc-page">${buildDocPage(input.frontmatter, contentHtml)}</div>`;
   },
   head({ input }) {
+    const { title, lead } = input.frontmatter;
+    const description = lead ? plainLead(lead) : undefined;
+    const section = navContext(input.path).entry?.section;
+    const url = absoluteUrl(input.path);
+    const article = {
+      "@context": "https://schema.org",
+      "@type": "TechArticle",
+      headline: title,
+      ...(description ? { description } : {}),
+      url,
+      inLanguage: "en",
+      ...(section ? { articleSection: section } : {}),
+      isPartOf: { "@type": "WebSite", name: `${SITE_NAME} docs`, url: `${SITE_ORIGIN}/` },
+    };
     return {
-      title: input.frontmatter.title
-        ? `${input.frontmatter.title} \u2014 pracht docs`
-        : "pracht docs",
+      title: `${title} \u2014 ${SITE_NAME} docs`,
+      meta: [
+        ...(description
+          ? [
+              { name: "description", content: description },
+              { property: "og:description", content: description },
+              { name: "twitter:description", content: description },
+            ]
+          : []),
+        { property: "og:title", content: `${title} \u2014 ${SITE_NAME}` },
+        { name: "twitter:title", content: `${title} \u2014 ${SITE_NAME}` },
+      ],
+      script: [
+        {
+          type: "application/ld+json",
+          children: JSON.stringify(article),
+        },
+      ],
     };
   },
   images: { sizes: "(max-width: 960px) 100vw, 960px" },
   artifacts: [
     llmsTxtArtifacts({
       origin: SITE_ORIGIN,
-      title: "pracht",
+      title: SITE_NAME,
       description:
-        "A full-stack Preact framework built on Vite with hybrid rendering (SSG, SSR, ISG, SPA) and a unified data-loading model.",
+        "A full-stack Preact framework on Vite: per-route rendering (SSG, SSR, ISG, SPA), loaders, API routes, and typed capabilities that agents call over HTTP, WebMCP, and MCP.",
       details: [
         `Each page link below points at the page's Markdown: append \`.md\` to any docs URL, or request the page URL with \`Accept: text/markdown\`. For example, ${SITE_ORIGIN}/docs/routing.md is the Markdown of ${SITE_ORIGIN}/docs/routing.`,
         "",

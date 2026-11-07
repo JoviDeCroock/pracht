@@ -2,9 +2,8 @@
 name: audit-auth
 version: 1.5.0
 description: |
-  Find pracht routes that look protected but aren't: missing auth middleware,
-  middleware that augments context but never gates, client-only checks, and
-  unguarded API mutations.
+  Find pracht routes and API mutations that look protected but are not: missing
+  or non-gating auth middleware and client-only checks.
   Use for "audit auth", "check route protection", "find unauthenticated routes",
   "review middleware coverage".
 allowed-tools:
@@ -46,9 +45,7 @@ pracht plugin.
 pracht inspect routes --json
 ```
 
-MCP: when the pracht MCP server is registered (`pracht dev-mcp`), prefer its
-`inspect_routes`/`inspect_api`/`inspect_build`/`doctor`/`verify` tools over
-shelling out.
+MCP: if `pracht dev-mcp` is registered, prefer its `inspect_*`, `doctor`, and `verify` tools to the CLI.
 
 `inspect` reports middleware names, not files. Resolve them according to the
 app's router mode, then read each middleware file and classify it:
@@ -61,7 +58,7 @@ app's router mode, then read each middleware file and classify it:
   or `.jsx`). It applies to every page route and never wraps API routes. There
   is no `src/routes.ts` manifest to inspect unless the app has ejected. Follow
   imports and re-exports into underscore-reserved helpers such as
-  `<pagesDir>/_server/auth.ts`; Pracht excludes those helpers from client
+  `<pagesDir>/_server/auth.ts`; pracht excludes those helpers from client
   route/shell registries, but a direct import from client code still bundles
   them and should be treated as a server-code leak.
 

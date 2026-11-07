@@ -2,12 +2,11 @@
 name: audit-agent-surface
 version: 1.1.0
 description: |
-  Inventory what agents can reach in a pracht app — capability exposure (HTTP,
-  WebMCP, remote MCP), `agents` trust config, the destructive-confirmation gate,
-  `llms.txt`, Markdown negotiation, OpenAPI — and report where the surface is
-  wider than intended, or confirm an opt-out app ships none.
+  Inventory what agents can reach in a pracht app (capability exposure, `agents`
+  trust config, MCP auth, `llms.txt`, Markdown, OpenAPI) and report anything
+  wider than intended.
   Use for "audit the agent surface", "what can agents do on my site", "is my MCP
-  endpoint safe", "did this PR widen what agents can reach".
+  endpoint safe", "did this PR widen agent access".
 allowed-tools:
   - Bash
   - Read
@@ -17,7 +16,7 @@ allowed-tools:
 
 # Pracht Audit Agent Surface
 
-Pracht's agent surface is opt-in end to end (<https://pracht.resynapse.dev/docs/agents>). State that baseline before
+pracht's agent surface is opt-in end to end (<https://pracht.resynapse.dev/docs/agents>). State that baseline before
 auditing the opt-outs:
 
 - No loader or API route is ever inferred as a capability; a capability without
@@ -33,10 +32,9 @@ auditing the opt-outs:
   and Web Bot Auth verifier dropped from its server bundle at build time.
 
 This skill reports; it never mutates. Prerequisites: `pracht inspect` needs a
-vite config registering the pracht plugin. If the pracht MCP server is
-registered (`pracht dev-mcp`), prefer its tools (`inspect_agents`,
-`inspect_capabilities`, `inspect_routes`, `inspect_api`, `doctor`, `verify`)
-over shelling out.
+vite config registering the pracht plugin.
+
+MCP: if `pracht dev-mcp` is registered, prefer its `inspect_*`, `doctor`, and `verify` tools to the CLI.
 
 ## Step 1: Inventory the declared surface
 

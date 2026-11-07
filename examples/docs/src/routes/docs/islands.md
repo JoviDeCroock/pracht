@@ -1,20 +1,11 @@
 ---
 title: Islands
-lead: Islands let mostly static routes hydrate only the components that need browser interactivity. The rest of the document stays server-rendered HTML with little or no JavaScript.
-breadcrumb: Islands
-prev:
-  href: /docs/rendering
-  title: Rendering Modes
-next:
-  href: /docs/server-islands
-  title: Server Islands
+lead: Hydrate only the interactive components of a server-rendered page; the rest ships as HTML without JavaScript.
 ---
 
 ## Overview
 
-A docs page might need only a search box, and a pricing page only a
-calculator. Islands hydration renders the full HTML on the server and ships
-JavaScript only for those interactive widgets.
+Set `hydration: "islands"` on a route. The server renders the full HTML, and the browser loads JavaScript only for the island components the page rendered:
 
 ```ts [src/routes.ts]
 route("/", "./routes/home.tsx", {
@@ -23,23 +14,19 @@ route("/", "./routes/home.tsx", {
 });
 ```
 
-`hydration` is separate from `render`:
+`hydration` is independent of `render`:
 
-| Hydration mode | Client JavaScript | Best for |
-| -------------- | ----------------- | -------- |
-| `"full"` | Full route tree and client router | App-like pages and existing routes |
-| `"islands"` | Islands bootstrap plus rendered islands | Static content with a few widgets |
-| `"none"` | No framework JavaScript | Fully static pages |
+| Hydration mode | Client JavaScript | Use for |
+| -------------- | ----------------- | ------- |
+| `"full"` | Full route tree and client router | App-like pages |
+| `"islands"` | Islands bootstrap plus the rendered islands | Static content with a few widgets |
+| `"none"` | None | Fully static pages |
 
-`render: "spa"` always uses full hydration. Islands work with `ssg`, `isg`,
-and `ssr` routes.
+Islands work with `ssg`, `isg`, and `ssr` routes. `render: "spa"` always uses full hydration.
 
----
+## Create an island
 
-## Create an Island
-
-Put interactive components in `src/islands/`. Pracht auto-discovers default and
-named component exports from that directory.
+Put interactive components in `src/islands/` (change it with `pracht({ islandsDir })`). Default and named component exports there are islands:
 
 ```tsx [src/islands/Counter.tsx]
 import { useState } from "preact/hooks";
@@ -60,7 +47,7 @@ export default function Counter({ start = 0 }: CounterProps & IslandProps) {
 }
 ```
 
-Use the island from a route like a normal component:
+Render it from a route like any component:
 
 ```tsx [src/routes/home.tsx]
 import Counter from "../islands/Counter.tsx";
@@ -76,14 +63,11 @@ export function Component() {
 }
 ```
 
-On an islands route, the server wraps `Counter` in a marker, serializes its
-props, and the browser hydrates only that component.
+On an islands route, the server wraps `Counter` in a marker with its serialized props, and the browser hydrates only that component.
 
----
+## Loading strategies
 
-## Loading Strategies
-
-Set the framework-owned `client` prop per island usage:
+Set the `client` prop on each island usage:
 
 ```tsx
 <Counter start={5} />
@@ -91,32 +75,27 @@ Set the framework-owned `client` prop per island usage:
 <NewsletterSignup client="visible" />
 ```
 
-| Strategy | Behavior |
-| -------- | -------- |
-| `load` | Hydrates immediately and is modulepreloaded. This is the default. |
-| `idle` | Hydrates when the browser is idle. |
-| `visible` | Hydrates after the island scrolls into view. |
+| Strategy | Hydrates | Preloaded |
+| -------- | -------- | --------- |
+| `load` (default) | Immediately | Yes, with `modulepreload` |
+| `idle` | When the browser is idle | No |
+| `visible` | When the island scrolls into view | No |
 
-`idle` and `visible` islands are not preloaded, so below-the-fold widgets
-fetch their chunks only when needed.
+A strategy defers an island's JavaScript, not its CSS: the page links the stylesheets of every island it rendered. See [Styling](/docs/styling).
 
-A strategy defers an island's JavaScript, never its styles: every rendered
-island's CSS is in the page's document. See [Styling](/docs/styling).
+## Props and children
 
----
+Island props are embedded in the HTML and revived with `JSON.parse`. Pass strings, finite numbers, booleans, `null`, arrays, and plain objects. Anything else fails the render with:
 
-## Props and Children
+```text
+Island "Counter" (src/islands/Counter.tsx) received a prop that is not JSON-serializable: ...
+```
 
-Island props are embedded in the HTML and revived with `JSON.parse`, so they
-must be JSON-serializable: strings, finite numbers, booleans, `null`, arrays,
-and plain objects.
+Props are fixed when the page renders, so on an `ssg` or `isg` page every visitor gets the same ones. For per-visitor content such as a cart count, use a [server island](/docs/server-islands).
 
-Do not pass functions, class instances like `Date`, JSX elements, symbols,
-bigints, or circular objects as island props. Pracht throws an error that names
-the invalid prop path.
+### Pass server content as children
 
-To wrap server content in an interactive component, pass it as children. The
-island renders `children` wherever it likes, as with any component:
+To wrap server-rendered content in an interactive component, pass it as children. The island renders `children` wherever it likes:
 
 ```tsx [src/islands/Disclosure.tsx]
 import type { ComponentChildren } from "preact";
@@ -165,29 +144,21 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
 }
 ```
 
-`Changelog` renders on the server and its code never reaches the browser. The
-island receives that HTML as `children`, so showing, hiding, or moving them
-keeps the same nodes. An island inside them, like `Counter` here, hydrates on
-its own and keeps its state when the outer island hides and shows it. Children
-the island does not render on the server, such as a closed disclosure's, still
-ship with the page, inert: their images load and their scripts run when the
-island first shows them.
+`Changelog` renders on the server and its code never reaches the browser. Showing, hiding, or moving the children keeps the same DOM nodes, so `Counter` among them hydrates on its own and keeps its state.
 
-Plain text children are different: `<CopyButton>npm i {pkg}</CopyButton>`
-gives the island one string, such as `"npm i pracht"`, so it can use it as a
-value.
+Children the island does not render on the server, such as a closed disclosure's, still ship with the page, inert. Their images load and their scripts run when the island first shows them.
 
-Markup children are rendered once, on the server. The island cannot pass them
-props or change their contents, and a render function as children throws an
-error. Context the island provides does not reach them in the browser, so an
-island among them reads the context's default value; pass the value as a prop,
-and watch for the dev warning that flags this.
+Text-only children are a value: `<CopyButton>npm i {pkg}</CopyButton>` gives the island one string, such as `"npm i pracht"`.
 
-Markup children reach the island as one opaque node, however many elements the
-page passed, so `toChildArray(children)` or `Children.count` cannot split them
-into tabs or slides. Pass what the island needs to know as props, and reach the
-rendered elements through a ref. Here the page marks each panel and the island
-toggles their `hidden` attribute:
+### Limits of markup children
+
+Markup children render once, on the server:
+
+- The island cannot pass them props or change their contents. A render function as children throws.
+- Context the island provides does not reach an island among them in the browser; that island reads the default value. Pass the value as a prop. A dev warning flags this case.
+- They reach the island as one opaque node, so `toChildArray(children)` and `Children.count` cannot split them into tabs or slides. Pass what the island needs as props and reach the elements through a ref.
+
+This tabs island toggles the `hidden` attribute of panels the page marks:
 
 ```tsx [src/islands/Tabs.tsx]
 import type { ComponentChildren } from "preact";
@@ -223,49 +194,27 @@ export default function Tabs({ labels, children }: { labels: string[]; children?
 </Tabs>
 ```
 
-Markup children arrive inside a `<pracht-slot>` element with
-`display: contents` (an SVG `<g>` inside SVG). A child selector such as
-`.panel > p` written against the island's markup no longer matches them, and
-`:first-child` or `:nth-child()` count from the first child the page passed,
-not among the island's own elements.
+### Styling and placing children
 
-Some positions cannot hold that element: directly inside table rows and
-sections, `<video>`, `<audio>`, `<picture>`, `<ruby>`, SVG `<text>`, gradients,
-or `<clipPath>`, or a MathML `<mfrac>`; anywhere in `<select>` or `<textarea>`;
-or a `<summary>` or `<legend>` that has to come first. Pracht throws an error
-naming the island there; pass the whole element as children instead. Children
-an island shows inside SVG or MathML must already be rendered there on the
-server.
+Markup children arrive inside a `<pracht-slot>` element with `display: contents` (a `<g>` inside SVG). A child combinator such as `.panel > p` written against the island's markup no longer matches them, and `:first-child` or `:nth-child()` count among the children the page passed.
 
-The browser also rearranges invalid nesting: a `<div>` in children placed
-inside a `<p>`, an `<a>` or `<button>` inside another, or raw HTML in
-`dangerouslySetInnerHTML` that is not well-formed. In development, Pracht
-throws an error naming the island for the nesting it can see. If children are
-moved out of their slot anyway, the island stays server-rendered HTML instead
-of hydrating, and the console logs an error naming it. Pracht finds the slot's
-end by an HTML comment, so an HTML minifier must keep comments.
+Some positions cannot hold that element, such as directly inside a table row, `<select>`, or `<video>`. Rendering children there throws:
 
-Island props are fixed when the page renders, so on an `ssg` or `isg` page they
-are the same for every visitor. For content that depends on who is asking, such
-as a cart count, render a [server island](/docs/server-islands) instead.
+```text
+Island "Tabs" (src/islands/Tabs.tsx) renders its children directly inside <tr>. Children arrive in a <pracht-slot> element, which the browser cannot keep there. Render that markup inside the island, or pass the whole element as children.
+```
 
----
+The browser also moves invalid nesting, such as a `<div>` in children placed inside a `<p>`, or an `<a>` inside another `<a>`. `pracht dev` throws for the nesting it can see. If children are moved anyway, the island stays server HTML and the console logs `Island "<file>" was not hydrated: the HTML parser moved its children`. Raw HTML in children must be well-formed, and an HTML minifier must keep comments.
 
 ## Navigation
 
-Islands routes do not load the client router, so by default navigation to,
-from, and between them is a normal full-document navigation. That includes
-links from a full-hydration route to an islands or `hydration: "none"` route.
+Islands routes do not load the client router. Navigation to, from, and between them is a full-document navigation, including links from a full-hydration route to an islands or `hydration: "none"` route.
 
-With `defineApp({ viewTransitions: true })`, these full page loads still
-animate as
-[cross-document view transitions](/docs/recipes/view-transitions#islands-and-static-pages),
-without adding JavaScript.
+With `defineApp({ viewTransitions: true })`, those page loads animate as [cross-document view transitions](/docs/recipes/view-transitions#islands-and-static-pages) without extra JavaScript.
 
 ### Client-side navigation between islands pages
 
-Turn on `islandsNavigation` to keep the document when a link goes from one
-islands page to another:
+Turn on `islandsNavigation` to keep the document when a link goes from one islands page to another:
 
 ```ts [vite.config.ts]
 pracht({
@@ -274,76 +223,36 @@ pracht({
 });
 ```
 
-The islands bootstrap then fetches the next page's HTML and swaps it in. The
-URL, title, and stylesheets change. An island that both pages render with the
-same props and the same children, such as a cart button in a shared shell, stays mounted and keeps
-its state and focus. Anywhere else, focus starts over at the top of the new
-page, as after a page load. New islands hydrate with their own `client` strategy. Back and
-forward restore the earlier page and its scroll position. With
-`viewTransitions` on, the swap animates as a same-document view transition.
+The islands bootstrap fetches the next page's HTML and swaps it in:
 
-Links to anything else load a new document as before, and are never fetched
-first: a full-hydration route, an API route, a URL outside your app, a page
-the browser has prerendered from your speculation rules, and any link marked
-`<a data-pracht-reload>`.
+- The URL, title, and stylesheets change. New islands hydrate with their own `client` strategy.
+- An island both pages render with the same props and children, such as a cart button in a shared shell, stays mounted and keeps its state and focus. Elsewhere, focus resets to the top of the page.
+- Back and forward restore the earlier page and its scroll position.
+- With `viewTransitions` on, the swap animates as a same-document view transition.
 
-Scripts the new page shares with the old one do not run again, so a page-view
-counter that fires on load sees only the first page. Count the rest from the
-Navigation API's `navigatesuccess` event.
+Scripts the new page shares with the old one do not run again, so a page-view counter that fires on load sees only the first page. Count later pages from the Navigation API's `navigatesuccess` event.
 
 ### When pages still load normally
 
-A swapped-in page runs under the security headers the document was first
-loaded with, so the bootstrap only swaps a page whose `Content-Security-Policy`,
-`X-Frame-Options`, `Permissions-Policy`, `Referrer-Policy`, and cross-origin
-isolation headers are exactly the same as the current page's. Otherwise you
-get a full page load, which applies that page's own headers.
+These links always load a new document, without fetching first:
 
-The same happens for a page with a document-level `<meta>` (`http-equiv` such as a CSP or a
-refresh, or `name="referrer"`), a page from a newer deployment, a redirect to a
-page that cannot be swapped, and a response that is not an islands page, such
-as a plain-text error or a file download.
+- links to a full-hydration route, an API route, or a URL outside your app;
+- a page the browser prerendered from your speculation rules;
+- any link marked `<a data-pracht-reload>`.
 
-The comparison fails closed. On a server running pracht, each page states
-which headers it was sent with, including any your middleware changed, and the browser checks them against the headers that
-arrived. On static output, the browser asks the host which headers it sends
-for the page you started on and swaps in only pages that arrive with the same,
-so it works on any static file host. A route that answers with different
-headers is fetched once, then loaded normally for the rest of the tab's
-session.
+A fetched page also falls back to a full page load when its security headers (`Content-Security-Policy`, `X-Frame-Options`, `Permissions-Policy`, `Referrer-Policy`, cross-origin isolation) differ from the current page's, when it has a document-level `<meta http-equiv>` or `<meta name="referrer">`, when it comes from a newer deployment, or when the response is not an islands page.
 
-Pages whose CSP uses a nonce never take part: a nonce changes with every
-response, so no two such pages can share a policy. Islands navigation is off on
-those pages, and links to them are plain page loads.
+Islands navigation is off on pages whose CSP uses a nonce, inside an iframe, under a Trusted Types policy that refuses HTML strings, in browsers without the [Navigation API](https://developer.mozilla.org/en-US/docs/Web/API/Navigation_API), and on a static page restored from the HTTP cache. It works on static file hosts too.
 
-It also stays off inside an iframe, on a document with a document-level
-`<meta>`, under a Trusted Types policy that refuses HTML strings, in browsers
-without the
-[Navigation API](https://developer.mozilla.org/en-US/docs/Web/API/Navigation_API),
-and on a static page the browser restored from its HTTP cache.
+The option adds about 3.8 KB gzip to the bootstrap, and every islands page then loads the bootstrap even when it renders no island, so such a page goes from no JavaScript to about 11 KB gzip. Each islands page also carries a route table of about 150 bytes gzip for 20 routes. `hydration: "none"` pages still ship no JavaScript, so a visit that starts on one navigates with full page loads.
 
-The option adds about 3.8 KB gzip to the bootstrap, and every islands page then
-loads the bootstrap even when it renders no island: such a page goes from no
-JavaScript to about 11 KB gzip. Each islands page also carries the route table
-it decides with — the paths of your islands and `none` routes, plus API or
-full-hydration routes that could shadow one — at about 150 bytes gzip for 20
-routes. `hydration: "none"` pages still ship no JavaScript, so navigation
-from a page you landed on directly is a full page load.
+## Build analysis
 
----
+`pracht build --analyze` counts islands routes differently from full-hydration routes:
 
-## Build Analysis
-
-`pracht build --analyze` counts islands routes differently from full hydration
-routes:
-
-- `"islands"` routes include the islands bootstrap plus island chunks, with no
-  shared client entry.
+- `"islands"` routes include the islands bootstrap plus island chunks, with no shared client entry.
 - `"none"` routes report `0b` of client JavaScript.
-- Island chunks are reported as an upper bound, because which islands render
-  is only known at render time.
+- Island chunks are an upper bound, because which islands render is known only at render time.
 
 > [!NOTE]
-> This documentation page is itself wired with `hydration: "islands"` in the
-> example docs app. It renders no island components, so its generated HTML ships
-> no framework JavaScript.
+> This page is served with `hydration: "islands"`. Only the search box, the page actions, and the code-block copy buttons hydrate, each with `client="idle"`; the article itself ships no JavaScript.

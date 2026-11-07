@@ -115,26 +115,29 @@ describe("documentation content", () => {
   // an explicit manifest. Claiming a limitation that no longer exists sends
   // readers to the wrong router just as effectively as hiding a real one.
   it("publishes what the pages router supports on the public site", () => {
-    const routing = readFileSync(
-      resolve(repoRoot, "examples/docs/src/routes/docs/routing.md"),
+    const pagesRouter = readFileSync(
+      resolve(repoRoot, "examples/docs/src/routes/docs/pages-router.md"),
       "utf-8",
     );
-    expect(routing).toContain("What the pages router supports and how");
+    expect(pagesRouter).toContain("What the pages router supports and how");
     for (const feature of ["Capabilities", "Middleware", "WebMCP", "pracht eval", "constraints"]) {
-      expect(routing).toContain(feature);
+      expect(pagesRouter).toContain(feature);
     }
     // The honest residual: what still requires an explicit manifest.
-    expect(routing).toContain("Per-route middleware assignment");
-    expect(routing).toContain("Per-route shell overrides");
+    expect(pagesRouter).toContain("Per-route middleware assignment");
+    expect(pagesRouter).toContain("Per-route shell overrides");
 
     // The two pages a reader lands on when they want the agent surface must
     // say how a pages app reaches it, and link somewhere that exists.
     for (const [file, anchor] of [
       [
         "examples/docs/src/routes/docs/capabilities.md",
-        "/docs/routing#capabilities-via-srccapabilities",
+        "/docs/pages-router#capabilities-via-srccapabilities",
       ],
-      ["examples/docs/src/routes/docs/agent-trust.md", "/docs/routing#app-config-via-appconfigts"],
+      [
+        "examples/docs/src/routes/docs/agent-trust.md",
+        "/docs/pages-router#app-config-via-appconfigts",
+      ],
     ]) {
       const source = readFileSync(resolve(repoRoot, file), "utf-8");
       expect(source).toContain("Both routers");
@@ -150,21 +153,32 @@ describe("documentation content", () => {
   it("resolves every same-page anchor in the pages-router docs", () => {
     const files = [
       "examples/docs/src/routes/docs/routing.md",
+      "examples/docs/src/routes/docs/pages-router.md",
       "examples/docs/src/routes/docs/middleware.md",
       "examples/docs/src/routes/docs/capabilities.md",
       "examples/docs/src/routes/docs/agent-trust.md",
     ];
-    const routingSlugs = headingSlugs(
-      readFileSync(resolve(repoRoot, "examples/docs/src/routes/docs/routing.md"), "utf-8"),
-    );
+    const pageSlugs = {
+      routing: headingSlugs(
+        readFileSync(resolve(repoRoot, "examples/docs/src/routes/docs/routing.md"), "utf-8"),
+      ),
+      "pages-router": headingSlugs(
+        readFileSync(resolve(repoRoot, "examples/docs/src/routes/docs/pages-router.md"), "utf-8"),
+      ),
+    };
 
     for (const file of files) {
       const source = readFileSync(resolve(repoRoot, file), "utf-8");
       const ownSlugs = headingSlugs(source);
-      for (const [, target] of source.matchAll(/\]\((#[^)\s]+|\/docs\/routing#[^)\s]+)\)/g)) {
+      for (const [, target] of source.matchAll(
+        /\]\((#[^)\s]+|\/docs\/(?:routing|pages-router)#[^)\s]+)\)/g,
+      )) {
         const [page, anchor] = target.startsWith("#")
           ? [ownSlugs, target.slice(1)]
-          : [routingSlugs, target.slice(target.indexOf("#") + 1)];
+          : [
+              pageSlugs[target.slice("/docs/".length, target.indexOf("#"))],
+              target.slice(target.indexOf("#") + 1),
+            ];
         expect({ file, target, resolved: page.has(anchor) }).toEqual({
           file,
           target,
@@ -175,10 +189,11 @@ describe("documentation content", () => {
   });
 
   it("keeps high-risk adapter options in the public adapter guide", () => {
-    const publicReference = readFileSync(
-      resolve(repoRoot, "examples/docs/src/routes/docs/adapters.md"),
-      "utf-8",
-    );
+    const docsDir = resolve(repoRoot, "examples/docs/src/routes/docs");
+    const publicReference = readdirSync(docsDir)
+      .filter((name) => name === "adapters.md" || /^adapters-[a-z-]+\.md$/.test(name))
+      .map((name) => readFileSync(resolve(docsDir, name), "utf-8"))
+      .join("\n");
 
     for (const term of [
       "canonicalOrigin",

@@ -2,11 +2,10 @@
 name: migrate-nextjs
 version: 1.8.1
 description: |
-  Migrate a Next.js app to pracht: App or Pages Router pages, layouts, middleware,
-  API routes, data fetching, and metadata — plus React→Preact, `className`→`class`,
-  server components→loaders, and manifest wiring.
-  Use for "migrate from next", "convert next.js app", "port from next to pracht",
-  "nextjs migration", "switch from next".
+  Migrate a Next.js app (App or Pages Router) to pracht: pages, layouts,
+  middleware, API routes, data fetching, metadata, and React to Preact.
+  Use for "migrate from Next.js", "convert my Next app", "port from next to
+  pracht", "switch from next".
 allowed-tools:
   - Bash
   - Read
@@ -17,7 +16,7 @@ allowed-tools:
   - AskUserQuestion
 ---
 
-# Migrate Next.js to Pracht
+# Migrate Next.js to pracht
 
 Migrate in phases: setup → shells → routes → client components → API →
 middleware → manifest → patterns → cleanup. Read each Next.js source file
@@ -25,8 +24,7 @@ before converting it; never infer from the filename. Prefer the simplest
 pracht equivalent, and when a Next.js feature has no equivalent, say so and
 propose an alternative instead of inventing one.
 
-With the Pracht MCP server, prefer its generate/inspect/doctor/verify tools;
-`inspect_build` needs a prior `pracht build`.
+MCP: if `pracht dev-mcp` is registered, prefer its `inspect_*`, `generate_*`, `doctor`, and `verify` tools to the CLI.
 
 ## Step 0: Assess the source
 
@@ -70,37 +68,37 @@ automatic**:
 
 ## Concept mapping
 
-| Next.js                         | Pracht                                                          | Notes                                                                 |
-| ------------------------------- | --------------------------------------------------------------- | --------------------------------------------------------------------- |
-| `pages/` directory              | `pagesDir` plugin option                                        | Auto-discovers routes from the file system                            |
-| `app/page.tsx`                  | `src/routes/*.tsx` + `route()` in manifest                      | File is a module; wiring is explicit                                  |
-| `app/layout.tsx`                | `src/shells/*.tsx` + `shells` in `defineApp` (pages: `_app.tsx` per directory) | Named shells; a directory `_app` replaces its parent. Layout data: shell `loader` + `useShellData()` |
-| `app/loading.tsx`               | `Loading` export on the shell                                   | SSR placeholder for SPA routes until the client router takes over     |
-| `app/error.tsx`                 | `ErrorBoundary` export in route module                          | Same concept, different wiring                                        |
-| `app/not-found.tsx`             | `notFound:` in `defineApp` (or `pages/404.tsx` in pagesDir mode) | Not a route — never matches a URL, so it cannot shadow static assets  |
-| `middleware.ts`                 | `src/middleware/*.ts` + `middleware` in `defineApp` (or `src/pages/_middleware.ts` in pagesDir mode) | Named, applied per route/group; the pages-mode file runs on every page route |
-| `app/api/*/route.ts`            | `src/api/*.ts` with `GET`/`POST` exports                        | Auto-discovered, no manifest entry                                    |
-| `generateStaticParams`          | `getStaticPaths()` export                                       | Returns `RouteParams[]` of param objects                              |
-| `generateMetadata`              | `head()` export                                                 | Returns `{ title, meta }`                                             |
-| Server Components               | `loader()` export                                               | Data fetching moves to the loader; the component is a Preact component |
-| `"use server"` actions          | API routes + `<Form>` / `fetch`                                 | Mutations move to `src/api/*`; return `Response` objects              |
-| `"use client"` (few, mostly-server app) | `hydration: "islands"` + `src/islands/`                 | Only islands ship JS; see Phase 4                                     |
-| `revalidatePath` / `res.revalidate()` | `webhookRevalidate()` + `POST /__pracht/revalidate`       | On-demand ISG; combinable with `timeRevalidate(seconds)`              |
-| `useRouter()` (next/navigation) | `useNavigate()`                                                 | Takes a path, or `{ route: "id" }` after `pracht typegen`             |
-| `useSearchParams()`             | `useSearchParams()`                                             | Read-only; set with `useSetSearchParams()`. SSG gets the browser query after hydration. For typed values export a `search` schema and read `args.search` / `useSearch()` |
-| `useParams()`                   | `useParams()`                                                   | Direct equivalent; also `params` in loader args                       |
-| `next/link` `<Link>`            | `<Link route="..." params={{…}}>` or plain `<a>`               | Prefer typed `<Link>` after `pracht typegen`; the router intercepts same-origin anchors |
-| `next/link` `prefetch={false}`  | `<Link prefetch="none">`                                        | Default `"intent"` (hover/focus); also `"viewport"`, `"render"`       |
-| `useLinkStatus()` / pending UI  | `useNavigation()`                                               | `{ state, location, formData }` — progress bars, optimistic UI        |
-| `next/image`                    | `<Image>` from `@pracht/image`                                  | Responsive srcsets; Node, Cloudflare, Vercel, or passthrough loaders  |
-| `next/head` or Metadata API     | `head()` export on route/shell                                  | Per-route and per-shell head merging                                  |
-| `next/script` `<Script>`        | `<Script>` from `@pracht/core`                                  | `beforeHydration` (≈ `beforeInteractive`), `afterHydration` (≈ `afterInteractive`, default), `idle` (≈ `lazyOnload`), `visible` |
-| `cookies()` / `headers()`       | `request.headers` in loader/middleware/API args                 | No separate API — read the standard `Request`                         |
-| `className`                     | `class`                                                         | Preact uses the `class` attribute                                     |
-| `react` / `react-dom` imports   | `preact/hooks`, `preact/compat`                                 | Same hook APIs                                                        |
-| `import React from "react"`     | Remove                                                          | The Vite plugin handles JSX                                           |
+| Next.js | pracht | Notes |
+| --- | --- | --- |
+| `pages/` directory | `pagesDir` plugin option | Auto-discovers routes from the file system |
+| `app/page.tsx` | `src/routes/*.tsx` + `route()` in manifest | File is a module; wiring is explicit |
+| `app/layout.tsx` | `src/shells/*.tsx` + `shells` in `defineApp` (pages: `_app.tsx` per directory) | Named shells; a directory `_app` replaces its parent. Layout data: shell `loader` + `useShellData()` |
+| `app/loading.tsx` | `Loading` export on the shell | SSR placeholder for SPA routes until the client router takes over |
+| `app/error.tsx` | `ErrorBoundary` export in route module | Same concept, different wiring |
+| `app/not-found.tsx` | `notFound:` in `defineApp` (or `pages/404.tsx` in pagesDir mode) | Not a route — never matches a URL, so it cannot shadow static assets |
+| `middleware.ts` | `src/middleware/*.ts` + `middleware` in `defineApp` (or `src/pages/_middleware.ts` in pagesDir mode) | Named, applied per route/group; the pages-mode file runs on every page route |
+| `app/api/*/route.ts` | `src/api/*.ts` with `GET`/`POST` exports | Auto-discovered, no manifest entry |
+| `generateStaticParams` | `getStaticPaths()` export | Returns `RouteParams[]` of param objects |
+| `generateMetadata` | `head()` export | Returns `{ title, meta }` |
+| Server Components | `loader()` export | Data fetching moves to the loader; the component is a Preact component |
+| `"use server"` actions | API routes + `<Form>` / `fetch` | Mutations move to `src/api/*`; return `Response` objects |
+| `"use client"` (few, mostly-server app) | `hydration: "islands"` + `src/islands/` | Only islands ship JS; see Phase 4 |
+| `revalidatePath` / `res.revalidate()` | `webhookRevalidate()` + `POST /__pracht/revalidate` | On-demand ISG; combinable with `timeRevalidate(seconds)` |
+| `useRouter()` (next/navigation) | `useNavigate()` | Takes a path, or `{ route: "id" }` after `pracht typegen` |
+| `useSearchParams()` | `useSearchParams()` | Read-only; set with `useSetSearchParams()`. SSG gets the browser query after hydration. For typed values export a `search` schema and read `args.search` / `useSearch()` |
+| `useParams()` | `useParams()` | Direct equivalent; also `params` in loader args |
+| `next/link` `<Link>` | `<Link route="..." params={{…}}>` or plain `<a>` | Prefer typed `<Link>` after `pracht typegen`; the router intercepts same-origin anchors |
+| `next/link` `prefetch={false}` | `<Link prefetch="none">` | Default `"intent"` (hover/focus); also `"viewport"`, `"render"` |
+| `useLinkStatus()` / pending UI | `useNavigation()` | `{ state, location, formData }` — progress bars, optimistic UI |
+| `next/image` | `<Image>` from `@pracht/image` | Responsive srcsets; Node, Cloudflare, Vercel, Netlify, or passthrough loaders |
+| `next/head` or Metadata API | `head()` export on route/shell | Per-route and per-shell head merging |
+| `next/script` `<Script>` | `<Script>` from `@pracht/core` | `beforeHydration` (≈ `beforeInteractive`), `afterHydration` (≈ `afterInteractive`, default), `idle` (≈ `lazyOnload`), `visible` |
+| `cookies()` / `headers()` | `request.headers` in loader/middleware/API args | No separate API — read the standard `Request` |
+| `className` | `class` | Preact uses the `class` attribute |
+| `react` / `react-dom` imports | `preact/hooks`, `preact/compat` | Same hook APIs |
+| `import React from "react"` | Remove | The Vite plugin handles JSX |
 
-Scroll restoration on back/forward works out of the box. `<Link>` also takes
+Scroll restoration on back/forward is automatic. `<Link>` also takes
 `preserveScroll` (skip the scroll-to-top reset) and `viewTransition` (wrap the
 navigation in `document.startViewTransition()` where supported).
 
@@ -211,9 +209,8 @@ export const middleware: MiddlewareFn = async ({ request }, next) => {
 `NextResponse.redirect()` → `return redirect("/path", { request })`;
 `NextResponse.next()` → `return next()`. Path matching moves out of
 `config.matcher` and into manifest assignment:
-`group({ middleware: ["auth"] }, [route("/dashboard", …)])`. Pracht middleware
-is wrap-around (Hono/Koa/Astro shape), so you can `await next()` and observe
-the response — useful for tracing.
+`group({ middleware: ["auth"] }, [route("/dashboard", …)])`. Middleware wraps
+the handler, so `await next()` returns the response for tracing.
 
 In `pagesDir` mode the same `MiddlewareFn` goes in a root-level
 `src/pages/_middleware.ts`, applied to every page route (API routes stay
@@ -254,13 +251,13 @@ export const app = defineApp({
 Module references accept `() => import("./path")` (better IDE navigation) or a
 plain `"./path"` string. Pick render modes from the Next.js original:
 
-| Next.js original                              | Render mode                                              |
-| --------------------------------------------- | -------------------------------------------------------- |
-| No data fetching, or `generateStaticParams`   | `"ssg"`                                                   |
-| `cookies()`, `headers()`, per-request data    | `"ssr"`                                                   |
-| `revalidate` option                           | `"isg"` + `timeRevalidate(seconds)`                       |
-| `revalidatePath` / `res.revalidate()`         | `"isg"` + `webhookRevalidate()`, triggered by `POST /__pracht/revalidate` |
-| Client-only                                   | `"spa"`                                                   |
+| Next.js original | Render mode |
+| --- | --- |
+| No data fetching, or `generateStaticParams` | `"ssg"` |
+| `cookies()`, `headers()`, per-request data | `"ssr"` |
+| `revalidate` option | `"isg"` + `timeRevalidate(seconds)` |
+| `revalidatePath` / `res.revalidate()` | `"isg"` + `webhookRevalidate()`, triggered by `POST /__pracht/revalidate` |
+| Client-only | `"spa"` |
 
 ## Phase 8: Remaining patterns
 
@@ -274,12 +271,13 @@ URLs.
 `width`/`height`/`fill`/`sizes`/`quality` and priority intent — preserve them.
 Pick the loader for the deployment target:
 
-| Target             | Loader                                                                          |
-| ------------------ | -------------------------------------------------------------------------------- |
-| Node               | `createImageHandler()` from `@pracht/image/node` + `sharp`; set its `localOrigin` to the same trusted value as `nodeAdapter({ canonicalOrigin })` |
+| Target | Loader |
+| --- | --- |
+| Node | `createImageHandler()` from `@pracht/image/node` + `sharp`; set its `localOrigin` to the same trusted value as `nodeAdapter({ canonicalOrigin })` |
 | Cloudflare Workers | `cloudflareLoader` — never bundle the Node handler, `sharp` does not run in Workers |
-| Vercel Edge        | `vercelLoader`, with Vercel's allowed image sizes aligned to the pracht breakpoints |
-| Static hosts       | `passthroughLoader`                                                              |
+| Vercel Edge | `vercelLoader`, with Vercel's allowed image sizes aligned to the pracht breakpoints |
+| Netlify | `netlifyLoader` (Netlify Image CDN) |
+| Static hosts | `passthroughLoader` |
 
 Static imports and blur placeholders migrate too: `import photo from
 "./photo.jpg"` → `"./photo.jpg?pracht"`, add `prachtImage()` (from
@@ -331,16 +329,16 @@ and fix errors iteratively.
 
 ## Dependency mapping
 
-| Next.js package | Pracht equivalent                                                            |
-| --------------- | ---------------------------------------------------------------------------- |
-| `next`          | `@pracht/core` + `@pracht/cli` + `@pracht/vite-plugin` + a target adapter    |
-| `next/image`    | `@pracht/image`                                                              |
-| `react`, `react-dom` | `preact`                                                                |
+| Next.js package | pracht equivalent |
+| --- | --- |
+| `next` | `@pracht/core` + `@pracht/cli` + `@pracht/vite-plugin` + a target adapter |
+| `next/image` | `@pracht/image` |
+| `react`, `react-dom` | `preact` |
 | `next/font/local` | Import WOFF2 with `?url&no-inline` into [`defineFont()`](https://pracht.resynapse.dev/docs/fonts); register `head().fonts`, apply `font.className`/`font.style` |
 | `next/font/google` | Self-host WOFF2 in `src/fonts/`, then follow `next/font/local`; pracht never fetches fonts at build time |
-| `@next/mdx`     | `@mdx-js/rollup` (Vite plugin)                                               |
-| `next-auth`     | Direct integration in middleware/loaders                                     |
-| `next/og`       | `@vercel/og` or a custom solution                                            |
+| `@next/mdx` | `@mdx-js/rollup` (Vite plugin) |
+| `next-auth` | Direct integration in middleware/loaders |
+| `next/og` | `@vercel/og` or a custom solution |
 
 Most React libraries work through `preact/compat`, and the pracht Vite plugin
 already aliases `react`/`react-dom`/`react/jsx-runtime` for you. Add manual

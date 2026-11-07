@@ -157,7 +157,7 @@ The point: every LLM-authored route arrives with a falsifiable claim attached.
   reduced to `title`/`lead`/`url`, links to other docs pages become sibling
   files (`routing.md#anchor`), other site paths become absolute
   `https://pracht.resynapse.dev` URLs, and relative assets point at GitHub.
-  Sections come from the sidebar in `examples/docs/src/shells/docs.tsx`; both
+  Sections come from the sidebar in `examples/docs/src/nav.ts`; both
   are external inputs of the CLI in `scripts/build.mjs`, so a docs edit rebuilds
   it. The `get_docs` (`topic?`), `list_docs`, and `search_docs` MCP tools read
   the same bundle via `packages/cli/src/docs.ts`; topics only ever resolve to
@@ -167,6 +167,15 @@ The point: every LLM-authored route arrives with a falsifiable claim attached.
   against the site's `src/utils/heading-slug.ts`. CI caches
   `packages/cli/docs` with `packages/*/dist`, so jobs that skip the build
   still have the bundle.
+- `pracht skills add` treats the agent-skills index as untrusted
+  (`packages/cli/src/commands/skills.ts`). Every download is checked against
+  the index's SHA-256 digest, and the whole index is rejected if any entry
+  lacks a 64-character hex digest. Index and skill URLs must use `https`;
+  `http` is accepted only for loopback hosts (an offline mirror or a test),
+  because plaintext lets an attacker rewrite the digest with the body. It
+  refuses to write through a symlinked `.claude/skills` or skill directory;
+  `--force` allows a link that resolves inside the project, and one that
+  leaves the project is always refused.
 
 ---
 
