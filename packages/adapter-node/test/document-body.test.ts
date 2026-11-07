@@ -1,6 +1,6 @@
 import { createServer, request as httpRequest, type IncomingMessage } from "node:http";
 import { once } from "node:events";
-import type { AddressInfo } from "node:net";
+import { connect, type AddressInfo } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { defineApp, route } from "@pracht/core";
@@ -60,6 +60,18 @@ function rawRequest(
     req.on("error", reject);
     req.end();
   });
+}
+
+/** The raw response head, so framing headers are visible as sent. */
+async function rawHead(base: string, path: string): Promise<string> {
+  const socket = connect(Number(new URL(base).port), "127.0.0.1");
+  await once(socket, "connect");
+  socket.write(`GET ${path} HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n`);
+  const chunks: Buffer[] = [];
+  socket.on("data", (chunk: Buffer) => chunks.push(chunk));
+  await once(socket, "close");
+  const text = Buffer.concat(chunks).toString("latin1");
+  return text.slice(0, text.indexOf("\r\n\r\n")).toLowerCase();
 }
 
 describe("server-rendered documents", () => {
@@ -131,5 +143,27 @@ describe("server-rendered documents", () => {
 
     expect(response.headers["transfer-encoding"]).toBe("chunked");
     expect(response.body.toString("utf-8")).toContain("View → 🙂");
+  });
+
+  it("never add Content-Length next to a Transfer-Encoding the app set", async () => {
+    const base = await serve(async (_args, next) => {
+      const response = await next();
+      response.headers.set("transfer-encoding", "chunked");
+      return response;
+    });
+
+    const head = await rawHead(base, "/page");
+
+    expect(head).toContain("\r\ntransfer-encoding: chunked");
+    expect(head).not.toContain("\r\ncontent-length:");
+    expect((await rawRequest(`${base}/page`)).status).toBe(200);
+  });
+
+  it("are not replayed when middleware serves the same Response twice", async () => {
+    let cached: Response | undefined;
+    const base = await serve(async (_args, next) => (cached ??= await next()));
+
+    expect((await rawRequest(`${base}/page`)).status).toBe(200);
+    expect((await rawRequest(`${base}/page`)).status).toBe(500);
   });
 });

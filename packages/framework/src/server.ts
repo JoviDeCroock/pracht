@@ -73,7 +73,7 @@ export {
   PrachtRuntimeProvider,
 } from "./runtime.ts";
 /** @internal Lets an adapter write a document's bytes without streaming them back. */
-export { unreadDocumentBody } from "./runtime-html.ts";
+export { takeDocumentBody } from "./runtime-html.ts";
 export {
   buildAppGraph,
   detectApiExports,

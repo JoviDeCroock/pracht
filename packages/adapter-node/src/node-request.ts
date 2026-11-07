@@ -3,7 +3,7 @@ import { Readable } from "node:stream";
 import {
   applyDefaultSecurityHeaders,
   normalizeResponseHeaders,
-  unreadDocumentBody,
+  takeDocumentBody,
 } from "@pracht/core/server";
 
 import {
@@ -421,9 +421,11 @@ export async function writeWebResponse(
   // instead of reading them back through a web stream, which costs more than
   // the write. With identity encoding its length is known, so it goes out with
   // `Content-Length` rather than chunked.
-  const documentBody = unreadDocumentBody(response);
+  const documentBody = takeDocumentBody(response);
   if (documentBody) {
-    if (!encoding && !res.hasHeader("content-length")) {
+    // Never next to a `Transfer-Encoding` the app set: a message may carry
+    // only one of the two framings.
+    if (!encoding && !res.hasHeader("content-length") && !res.hasHeader("transfer-encoding")) {
       res.setHeader("content-length", documentBody.byteLength);
     }
     const source = Readable.from([documentBody], { objectMode: false });

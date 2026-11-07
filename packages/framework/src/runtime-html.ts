@@ -471,7 +471,7 @@ function joinDocumentLines(parts: string[], indent: string): string {
 
 const htmlEncoder = new TextEncoder();
 
-/** The encoded body of each document `htmlResponse()` built; see `unreadDocumentBody`. */
+/** The encoded body of each document `htmlResponse()` built; see `takeDocumentBody`. */
 const documentBodies = new WeakMap<Response, Uint8Array>();
 
 export function htmlResponse(html: string, status = 200, initHeaders?: HeadersInit): Response {
@@ -488,15 +488,21 @@ export function htmlResponse(html: string, status = 200, initHeaders?: HeadersIn
 }
 
 /**
- * @internal The bytes of a document `htmlResponse()` built, while its body is
- * still unread, so an adapter can write them without reading the body back
- * through a stream. `Response` copies a byte body on construction, so these
- * are the same bytes the body holds. Middleware that replaced the response, or
- * read or locked its body, gets `undefined` and the body is read as usual.
+ * @internal Take the bytes of a document `htmlResponse()` built, while its body
+ * is still unread, so an adapter can write them without reading the body back
+ * through a stream. `Response` copies a byte body on construction, so these are
+ * the same bytes the body holds. Taking them uses the body up, as reading it
+ * would: a second write of the same `Response` fails instead of replaying it.
+ * Middleware that replaced the response, or read or locked its body, gets
+ * `undefined` and the body is read as usual.
  */
-export function unreadDocumentBody(response: Response): Uint8Array | undefined {
+export function takeDocumentBody(response: Response): Uint8Array | undefined {
   if (response.bodyUsed || response.body?.locked) return undefined;
-  return documentBodies.get(response);
+  const body = documentBodies.get(response);
+  if (!body) return undefined;
+  documentBodies.delete(response);
+  response.body?.cancel().catch(() => undefined);
+  return body;
 }
 
 /** The headers `htmlResponse()` sends, for a document that has to describe them. */
