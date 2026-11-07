@@ -10,7 +10,7 @@ This recipe connects [`@tanstack/preact-query`](https://tanstack.com/query) to p
 `@tanstack/preact-query` supports Preact 10, and new pracht projects start on Preact 11, so install Preact 10 alongside it:
 
 ```bash
-npm install @pracht/query @tanstack/preact-query preact@^10
+pnpm add @pracht/query @tanstack/preact-query preact@^10
 ```
 
 ## 2. Register the app root

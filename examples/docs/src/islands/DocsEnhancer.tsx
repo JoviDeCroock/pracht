@@ -31,10 +31,43 @@ export default function DocsEnhancer(_props: IslandProps) {
       requestAnimationFrame(() => (status.textContent = message));
     };
 
+    // Package-manager tabs: one choice for every block, remembered across pages.
+    const showManager = (manager: string) => {
+      for (const block of document.querySelectorAll(".pm-block")) {
+        if (!block.querySelector(`pre[data-pm="${manager}"]`)) continue;
+        for (const pre of block.querySelectorAll<HTMLElement>("pre[data-pm]")) {
+          pre.hidden = pre.dataset.pm !== manager;
+        }
+        for (const tab of block.querySelectorAll<HTMLElement>(".pm-tab")) {
+          tab.setAttribute("aria-pressed", String(tab.dataset.pm === manager));
+        }
+      }
+    };
+    try {
+      const saved = localStorage.getItem("pracht-docs-pm");
+      if (saved) showManager(saved);
+    } catch {
+      // Storage can be blocked; pnpm stays selected.
+    }
+
     const onClick = async (event: MouseEvent) => {
+      const tab = (event.target as Element | null)?.closest<HTMLElement>(".pm-tab");
+      if (tab?.dataset.pm) {
+        // Keep the clicked block where it is while blocks above change height.
+        const before = tab.getBoundingClientRect().top;
+        showManager(tab.dataset.pm);
+        window.scrollBy(0, tab.getBoundingClientRect().top - before);
+        try {
+          localStorage.setItem("pracht-docs-pm", tab.dataset.pm);
+        } catch {
+          // Not remembered; this page still switches.
+        }
+        return;
+      }
       const button = (event.target as Element | null)?.closest<HTMLButtonElement>(".code-copy");
       if (!button) return;
-      const code = button.closest(".code-block")?.querySelector("pre")?.textContent ?? "";
+      const code =
+        button.closest(".code-block")?.querySelector("pre:not([hidden])")?.textContent ?? "";
       try {
         await navigator.clipboard.writeText(code.replace(/\n$/, ""));
         button.textContent = "Copied";

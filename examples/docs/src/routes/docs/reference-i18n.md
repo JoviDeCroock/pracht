@@ -6,7 +6,7 @@ lead: "The `@pracht/i18n` API: locale detection, typed lazy dictionaries, transl
 Install `@pracht/i18n`, then follow the [i18n recipe](/docs/recipes/i18n) for either strategy: locale-prefixed routes, or one URL per page with a cookie.
 
 ```sh
-npm install @pracht/i18n
+pnpm add @pracht/i18n
 ```
 
 ## `defineI18n(config)`

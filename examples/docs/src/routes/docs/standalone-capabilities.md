@@ -6,7 +6,7 @@ lead: Run pracht's validated capability pipeline in an existing Web-standard ser
 ## Install
 
 ```bash
-npm install @pracht/capabilities
+pnpm add @pracht/capabilities
 ```
 
 `@pracht/capabilities` hosts capabilities in an app that does not use the pracht framework: the same validation, middleware, prepare/commit flow, audit events, HTTP envelope, remote MCP, and WebMCP. It speaks Web-standard `Request` and `Response`, so Hono, Next.js route handlers, and Workers pass requests directly; other Node frameworks need their usual Web Request adapter.

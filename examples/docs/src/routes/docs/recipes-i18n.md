@@ -24,7 +24,7 @@ Choose A for public, indexable content and new apps. Choose B when the URLs alre
 ## 1. Install
 
 ```bash
-npm install @pracht/i18n
+pnpm add @pracht/i18n
 ```
 
 ## 2. Define locales and dictionaries

@@ -21,6 +21,11 @@ import { Marked, Renderer } from "marked";
 import { NAV, navContext } from "./src/nav";
 import { SITE_NAME, SITE_ORIGIN, absoluteUrl } from "./src/site";
 import { esc, highlight, languageLabel } from "./src/utils/highlight";
+import {
+  PACKAGE_MANAGERS,
+  convertShell,
+  hasPackageManagerVariants,
+} from "./src/utils/package-managers";
 import { slugify } from "./src/utils/heading-slug";
 
 /**
@@ -68,6 +73,9 @@ interface Frontmatter {
 
 // ── Marked renderer ──────────────────────────────────────────────────────────
 
+/** Fence languages whose pnpm commands get npm, yarn, and bun variants. */
+const SHELL_LANGS = new Set(["sh", "bash", "shell", "zsh", "console"]);
+
 const CALLOUTS: Record<string, string> = {
   NOTE: "Note",
   INFO: "Note",
@@ -111,6 +119,10 @@ function createRenderer(): Renderer {
       filename = bracketMatch[2];
     }
 
+    if (SHELL_LANGS.has(language) && !filename && hasPackageManagerVariants(text)) {
+      return packageManagerBlock(text, language);
+    }
+
     const title = filename || languageLabel(language);
     const header =
       `<div class="code-block-header">` +
@@ -120,6 +132,29 @@ function createRenderer(): Renderer {
 
     return `<div class="code-block" data-lang="${escAttr(language)}">${header}<pre><code>${highlight(text, language)}</code></pre></div>`;
   };
+
+  /**
+   * One `<pre>` per package manager, pnpm first and visible. The buttons do
+   * nothing until `DocsEnhancer` hydrates; it switches every block on the page
+   * at once and remembers the choice.
+   */
+  function packageManagerBlock(text: string, language: string): string {
+    const buttons = PACKAGE_MANAGERS.map(
+      (manager, index) =>
+        `<button type="button" class="pm-tab" data-pm="${manager}" aria-pressed="${index === 0}">${manager}</button>`,
+    ).join("");
+    const panes = PACKAGE_MANAGERS.map(
+      (manager, index) =>
+        `<pre data-pm="${manager}"${index === 0 ? "" : " hidden"}><code>${highlight(convertShell(text, manager), language)}</code></pre>`,
+    ).join("");
+    return (
+      `<div class="code-block pm-block" data-lang="${escAttr(language)}">` +
+      `<div class="code-block-header">` +
+      `<div class="pm-tabs" role="group" aria-label="Package manager">${buttons}</div>` +
+      `<button type="button" class="code-copy" aria-label="Copy code">Copy</button>` +
+      `</div>${panes}</div>`
+    );
+  }
 
   renderer.hr = function () {
     return '<div class="doc-sep"></div>';

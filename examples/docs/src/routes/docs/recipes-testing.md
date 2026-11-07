@@ -588,7 +588,7 @@ Also assert that a tampered token, or the same token with different input, gets 
 
 ```sh
 # The browser checks drive Chrome through playwright-core.
-npm install -D playwright-core
+pnpm add -D playwright-core
 
 pracht verify webmcp --start "pracht preview"
 

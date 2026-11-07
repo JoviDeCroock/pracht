@@ -11,17 +11,7 @@ field, so hosts and CI pick a supported version.
 ## Create a project
 
 ```sh
-# pnpm
 pnpm create pracht my-app
-
-# npm
-npm create pracht@latest my-app
-
-# yarn
-yarn create pracht my-app
-
-# bun
-bunx create-pracht my-app
 ```
 
 The CLI asks for:

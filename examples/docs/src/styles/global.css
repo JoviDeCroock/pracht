@@ -266,6 +266,35 @@ a:hover {
   font-family: var(--font-mono);
 }
 
+.pm-tabs {
+  display: flex;
+  gap: 2px;
+}
+
+.pm-tab {
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: #8e8e97;
+  background: transparent;
+  border: 0;
+  border-radius: var(--r-sm);
+  padding: 2px 8px;
+  cursor: pointer;
+  transition:
+    color 0.15s,
+    background 0.15s;
+}
+
+.pm-tab:hover {
+  color: #e4e4e7;
+}
+
+.pm-tab[aria-pressed="true"] {
+  color: #fafafa;
+  background: rgba(255, 255, 255, 0.1);
+}
+
 /* Code blocks stay dark in both themes, so their chrome uses fixed colours. */
 .code-copy {
   font: inherit;
