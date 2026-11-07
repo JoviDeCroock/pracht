@@ -498,18 +498,7 @@ export function Link<TRoute extends RouteId>(props: LinkProps<TRoute>) {
     throw new Error("<Link route=...> must render inside a pracht route tree.");
   }
 
-  const {
-    route,
-    params,
-    search,
-    hash,
-    prefetch,
-    preserveScroll,
-    viewTransition,
-    speculate,
-    href,
-    ...anchorProps
-  } = props as unknown as Omit<JSX.IntrinsicElements["a"], "href"> &
+  const linkProps = props as unknown as Record<string, unknown> &
     UntypedRouteTarget & {
       href?: unknown;
       prefetch?: LinkPrefetchStrategy;
@@ -517,6 +506,7 @@ export function Link<TRoute extends RouteId>(props: LinkProps<TRoute>) {
       viewTransition?: boolean;
       speculate?: boolean;
     };
+  const { route, href, prefetch, speculate } = linkProps;
 
   // `<Link href="/blog">` is a TypeScript error, but untyped JSX and JS callers
   // can still reach here, including through a spread alongside a valid route.
@@ -531,15 +521,38 @@ export function Link<TRoute extends RouteId>(props: LinkProps<TRoute>) {
     );
   }
 
-  return h<JSX.IntrinsicElements["a"]>("a", {
-    ...anchorProps,
-    href: buildHrefUntyped(routes, route, { params, search, hash }),
-    // Read by the client router's click handler and the prefetch listeners.
-    [PREFETCH_ATTRIBUTE]: prefetch,
-    [PRESERVE_SCROLL_ATTRIBUTE]: preserveScroll ? "" : undefined,
-    [VIEW_TRANSITION_ATTRIBUTE]: viewTransition ? "" : undefined,
-    [SPECULATE_ATTRIBUTE]: speculate === undefined ? undefined : speculate ? "on" : "off",
-  } as JSX.IntrinsicElements["a"]);
+  // One object for the anchor, built in place: a link-heavy server render
+  // pays for every allocation and for every attribute key the renderer has to
+  // inspect, so router attributes are only set when they carry a value.
+  const anchorProps: Record<string, unknown> = {};
+  for (const name in linkProps) {
+    if (!isLinkOnlyProp(name)) anchorProps[name] = linkProps[name];
+  }
+  anchorProps.href = buildHrefUntyped(routes, route, linkProps);
+  // Read by the client router's click handler and the prefetch listeners.
+  if (prefetch !== undefined) anchorProps[PREFETCH_ATTRIBUTE] = prefetch;
+  if (linkProps.preserveScroll) anchorProps[PRESERVE_SCROLL_ATTRIBUTE] = "";
+  if (linkProps.viewTransition) anchorProps[VIEW_TRANSITION_ATTRIBUTE] = "";
+  if (speculate !== undefined) anchorProps[SPECULATE_ATTRIBUTE] = speculate ? "on" : "off";
+  return h<JSX.IntrinsicElements["a"]>("a", anchorProps as JSX.IntrinsicElements["a"]);
+}
+
+/** Props `<Link>` consumes instead of passing to its `<a>`. */
+function isLinkOnlyProp(name: string): boolean {
+  switch (name) {
+    case "route":
+    case "params":
+    case "search":
+    case "hash":
+    case "href":
+    case "prefetch":
+    case "preserveScroll":
+    case "viewTransition":
+    case "speculate":
+      return true;
+    default:
+      return false;
+  }
 }
 
 export function Form<TName extends HttpCapabilityName = HttpCapabilityName>(

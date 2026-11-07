@@ -11,7 +11,10 @@ describe("<Link> data attributes", () => {
   beforeEach(() => {
     const app = resolveApp(
       defineApp({
-        routes: [route("/logout", "./routes/logout.tsx", { id: "logout", render: "ssr" })],
+        routes: [
+          route("/logout", "./routes/logout.tsx", { id: "logout", render: "ssr" }),
+          route("/posts/:id", "./routes/post.tsx", { id: "post", render: "ssr" }),
+        ],
       }),
     );
     globalThis.__PRACHT_ROUTE_DEFINITIONS__ = app.routes;
@@ -46,6 +49,35 @@ describe("<Link> data attributes", () => {
     const anchor = renderLink({ speculate: false, prefetch: "none" });
     expect(anchor.getAttribute("data-pracht-speculate")).toBe("off");
     expect(anchor.getAttribute("data-pracht-prefetch")).toBe("none");
+  });
+
+  it("removes router attributes a re-render turns off", () => {
+    expect(renderLink({ preserveScroll: true, viewTransition: true }).outerHTML).toContain(
+      "data-pracht-preserve-scroll",
+    );
+
+    const anchor = renderLink({ preserveScroll: false });
+    expect(anchor.hasAttribute("data-pracht-preserve-scroll")).toBe(false);
+    expect(anchor.hasAttribute("data-pracht-view-transition")).toBe(false);
+  });
+
+  it("server-renders anchor props and href without unset router attributes", () => {
+    expect(
+      renderToString(
+        h(Link, {
+          class: "nav",
+          "data-x": "1",
+          route: "post",
+          params: { id: "a-1_b.c~" },
+        } as never),
+      ),
+    ).toBe('<a data-x="1" href="/posts/a-1_b.c~" class="nav"></a>');
+  });
+
+  it("server-renders params that need escaping", () => {
+    expect(renderToString(h(Link, { route: "post", params: { id: "é /?#&" } } as never))).toBe(
+      `<a href="/posts/${encodeURIComponent("é /?#&")}"></a>`,
+    );
   });
 
   it("rejects a passed href even when route is present", () => {

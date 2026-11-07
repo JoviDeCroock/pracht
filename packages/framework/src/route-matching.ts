@@ -746,7 +746,10 @@ function encodeDynamicPathSegment(part: string): string {
   if (part === "." || part === "..") {
     throw new Error(`Unsafe dynamic route param segment "${part}" is not allowed.`);
   }
-  return encodeURIComponent(part);
+  // Ids, slugs, and UUIDs need no escaping; testing for that is cheaper than
+  // encoding on the server, where a link-heavy page encodes every param.
+  // Browser builds fold the condition away and keep the smaller code.
+  return COMPILE_HREF_ROUTES && /^[\w.~-]*$/.test(part) ? part : encodeURIComponent(part);
 }
 
 /** Page path → its Markdown file's path: `/about` → `/about.md`, `/` → `/index.md`. */
