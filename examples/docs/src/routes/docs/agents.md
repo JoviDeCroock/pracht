@@ -10,12 +10,12 @@ pracht gives agents two things: operations they can call, and pages they can rea
 | Surface | Use it when | Turn it on | Details |
 | --- | --- | --- | --- |
 | Capability over HTTP | Any client, agent or browser, should call an operation | `expose: { http: true }` | [Capabilities](/docs/capabilities) |
-| WebMCP page tool | An agent in the user's browser tab should act as the signed-in user | `expose: { http: true, webmcp: true }` plus the route's `capabilities` list | [WebMCP](/docs/capabilities#webmcp-tools-for-in-browser-agents) |
-| Remote MCP tool | An agent with no browser (an assistant, a scheduled job) should call your deployed app | `defineApp({ agents: { mcp } })` plus `expose: { mcp: true }` | [Remote MCP](/docs/capabilities#remote-mcp-tools-for-agents-without-a-browser) |
+| WebMCP page tool | An agent in the user's browser tab should act as the signed-in user | `expose: { http: true, webmcp: true }` plus the route's `capabilities` list | [WebMCP](/docs/mcp-tools#webmcp-tools-for-in-browser-agents) |
+| Remote MCP tool | An agent with no browser (an assistant, a scheduled job) should call your deployed app | `defineApp({ agents: { mcp } })` plus `expose: { mcp: true }` | [Remote MCP](/docs/mcp-tools#remote-mcp-tools-for-agents-without-a-browser) |
 | Markdown by `Accept` | Agents should read a page without markup or scripts | A `markdown` export on the route | [Markdown](#discovery-markdown-and-llmstxt) |
 | `.md` files | Agents that never send `Accept`, or a static host | On by default for qualifying SSG pages | [`.md` URLs](#a-md-url-for-static-markdown-pages) |
 | `llms.txt` | Agents should discover your pages, endpoints, and capabilities | `pracht({ llmsTxt })` | [llms.txt](#llmstxt) |
-| Agent trust | You need to know who is calling, gate destructive calls, and audit them | `defineApp({ agents })` | [Agent trust](/docs/agent-trust) |
+| Agent trust | You need to know who is calling, gate destructive calls, and audit them | `defineApp({ agents })` | [Agent trust](/docs/agent-trust), [Audit trail](/docs/agent-audit) |
 
 Agents that edit your source code are a separate audience; see [Coding agents](/docs/coding-agents).
 
@@ -217,6 +217,6 @@ curl -s -X POST http://localhost:3000/api/capabilities/notes/search \
 # { "ok": true, "data": { "notes": [...] } }
 ```
 
-Open [`/notes`](http://localhost:3000/notes) for the human UI built on the same capabilities, and `/_pracht` to watch capability calls with agent attribution. Next, try the [destructive confirmation exchange](/docs/agent-trust#destructive-capabilities-preparecommit) and [the same flow as a `pracht eval` scenario](/docs/agent-trust#pracht-eval-prove-agent-flows-in-ci).
+Open [`/notes`](http://localhost:3000/notes) for the human UI built on the same capabilities, and `/_pracht` to watch capability calls with agent attribution. Next, try the [destructive confirmation exchange](/docs/agent-trust#destructive-capabilities-preparecommit) and [the same flow as a `pracht eval` scenario](/docs/agent-eval).
 
 The [`showcase`](https://github.com/JoviDeCroock/pracht/tree/main/examples/showcase) example combines browser forms, WebMCP page tools, signed remote callers, and MCP tools at `/mcp` behind one set of policies. For test patterns, including a fake WebMCP API and signed Web Bot Auth requests, see the [Testing recipe](/docs/recipes/testing).

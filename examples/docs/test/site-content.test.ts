@@ -42,7 +42,7 @@ const pages = readdirSync(docsDir)
 /** The URL `content.ts` publishes a page at. */
 function routeFor(file: string): string {
   const id = file.replace(/\.md$/, "");
-  for (const prefix of ["recipes", "migrate", "reference"]) {
+  for (const prefix of ["recipes", "migrate", "reference", "adapters"]) {
     if (id.startsWith(`${prefix}-`)) return `/docs/${prefix}/${id.slice(prefix.length + 1)}`;
   }
   return `/docs/${id}`;

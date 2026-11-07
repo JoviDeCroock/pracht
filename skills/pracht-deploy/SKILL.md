@@ -222,7 +222,7 @@ keys the exact path and query string, including parameter order and trailing
 slashes. Use a bounded query allowlist or canonical redirect, or an uncached
 gateway with a pathname-only `cf.cacheKey`, and normalize `Accept` there for
 routes that export markdown or declare `markdown: true`. See
-<https://pracht.resynapse.dev/docs/adapters#isg-and-workers-caching>.
+<https://pracht.resynapse.dev/docs/adapters/cloudflare#isg-and-workers-caching>.
 
 **Void.** To deploy with `void deploy`, put `voidPlugin()` from `void` before
 `pracht()` and use `cloudflareAdapter({ configPath: "./.void-wrangler.jsonc" })`.
@@ -328,7 +328,7 @@ pracht preview    # local static file server over dist/client/
 
 Upload `dist/client/` to any static host. `dist/server/` is build tooling —
 never deploy it. The host must serve `<dir>/index.html` for clean URLs and
-should use `404.html` as its error document. See <https://pracht.resynapse.dev/docs/adapters#static-export> for host header configuration and the markdown-negotiation and
+should use `404.html` as its error document. See <https://pracht.resynapse.dev/docs/adapters/static> for host header configuration and the markdown-negotiation and
 base-path limitations.
 
 **Eligibility.** Every route must be `render: "ssg"` (or a loaderless,

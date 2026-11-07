@@ -93,7 +93,7 @@ export default defineCommand({
         throw new Error(
           [
             "`pracht preview` needs a wrangler config (wrangler.jsonc, wrangler.json, or wrangler.toml) with your Worker's name, compatibility date, and bindings.",
-            'Create one with an `"assets": { "binding": "ASSETS", "run_worker_first": true }` block — see https://pracht.resynapse.dev/docs/adapters#cloudflare-workers for a full example.',
+            'Create one with an `"assets": { "binding": "ASSETS", "run_worker_first": true }` block — see https://pracht.resynapse.dev/docs/adapters/cloudflare#wrangler-config for a full example.',
           ].join("\n"),
         );
       }

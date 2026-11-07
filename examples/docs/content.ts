@@ -248,6 +248,7 @@ export const docsContent = defineMarkdownCollection<Frontmatter>({
   route({ id }) {
     if (id.startsWith("recipes-")) return `/docs/recipes/${id.slice("recipes-".length)}`;
     if (id.startsWith("migrate-")) return `/docs/migrate/${id.slice("migrate-".length)}`;
+    if (id.startsWith("adapters-")) return `/docs/adapters/${id.slice("adapters-".length)}`;
     if (id.startsWith("reference-")) return `/docs/reference/${id.slice("reference-".length)}`;
     return `/docs/${id}`;
   },

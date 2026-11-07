@@ -42,6 +42,9 @@ export const app = defineApp({
       route("/docs/routing", () => import("./routes/docs/routing.md"), {
         id: "routing",
       }),
+      route("/docs/pages-router", () => import("./routes/docs/pages-router.md"), {
+        id: "pages-router",
+      }),
       route("/docs/rendering", () => import("./routes/docs/rendering.md"), {
         id: "rendering",
       }),
@@ -53,6 +56,9 @@ export const app = defineApp({
       }),
       route("/docs/data-loading", () => import("./routes/docs/data-loading.md"), {
         id: "data-loading",
+      }),
+      route("/docs/head", () => import("./routes/docs/head.md"), {
+        id: "head",
       }),
       route("/docs/content", () => import("./routes/docs/content.md"), {
         id: "content",
@@ -93,6 +99,22 @@ export const app = defineApp({
       route("/docs/adapters", () => import("./routes/docs/adapters.md"), {
         id: "adapters",
       }),
+      route("/docs/adapters/cloudflare", () => import("./routes/docs/adapters-cloudflare.md"), {
+        id: "adapters-cloudflare",
+      }),
+      route("/docs/adapters/node", () => import("./routes/docs/adapters-node.md"), {
+        id: "adapters-node",
+      }),
+      route(
+        "/docs/adapters/vercel-netlify",
+        () => import("./routes/docs/adapters-vercel-netlify.md"),
+        {
+          id: "adapters-vercel-netlify",
+        },
+      ),
+      route("/docs/adapters/static", () => import("./routes/docs/adapters-static.md"), {
+        id: "adapters-static",
+      }),
       route("/docs/prefetching", () => import("./routes/docs/prefetching.md"), {
         id: "prefetching",
       }),
@@ -105,6 +127,9 @@ export const app = defineApp({
       route("/docs/capabilities", () => import("./routes/docs/capabilities.md"), {
         id: "capabilities",
       }),
+      route("/docs/mcp-tools", () => import("./routes/docs/mcp-tools.md"), {
+        id: "mcp-tools",
+      }),
       route(
         "/docs/standalone-capabilities",
         () => import("./routes/docs/standalone-capabilities.md"),
@@ -114,6 +139,12 @@ export const app = defineApp({
       ),
       route("/docs/agent-trust", () => import("./routes/docs/agent-trust.md"), {
         id: "agent-trust",
+      }),
+      route("/docs/agent-audit", () => import("./routes/docs/agent-audit.md"), {
+        id: "agent-audit",
+      }),
+      route("/docs/agent-eval", () => import("./routes/docs/agent-eval.md"), {
+        id: "agent-eval",
       }),
       route("/docs/coding-agents", () => import("./routes/docs/coding-agents.md"), {
         id: "coding-agents",
@@ -167,6 +198,9 @@ export const app = defineApp({
       }),
       route("/docs/reference/api", "./routes/docs/reference-api.md", {
         id: "reference-api",
+      }),
+      route("/docs/reference/hooks", "./routes/docs/reference-hooks.md", {
+        id: "reference-hooks",
       }),
       route("/docs/reference/config", "./routes/docs/reference-config.md", {
         id: "reference-config",

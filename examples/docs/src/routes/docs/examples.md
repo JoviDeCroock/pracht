@@ -54,12 +54,12 @@ ships.
 
 File-based routing with no manifest: routes come from `src/pages/` and API
 routes from `src/api/`, with `_app.tsx` shells. The runnable counterpart to
-[Pages router](/docs/routing#pages-router-auto-discovery). Builds for Node,
+[Pages router](/docs/pages-router). Builds for Node,
 Cloudflare, and Vercel.
 
 ### [`static`](https://github.com/JoviDeCroock/pracht/tree/main/examples/static)
 
-A pure [static export](/docs/adapters): SSG routes with build-time loaders, a
+A pure [static export](/docs/adapters/static): SSG routes with build-time loaders, a
 dynamic SSG route driven by `getStaticPaths()`, SPA routes including one served
 by the `200.html` fallback, and a loader-backed `notFound` page emitted as
 `404.html`.

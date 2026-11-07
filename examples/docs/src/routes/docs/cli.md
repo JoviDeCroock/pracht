@@ -208,11 +208,11 @@ pracht inspect all --json
 | `build` | Adapter, client entry, and CSS/JS manifests, including CSS for routes that ship no JavaScript. Run it after `pracht build` |
 | `all` | Everything (the default) |
 
-For remote MCP, the JSON output includes `mcpEndpoint`, `mcpDestructive`, `mcpRuntimeStatus`, and `mcpUnavailableReasons`. Text output marks an exposure `mcp(unserved)` when a requirement is missing and `mcp(unverified)` when inspection cannot confirm it. See [Remote MCP](/docs/capabilities#remote-mcp-tools-for-agents-without-a-browser).
+For remote MCP, the JSON output includes `mcpEndpoint`, `mcpDestructive`, `mcpRuntimeStatus`, and `mcpUnavailableReasons`. Text output marks an exposure `mcp(unserved)` when a requirement is missing and `mcp(unverified)` when inspection cannot confirm it. See [Remote MCP](/docs/mcp-tools#remote-mcp-tools-for-agents-without-a-browser).
 
 Unknown targets and graph-loading errors exit non-zero. If a registered API or capability module fails to load, `inspect`, `plan`, `verify`, and the MCP inspection tools fail and name it rather than report partial metadata.
 
-On Cloudflare, read bindings inside a handler or `run()`, never at module top level. Graph commands load your modules without real bindings, so a top-level binding read or Workers runtime-class construction fails with the API named. Importing `env` is fine. See [Accessing Cloudflare bindings](/docs/adapters#accessing-cloudflare-bindings).
+On Cloudflare, read bindings inside a handler or `run()`, never at module top level. Graph commands load your modules without real bindings, so a top-level binding read or Workers runtime-class construction fails with the API named. Importing `env` is fine. See [Accessing Cloudflare bindings](/docs/adapters/cloudflare#accessing-cloudflare-bindings).
 
 ## pracht plan
 
@@ -295,10 +295,10 @@ pracht eval --json
 | Transport | Scenario setting | Calls |
 | --- | --- | --- |
 | HTTP | default | The capability HTTP projection |
-| MCP | `"transport": "mcp"` | The app's [remote MCP endpoint](/docs/capabilities#remote-mcp-tools-for-agents-without-a-browser) |
+| MCP | `"transport": "mcp"` | The app's [remote MCP endpoint](/docs/mcp-tools#remote-mcp-tools-for-agents-without-a-browser) |
 | WebMCP | `"transport": "webmcp"` and `"webmcpRoute"` | The browser's page tools |
 
-See [pracht eval](/docs/agent-trust#pracht-eval-prove-agent-flows-in-ci) for the scenario format.
+See [pracht eval](/docs/agent-eval) for the scenario format.
 
 | Flag | Effect |
 | --- | --- |
@@ -351,7 +351,7 @@ pracht dev-mcp
 
 It gives the agent writing your code your app's *graph*: docs, inspection, doctor, verify, plan, report, typegen, eval, and generators. Register it as a local MCP server in your client rather than running it by hand; it runs until the client disconnects. `pracht mcp` is a deprecated alias that prints a notice to stderr.
 
-This is not your app's own [remote MCP endpoint](/docs/capabilities#remote-mcp-tools-for-agents-without-a-browser), which serves your app's *operations* to end-user agents in production. See [the authoring MCP server](/docs/coding-agents#the-authoring-mcp-server) for client registration and the tool reference.
+This is not your app's own [remote MCP endpoint](/docs/mcp-tools#remote-mcp-tools-for-agents-without-a-browser), which serves your app's *operations* to end-user agents in production. See [the authoring MCP server](/docs/coding-agents#the-authoring-mcp-server) for client registration and the tool reference.
 
 ## pracht skills
 

@@ -120,7 +120,7 @@ describe("docs_search", () => {
     ["islands hydration client strategy", "/docs/islands#loading-strategies", 5],
     ["timeRevalidate webhook", "/docs/rendering#isg--incremental-static-generation", 1],
     ["add authentication", "/docs/recipes/auth", 2],
-    ["how to set page title", "/docs/data-loading#head-metadata", 3],
+    ["how to set page title", "/docs/head#head-metadata", 3],
     ["loader", "/docs/data-loading#loaders", 3],
     ["what is pracht", "/docs/why-pracht", 3],
   ] as const)("ranks %j with %s in the top %i", (query, expected, count) => {
@@ -235,27 +235,21 @@ describe("docs_read", () => {
   });
 
   it("returns one section, subsections included, without the page outline", () => {
-    const direct = readDoc(
-      index,
-      "/docs/capabilities",
-      "#remote-mcp-tools-for-agents-without-a-browser",
-    );
+    const direct = readDoc(index, "/docs/mcp-tools", "#webmcp-tools-for-in-browser-agents");
     const viaUrl = readDoc(
       index,
-      "https://pracht.resynapse.dev/docs/capabilities#remote-mcp-tools-for-agents-without-a-browser",
+      "https://pracht.resynapse.dev/docs/mcp-tools#webmcp-tools-for-in-browser-agents",
     );
     expect(direct.found).toBe(true);
     expect(viaUrl.markdown).toBe(direct.markdown);
-    expect(direct.markdown.startsWith("## Remote MCP: tools for agents without a browser")).toBe(
-      true,
-    );
-    expect(direct.markdown).toContain("### Talking to it");
-    expect(direct.markdown).not.toContain("## Private by default");
+    expect(direct.markdown.startsWith("## WebMCP: tools for in-browser agents")).toBe(true);
+    expect(direct.markdown).toContain("### Hosts and the origin trial");
+    expect(direct.markdown).not.toContain("## Remote MCP: tools for agents without a browser");
     expect(direct.sections).toEqual([]);
   });
 
   it("explains an unknown section with the closest anchors and the outline", () => {
-    const result = readDoc(index, "capabilities", "talking-to");
+    const result = readDoc(index, "mcp-tools", "talking-to");
     expect(result.found).toBe(false);
     expect(result.suggestions).toContain("talking-to-it");
     expect(result.sections.length).toBeGreaterThan(0);

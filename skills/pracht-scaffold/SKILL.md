@@ -176,9 +176,9 @@ returns `{ response, send, close }` — return `response`, push with
 `send({ data, event?, id? })`, and stop producing when `send()` returns `false`
 (client disconnected). Consume with `useEventSource(url, { json: true })` from
 `@pracht/core`. Works on every adapter. For WebSockets use
-`isUpgradeRequest(request)` plus the per-adapter recipes in <https://pracht.resynapse.dev/docs/adapters>
-(Cloudflare: API route + Durable Object; Node:
-`nodeAdapter({ configureServerFrom })`; Vercel: unsupported — use SSE).
+`isUpgradeRequest(request)` plus the per-adapter recipes
+(Cloudflare: API route + Durable Object, <https://pracht.resynapse.dev/docs/adapters/cloudflare#websockets>; Node:
+`nodeAdapter({ configureServerFrom })`, <https://pracht.resynapse.dev/docs/adapters/node#websockets>; Vercel: unsupported — use SSE).
 
 **Manifest wiring**, only for hand-created files:
 

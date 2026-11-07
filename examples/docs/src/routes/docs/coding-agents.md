@@ -12,7 +12,7 @@ Connect a coding agent to the pracht docs first, then to your own app:
 | [Dev page tools](#debugging-in-the-tab-dev-page-tools) | The current browser tab: matched route, loader data, islands, last error, page tools | In every page `pracht dev` serves |
 | [Skills](#agent-skills) | Task recipes such as `/add-auth` and `/audit-csrf` | In Claude Code |
 
-None of these ship in your deployed app. For the tools your deployed app serves to *its* users' agents, see [Remote MCP](/docs/capabilities#remote-mcp-tools-for-agents-without-a-browser).
+None of these ship in your deployed app. For the tools your deployed app serves to *its* users' agents, see [Remote MCP](/docs/mcp-tools#remote-mcp-tools-for-agents-without-a-browser).
 
 The rest of the page covers the checks that make an agent's change reviewable: [constraints](#constraints), the [app-graph snapshot](#the-app-graph-snapshot), [PR reports](#pr-reports-from-machine-truth), and [generated smoke tests](#generated-smoke-tests).
 
@@ -52,7 +52,7 @@ The official MCP Registry lists the server as `io.github.JoviDeCroock/pracht-doc
 
 Pass a search hit's `page` and `section` straight to `docs_read`. An unknown page or anchor answers `found: false` with the closest matches in `suggestions`.
 
-This site is a pracht app, and the server is its own [remote MCP endpoint](/docs/capabilities#remote-mcp-tools-for-agents-without-a-browser).
+This site is a pracht app, and the server is its own [remote MCP endpoint](/docs/mcp-tools#remote-mcp-tools-for-agents-without-a-browser).
 
 ## The authoring MCP server
 
@@ -115,7 +115,7 @@ Every tool accepts an optional `cwd` (absolute path to the app root), defaulting
 
 ## Debugging in the tab: dev page tools
 
-Every document `pracht dev` serves registers five read-only [WebMCP](/docs/capabilities#webmcp-tools-for-in-browser-agents) page tools, so an agent driving the browser can read the framework's view of the page:
+Every document `pracht dev` serves registers five read-only [WebMCP](/docs/mcp-tools#webmcp-tools-for-in-browser-agents) page tools, so an agent driving the browser can read the framework's view of the page:
 
 | Tool | Answers |
 | --- | --- |
@@ -374,4 +374,4 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
 ```
 
-A passing `verify` means the constraints hold and the snapshot is fresh. If the app exposes [capabilities](/docs/capabilities), add [`pracht eval`](/docs/agent-trust#pracht-eval-prove-agent-flows-in-ci) to check that agent flows still work.
+A passing `verify` means the constraints hold and the snapshot is fresh. If the app exposes [capabilities](/docs/capabilities), add [`pracht eval`](/docs/agent-eval) to check that agent flows still work.

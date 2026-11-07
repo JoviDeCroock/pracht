@@ -35,7 +35,7 @@ Invalid input never reaches the handler. The caller gets a `422` with `{ error: 
 
 Query and param values cross the wire as strings, so numeric inputs need coercion or a transform. Typed calls reject query or params schema keys that cannot accept a string. Page routes validate their query with a [`search` export](/docs/routing#search-params) instead.
 
-A body that cannot be parsed gets a `400`, and one larger than `maxBodySize` gets a `413`. To accept larger uploads, raise `maxBodySize` on that handler and the Node adapter's [`maxBodySize`](/docs/adapters#origin-proxy-and-body-size-options) to match.
+A body that cannot be parsed gets a `400`, and one larger than `maxBodySize` gets a `413`. To accept larger uploads, raise `maxBodySize` on that handler and the Node adapter's [`maxBodySize`](/docs/adapters/node#origin-proxy-and-body-size-options) to match.
 
 ## Return values
 

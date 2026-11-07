@@ -70,7 +70,7 @@ export const app = defineApp({
 });
 ```
 
-URLs do not depend on file layout, and shells, middleware, and render modes are visible in one file. For file-based routing, use the [pages router](/docs/routing#pages-router-auto-discovery), which derives routes from `src/pages/`.
+URLs do not depend on file layout, and shells, middleware, and render modes are visible in one file. For file-based routing, use the [pages router](/docs/pages-router), which derives routes from `src/pages/`.
 
 ### Dynamic routes
 

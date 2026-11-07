@@ -83,7 +83,7 @@ Type exports of `@pracht/core` for route, shell, middleware, and API modules.
 | --- | --- |
 | `<Link>` | Typed client-side navigation. See [Routing](/docs/routing#link-props) |
 | `<Form>` | Progressive form submission to an API route or a capability. See [Forms](/docs/recipes/forms) |
-| `<Script>` | Third-party scripts with a loading strategy. See [Data loading](/docs/data-loading#third-party-scripts--script) |
+| `<Script>` | Third-party scripts with a loading strategy. See [Head and headers](/docs/head#third-party-scripts--script) |
 | `<Suspense>`, `lazy()` | Code-split a subtree with a fallback. See [Rendering modes](/docs/rendering) |
 | `<ErrorBoundary>` | Catch render errors in a subtree. See [Data loading](/docs/data-loading#scoping-a-boundary-to-a-subtree) |
 | `forwardRef()` | Preact's `forwardRef`, re-exported |
@@ -113,16 +113,16 @@ Components in `src/server-islands/` rendered per request inside cached pages. Se
 
 | Export | Returns | Description |
 | --- | --- | --- |
-| `useRouteData(routeId?)` | The loader's data | The active route's loader result. Pass the route id to type it. See [Data loading](/docs/data-loading#useroutedata) |
+| `useRouteData(routeId?)` | The loader's data | The active route's loader result. Pass the route id to type it. See [Client hooks](/docs/reference/hooks#useroutedata) |
 | `useShellData(shell?)` | The shell loader's data, or `undefined` | The active shell's loader result, in the shell and its routes. Pass the shell name to type it. See [Shells](/docs/shells#shell-data) |
 | `useParams()` | `Record<string, string>` | Matched dynamic segments. See [Routing](/docs/routing#reading-params) |
 | `useLocation()` | `{ pathname, search }` | The current URL as the visitor sees it, deploy base included |
 | `useSearchParams()` | `ReadonlyURLSearchParams` | The query string, reactively. Mutating it throws; use `useSetSearchParams()` |
-| `useSetSearchParams()` | `(next, options?) => Promise<void>` | Navigate to the current page with a new query string. `options` is `{ replace?, preserveScroll? }`. See [Data loading](/docs/data-loading#usesetsearchparams) |
+| `useSetSearchParams()` | `(next, options?) => Promise<void>` | Navigate to the current page with a new query string. `options` is `{ replace?, preserveScroll? }`. See [Client hooks](/docs/reference/hooks#usesetsearchparams) |
 | `useSearch(routeId?)` | The parsed query | The active route's `search` schema output, or the raw query without one. See [Routing](/docs/routing#search-params) |
 | `useNavigate()` | `(to, options?) => Promise<void>` | Imperative navigation, by path or route object |
 | `useNavigation()` | `{ state, location?, formData? }` | Pending state for the current navigation or `<Form>` submission: `"idle"`, `"loading"`, or `"submitting"` |
-| `useBlocker(shouldBlock, options?)` | `{ state, location, proceed, reset }` | Stop a navigation before it commits, e.g. on unsaved changes. See [Data loading](/docs/data-loading#useblocker) |
+| `useBlocker(shouldBlock, options?)` | `{ state, location, proceed, reset }` | Stop a navigation before it commits, e.g. on unsaved changes. See [Client hooks](/docs/reference/hooks#useblocker) |
 | `useRevalidate()` | `() => Promise<unknown>` | Re-run the active route's loader and its shell's |
 | `useIsHydrated()` | `boolean` | `false` during SSR and the first client render, `true` after |
 | `useEventSource(url, options?)` | `{ status, data, lastEventId }` | Subscribe to a server-sent event stream. `status` is `"connecting"`, `"open"`, or `"closed"`. See [Server-sent events and WebSockets](/docs/recipes/streaming) |

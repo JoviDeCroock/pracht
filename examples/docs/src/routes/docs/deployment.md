@@ -48,7 +48,7 @@ pracht build
 node dist/server/server.js     # listens on $PORT, default 3000
 ```
 
-Set `canonicalOrigin` so request URLs never come from the `Host` header; without it the server logs a warning at startup. Proxy, body-size, compression, and shutdown options are in the [adapter reference](/docs/adapters#nodejs).
+Set `canonicalOrigin` so request URLs never come from the `Host` header; without it the server logs a warning at startup. Proxy, body-size, compression, and shutdown options are in the [adapter reference](/docs/adapters/node).
 
 ## Cloudflare Workers
 
@@ -82,7 +82,7 @@ npx wrangler deploy
 
 Configure bindings (KV, D1, R2) in `wrangler.jsonc`; loaders and API routes read them from `context.env`. `pracht preview` reads local secrets from a gitignored `.dev.vars` file, and production secrets come from `wrangler secret`.
 
-The [adapter reference](/docs/adapters#cloudflare-workers) covers what the `assets` keys do, named environments, ISG caching, Durable Objects, cron and queue handlers, and deploying with Void.
+The [adapter reference](/docs/adapters/cloudflare) covers what the `assets` keys do, named environments, ISG caching, Durable Objects, cron and queue handlers, and deploying with Void.
 
 ## Vercel
 
@@ -101,7 +101,7 @@ pracht build
 npx vercel deploy --prebuilt
 ```
 
-For webhook revalidation, set `PRACHT_REVALIDATE_TOKEN` at build time, not only at runtime. `pracht preview` does not emulate Vercel; use `vercel build` and `vercel dev`. See the [adapter reference](/docs/adapters#vercel).
+For webhook revalidation, set `PRACHT_REVALIDATE_TOKEN` at build time, not only at runtime. `pracht preview` does not emulate Vercel; use `vercel build` and `vercel dev`. See the [adapter reference](/docs/adapters/vercel-netlify#vercel).
 
 ## Netlify
 
@@ -129,7 +129,7 @@ pracht build && netlify dev        # run the build locally
 netlify deploy --build --prod
 ```
 
-`pracht preview` does not emulate Netlify's Functions or CDN cache, so run `netlify dev` after building. Caching and `excludedPath` are in the [adapter reference](/docs/adapters#netlify-functions).
+`pracht preview` does not emulate Netlify's Functions or CDN cache, so run `netlify dev` after building. Caching and `excludedPath` are in the [adapter reference](/docs/adapters/vercel-netlify#netlify-functions).
 
 ## Static hosts
 
@@ -150,7 +150,7 @@ pracht build      # dist/client/ is the whole deployment
 pracht preview    # build, then serve dist/client/ the way a static host does
 ```
 
-When something needs a server, the build fails and lists every offender. It writes the `notFound` page as `404.html`, and with `staticAdapter({ fallback: "200.html" })` also an SPA fallback for hosts that rewrite unknown URLs. Host requirements are in the [adapter reference](/docs/adapters#static-export).
+When something needs a server, the build fails and lists every offender. It writes the `notFound` page as `404.html`, and with `staticAdapter({ fallback: "200.html" })` also an SPA fallback for hosts that rewrite unknown URLs. Host requirements are in the [adapter reference](/docs/adapters/static).
 
 ## Tabs open across a deploy
 
@@ -213,4 +213,4 @@ Cloudflare, Netlify, and Vercel deployments always keep the base and handle the 
 
 ### Static hosts
 
-The [static adapter](/docs/adapters#static-export) requires `/` or a root-absolute base. `pracht preview` answers anything outside the base with a 404, matching a correctly configured host.
+The [static adapter](/docs/adapters/static) requires `/` or a root-absolute base. `pracht preview` answers anything outside the base with a 404, matching a correctly configured host.

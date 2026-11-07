@@ -121,7 +121,7 @@ The JSON response lists `revalidated`, `skipped`, and `failed` paths, and
 With `colo`, other data centers render current content on their first uncached
 request but keep a copy they already hold, and `pracht build` warns about each
 such route. Add a time window to the route's policy to bound that lag. With
-[Workers Caching](/docs/adapters#isg-and-workers-caching), the webhook purges
+[Workers Caching](/docs/adapters/cloudflare#isg-and-workers-caching), the webhook purges
 the route everywhere and reports `global`.
 
 ## SPA — single page application

@@ -79,16 +79,16 @@
     {
       "capability": "docs.read",
       "input": {
-        "page": "capabilities",
+        "page": "mcp-tools",
         "section": "talking-to-it"
       },
       "expect": {
         "ok": true,
         "output": {
           "found": true,
-          "page": "/docs/capabilities",
+          "page": "/docs/mcp-tools",
           "section": "talking-to-it",
-          "url": "https://pracht.resynapse.dev/docs/capabilities#talking-to-it"
+          "url": "https://pracht.resynapse.dev/docs/mcp-tools#talking-to-it"
         }
       }
     },

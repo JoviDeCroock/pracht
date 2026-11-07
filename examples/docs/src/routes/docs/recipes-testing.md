@@ -717,7 +717,7 @@ pracht eval --url http://localhost:3000
 | `transport` | Runs the steps against |
 | --- | --- |
 | `"http"` (default) | The capability HTTP endpoints |
-| `"mcp"` | Your app's [remote MCP endpoint](/docs/capabilities#remote-mcp-tools-for-agents-without-a-browser) |
+| `"mcp"` | Your app's [remote MCP endpoint](/docs/mcp-tools#remote-mcp-tools-for-agents-without-a-browser) |
 | `"webmcp"` | The page tool in Chrome, with `"webmcpRoute"` set and `playwright-core` installed; a step's `cancelAfterMs` tests cancellation |
 
 See [Agent trust](/docs/agent-trust) for the scenario format. The framework repository's `examples/basic` has unit, E2E, and eval coverage over HTTP, remote MCP, and WebMCP.

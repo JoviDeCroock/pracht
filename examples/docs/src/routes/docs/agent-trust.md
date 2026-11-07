@@ -1,9 +1,9 @@
 ---
 title: Agent trust
-lead: Verify agent identity with Web Bot Auth, confirm destructive operations, record audit events, and test agent flows with `pracht eval`.
+lead: Verify agent identity with Web Bot Auth, refuse unverified agents, and confirm destructive operations with prepare/commit and durable approvals.
 ---
 
-Both routers support everything on this page. Configure it with `defineApp({ agents })`, or export the same object as `agents` from `src/pages/_app.config.ts` in a [pages-router](/docs/routing#app-config-via-appconfigts) app. It is all opt-in: without capabilities or `agents` config, none of it reaches the server bundle.
+Both routers support everything on this page. Configure it with `defineApp({ agents })`, or export the same object as `agents` from `src/pages/_app.config.ts` in a [pages-router](/docs/pages-router#app-config-via-appconfigts) app. It is all opt-in: without capabilities or `agents` config, none of it reaches the server bundle.
 
 | To | Use |
 | --- | --- |
@@ -11,8 +11,8 @@ Both routers support everything on this page. Configure it with `defineApp({ age
 | Identify the user an MCP agent acts for | [OAuth](#oauth-on-the-remote-mcp-endpoint) (`context.tokenAuth`) |
 | Refuse unverified agents | [Policy modes](#policy-modes) |
 | Confirm deletes, payments, and sends | [Prepare/commit](#destructive-capabilities-preparecommit) and [durable approvals](#durable-approvals) |
-| Record every dispatch | [Audit trail](#audit-trail) |
-| Test agent flows in CI | [`pracht eval`](#pracht-eval-prove-agent-flows-in-ci) |
+| Record every dispatch | [Audit trail](/docs/agent-audit) |
+| Test agent flows in CI | [`pracht eval`](/docs/agent-eval) |
 
 ## Web Bot Auth: verified agent identity
 
@@ -103,7 +103,7 @@ export default defineCapability({
 
 ## OAuth on the remote MCP endpoint
 
-Set `agents.mcp.auth` to make the [remote MCP endpoint](/docs/capabilities#remote-mcp-tools-for-agents-without-a-browser) an OAuth 2.0 protected resource, so you know which user an agent acts for:
+Set `agents.mcp.auth` to make the [remote MCP endpoint](/docs/mcp-tools#remote-mcp-tools-for-agents-without-a-browser) an OAuth 2.0 protected resource, so you know which user an agent acts for:
 
 ```ts [src/routes.ts]
 export const app = defineApp({
@@ -122,11 +122,11 @@ export const app = defineApp({
 
 `/mcp` then publishes RFC 9728 metadata at `/.well-known/oauth-protected-resource` and answers unauthenticated calls with a `WWW-Authenticate` challenge. pracht does not validate JWTs or issue tokens: your `verify` module checks the bearer token, and the principal lands on read-only `context.tokenAuth`.
 
-The challenge responses and a JWKS `verify` recipe are on the [Capabilities page](/docs/capabilities#oauth-letting-a-real-host-connect).
+The challenge responses and a JWKS `verify` recipe are in [OAuth: letting a real host connect](/docs/mcp-tools#oauth-letting-a-real-host-connect).
 
 ## Destructive capabilities: prepare/commit
 
-Mark a capability `effect: "destructive"` (delete, publish, pay, send) and every dispatch needs confirmation. It can be exposed over HTTP and [remote MCP](/docs/capabilities#destructive-tools), never as a WebMCP page tool.
+Mark a capability `effect: "destructive"` (delete, publish, pay, send) and every dispatch needs confirmation. It can be exposed over HTTP and [remote MCP](/docs/mcp-tools#destructive-tools), never as a WebMCP page tool.
 
 Set `PRACHT_CONFIRMATION_SECRET` in the server environment; without it, destructive calls are refused. For Cloudflare local preview, put it in a gitignored `.dev.vars` file; a shell variable does not reach the Worker.
 
@@ -181,7 +181,7 @@ if (confirmationToken) {
 }
 ```
 
-Remote MCP runs the same exchange on `tools/call`, with the token in `_meta["io.pracht/confirmation"]`, once you enable [`agents.mcp.destructive` and an approval store](/docs/capabilities#destructive-tools).
+Remote MCP runs the same exchange on `tools/call`, with the token in `_meta["io.pracht/confirmation"]`, once you enable [`agents.mcp.destructive` and an approval store](/docs/mcp-tools#destructive-tools).
 
 A stateless token replays until it expires, and the calling agent can confirm its own call. An approval store stops replay; human mode adds a person's decision.
 
@@ -205,7 +205,7 @@ setCapabilityApprovalPrincipalResolver<{ user: { id: string } }>(
 
 Import this module from a server entry, the destructive capability's module, or middleware applied to that capability or the capability API chain. A hand-written Node server must import it before `dist/server/server.js`.
 
-The principal resolver runs after middleware. Return a stable authenticated user or tenant id, never caller-controlled input. On remote MCP with [`agents.mcp.auth`](/docs/capabilities#oauth-letting-a-real-host-connect), the token subject is bound too. Repeated prepares of the same operation by the same user share one proposal.
+The principal resolver runs after middleware. Return a stable authenticated user or tenant id, never caller-controlled input. On remote MCP with [`agents.mcp.auth`](/docs/mcp-tools#oauth-letting-a-real-host-connect), the token subject is bound too. Repeated prepares of the same operation by the same user share one proposal.
 
 `agents.confirmation.mode` picks who decides:
 
@@ -331,285 +331,8 @@ Until a consumed or rejected proposal expires, preparing the identical operation
 - `agents.confirmation.ttlSeconds` (default 120) sets both the token lifetime and the lockout. Give repeatable operations a per-call input such as an idempotency key.
 - Without Web Bot Auth or a principal resolver, every caller is `"anonymous"` and shares the lockout. Bind a real principal before serving destructive tools to more than one caller.
 
-## Audit trail
-
-Register a hook to receive one event per capability dispatch: capability, effect, transport, outcome, status, latency, the verified agent (or `null`), and the OAuth `tokenAuth` (or `null`).
-
-```ts [src/server/audit.ts]
-import { setCapabilityAuditHook } from "@pracht/core/server";
-
-setCapabilityAuditHook((event) => log.info("capability", event));
-```
-
-A nested `invokeCapability()` call emits its own event with `transport: "server"` and `via` set to the outer request's transport, such as `{ transport: "server", via: "mcp" }`. Top-level dispatches have `via: null`.
-
-### Registering more than one sink
-
-`setCapabilityAuditHook()` is a single slot. For several sinks, use `addCapabilityAuditListener(name, hook)`, which returns an unsubscribe function:
-
-```ts [src/server/audit.ts]
-import { addCapabilityAuditListener } from "@pracht/core/server";
-
-const stop = addCapabilityAuditListener("metrics", (event) => metrics.record(event));
-
-if (import.meta.hot) {
-  import.meta.hot.dispose(stop);
-}
-```
-
-Registering the same name again replaces that sink, so use a fixed name at module top level and dev reloads do not stack duplicates.
-
-A sink runs synchronously and is never awaited, so keep work before its first `await` cheap; a returned promise goes to [`waitUntil()`](/docs/data-loading#waituntil). A throwing sink logs one `console.warn` naming it and never breaks the request.
-
-### Production recipes
-
-A structured log line per dispatch is enough for most apps:
-
-```ts [src/server/audit.ts]
-import { addCapabilityAuditListener } from "@pracht/core/server";
-
-const stopAuditLog = addCapabilityAuditListener("audit-log", (event) => {
-  // Synchronous and allocation-light: safe on every runtime.
-  console.log(
-    JSON.stringify({
-      msg: "capability",
-      at: new Date().toISOString(),
-      capability: event.capability,
-      effect: event.effect,
-      transport: event.transport,
-      via: event.via,
-      outcome: event.outcome,
-      status: event.status,
-      durationMs: Math.round(event.durationMs),
-      agent: event.agent?.agentDomain ?? event.agent?.keyId ?? null,
-      account: event.tokenAuth,
-    }),
-  );
-});
-
-if (import.meta.hot) {
-  import.meta.hot.dispose(stopAuditLog);
-}
-```
-
-The OpenTelemetry version records dispatch counts, latency, and failure spans. Count only verified identities and MCP traffic as agent activity: unsigned HTTP may be a person submitting a `<Form capability>`, and the client sets the WebMCP transport marker.
-
-```ts [src/server/audit-otel.ts]
-import { metrics, SpanStatusCode, trace } from "@opentelemetry/api";
-import { addCapabilityAuditListener } from "@pracht/core/server";
-
-const meter = metrics.getMeter("pracht.capabilities");
-const dispatches = meter.createCounter("pracht.capability.dispatches");
-const duration = meter.createHistogram("pracht.capability.duration", { unit: "ms" });
-const tracer = trace.getTracer("pracht.capabilities");
-
-const stopOtel = addCapabilityAuditListener("otel", (event) => {
-  const attributes = {
-    "pracht.capability": event.capability,
-    "pracht.effect": event.effect,
-    "pracht.transport": event.transport,
-    "pracht.via": event.via ?? "none",
-    "pracht.outcome": event.outcome,
-    "pracht.agent": event.agent?.agentDomain ?? event.agent?.keyId ?? "unverified",
-  };
-
-  const completed = event.outcome === "ok" || (event.status >= 200 && event.status < 300);
-
-  dispatches.add(1, attributes);
-  duration.record(event.durationMs, attributes);
-
-  // The dispatch already finished, so the span is backdated to its real start
-  // rather than wrapping work that is still running.
-  const end = Date.now();
-  const span = tracer.startSpan(`capability ${event.capability}`, {
-    attributes: { ...attributes, "http.response.status_code": event.status },
-    startTime: end - event.durationMs,
-  });
-  if (!completed) {
-    span.setStatus({ code: SpanStatusCode.ERROR, message: event.outcome });
-  }
-  span.end(end);
-});
-
-if (import.meta.hot) {
-  import.meta.hot.dispose(stopOtel);
-}
-```
-
-Import both modules from an eagerly loaded server module, such as your adapter's `createContextFrom` module or a custom server entry. Route, API, middleware, and `src/server/` modules load lazily, so a sink imported only there can miss earlier calls. For request-level tracing, see [Logging and observability](/docs/recipes/logging).
-
-### Agent traffic in dev
-
-Open `/_pracht` during `pracht dev` to see the last 200 audit events in the **Agents** section, newest first. The same data is JSON at `/_pracht.json`:
-
-```json
-{
-  "agentTraffic": {
-    "limit": 200,
-    "recorded": 3,
-    "events": [
-      {
-        "at": 1787718593323,
-        "capability": "notes.search",
-        "effect": "read",
-        "transport": "mcp",
-        "via": null,
-        "outcome": "ok",
-        "status": 200,
-        "durationMs": 0.28,
-        "agent": null
-      }
-    ]
-  }
-}
-```
-
-`recorded` counts every event since the dev server started. Cloudflare's `workerd` dev server does not serve the panel; both paths return 404 there.
-
-The panel labels verified identities and MCP calls **agent-attributed**, and unsigned HTTP and WebMCP calls as unverified **dispatches**. `invokeCapability()` work outside a served request sits behind a "show first-party" toggle.
-
-### What is not audited
-
-Requests rejected before dispatch emit no event: cross-origin mutations (`cross_origin_blocked`), unknown paths under `/api/capabilities/*` (`unknown_capability`), and unknown or unexposed MCP tool names. Use your HTTP access log to spot probing.
-
-To see the configured surface instead of live traffic, run [`pracht inspect agents`](/docs/cli#pracht-inspect). It reports each capability's exposure and the MCP endpoint's OAuth settings.
-
-### Remote MCP composition is guarded
+## Remote MCP composition is guarded
 
 `invokeCapability()` runs the callee's validation, named middleware, and `run()`, but not app-level `api.middleware`, so private capabilities work as server-side building blocks.
 
 Under remote MCP, nested calls re-apply the callee's `agentPolicy` and refuse `destructive` callees unless the served tool is itself destructive and cleared prepare/commit. A tool's effect class is therefore your promise about everything it composes. HTTP and WebMCP composition add no rules: the exposed capability's policy and each callee's middleware must authorize nested work.
-
-## pracht eval: prove agent flows in CI
-
-Write scenarios in `evals/*.eval.json` and run `pracht eval` against your running app; it exits 1 on any failed expectation. `examples/basic` ships this one:
-
-```jsonc [evals/notes.eval.json]
-{
-  "name": "notes agent flow",
-  "task": "Search notes, hit a validation failure, then purge with the confirmation flow.",
-  "steps": [
-    {
-      "capability": "notes.search",
-      "input": { "query": "capabilities" },
-      "expect": { "ok": true, "status": 200 }
-    },
-    {
-      "capability": "notes.search",
-      "input": { "query": "" },
-      "expect": { "ok": false, "status": 400, "errorCode": "invalid_input" }
-    },
-    {
-      "capability": "notes.create",
-      "input": { "title": "Purge target", "body": "Created by pracht eval." },
-      "expect": { "ok": true, "output": { "note": { "title": "Purge target" } } }
-    },
-    {
-      "capability": "notes.purge",
-      "input": {
-        "titlePrefix": "Purge target",
-        "idempotencyKey": "$steps[2].data.note.id"
-      },
-      "expect": { "ok": false, "status": 409, "errorCode": "confirmation_required" }
-    },
-    {
-      "capability": "notes.purge",
-      "input": {
-        "titlePrefix": "Purge target",
-        "idempotencyKey": "$steps[2].data.note.id"
-      },
-      "confirm": "$steps[3].error.confirmationToken",
-      "expect": { "ok": true }
-    }
-  ]
-}
-```
-
-`$steps[n].<path>` carries values between steps, and `confirm` threads the prepare/commit token. `--start` launches your app, waits for it to answer, runs the scenarios, and stops it:
-
-```sh
-pracht eval --start "pracht preview"    # runs evals/**/*.eval.json
-
-# …or manage the server yourself:
-pracht preview                          # in another terminal
-pracht eval --url http://localhost:3000
-```
-
-Each step reports the capability's own dispatch status and latency:
-
-```
-PASS  notes agent flow  (evals/notes.eval.json)
-  ✓ 1. notes.search → ok (200, 12ms)
-  ✓ 2. notes.search → invalid_input (400, 3ms)
-  ✓ 3. notes.create → ok (200, 5ms)
-  ✓ 4. notes.purge → confirmation_required (409, 4ms)
-  ✓ 5. notes.purge → ok (200, 6ms)
-
-PASS  notes agent flow over MCP  [mcp]  (evals/notes-mcp.eval.json)
-  ✓ 1. notes.search → ok (200, 15ms)
-  ✓ 2. notes.search → invalid_input (400, 4ms)
-  ✓ 3. notes.create → ok (200, 7ms)
-  ✓ 4. notes.purge → confirmation_required (409, 5ms)
-  ✓ 5. notes.purge → ok (200, 8ms)
-
-2 scenario(s) passed, 0 failed.
-```
-
-### The same scenario over remote MCP
-
-Add `"transport": "mcp"` to drive the [remote MCP endpoint](/docs/capabilities#remote-mcp-tools-for-agents-without-a-browser) like a host: an `initialize` handshake, then one `tools/call` per step with the projected tool name (`notes.search` → `notes_search`).
-
-```jsonc [evals/notes-mcp.eval.json — transport keys]
-{
-  "name": "notes agent flow over MCP",
-  "transport": "mcp",              // default is "http"
-  "mcpPath": "/mcp",               // optional; only if you moved the endpoint
-  "mcpHeaders": {                    // when agents.mcp.auth protects the endpoint
-    "authorization": "Bearer test-token"
-  },
-  "steps": [
-    { "capability": "notes.search", "input": { "query": "roadmap" } },
-    {
-      "capability": "notes.search",
-      "input": { "query": "" },
-      // The identical expectation the HTTP scenario writes.
-      "expect": { "ok": false, "status": 400, "errorCode": "invalid_input" }
-    }
-  ]
-}
-```
-
-Expectations are portable across transports: `status` is the capability's dispatch status, not the JSON-RPC `200`. `signAs` signs MCP requests too.
-
-- `mcpHeaders.authorization` is sent on every request; a step's own `authorization` header overrides it. Inject a test token in CI.
-- Any header other than `authorization` fails the scenario, as does a capability without `expose.mcp`.
-- Destructive `confirm` steps need [`agents.mcp.destructive` and an approval store](/docs/capabilities#destructive-tools).
-
-### Scenarios over WebMCP
-
-Set `"transport": "webmcp"` and a `"webmcpRoute"` to launch Chrome, discover the page tool on that route, and run your steps:
-
-```jsonc [evals/notes-webmcp.eval.json]
-{
-  "name": "notes through WebMCP",
-  "transport": "webmcp",
-  "webmcpRoute": "/notes",
-  "steps": [
-    {
-      "capability": "notes.search",
-      "input": { "query": "roadmap" },
-      "expect": { "ok": true }
-    },
-    {
-      "capability": "notes.search",
-      "input": { "query": "roadmap" },
-      "cancelAfterMs": 0,
-      "expect": { "ok": false, "status": 499, "errorCode": "cancelled" }
-    }
-  ]
-}
-```
-
-`cancelAfterMs` checks that host cancellation reaches your dispatch. WebMCP scenarios reject headers, confirmation tokens, and `signAs`, and need Chrome 150 or later; pin the binary in CI with `--browser /path/to/chrome`.
-
-To unit-test the dispatch pipeline with `createCapabilityTestHost()`, see the [Testing recipe](/docs/recipes/testing).

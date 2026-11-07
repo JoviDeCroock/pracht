@@ -29,7 +29,7 @@ The settings that move the total:
 | --- | --- |
 | Islands instead of full hydration | Removes the whole client router |
 | [Prefetching off](/docs/prefetching#shipping-less-javascript) | Saves about 1.6 KB. The router loads the prefetch runtime after hydration, so it counts on a cold load but appears in no route's chunk list |
-| [Navigation guards off](/docs/data-loading#useblocker) | Saves about 0.25 KB, the full cost of `useBlocker()` |
+| [Navigation guards off](/docs/reference/hooks#useblocker) | Saves about 0.25 KB, the full cost of `useBlocker()` |
 | [Accessible navigation](/docs/reference/config#client-bundle) off | Saves about 0.3 KB; turn it off only if the app moves focus and announces pages itself |
 | [Rich data](/docs/data-loading#dates-maps-and-other-rich-values) on | Costs about 0.3 KB |
 | [Islands navigation](/docs/islands#client-side-navigation-between-islands-pages) on | Costs about 3.8 KB on islands pages; an islands page without islands then loads about 11 KB instead of nothing |

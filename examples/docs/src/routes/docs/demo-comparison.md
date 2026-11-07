@@ -69,7 +69,7 @@ What the manifest shows:
   decides which component handles a path.
 
 To use file conventions instead, see the
-[pages router](/docs/routing#pages-router-auto-discovery).
+[pages router](/docs/pages-router).
 
 ## Serve Markdown from the same URL
 

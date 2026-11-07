@@ -126,7 +126,7 @@ Route-state requests for those pages do run middleware with the visitor's reques
 
 ## Without a manifest (higher-order functions)
 
-With the pages router on a serverful adapter, a root-level [`_middleware.ts`](/docs/routing#middleware-via-middlewarets) applies the same `MiddlewareFn` to every page route. Static exports cannot run middleware.
+With the pages router on a serverful adapter, a root-level [`_middleware.ts`](/docs/pages-router#middleware-via-middlewarets) applies the same `MiddlewareFn` to every page route. Static exports cannot run middleware.
 
 `_middleware.ts` does not wrap API routes. To guard an API handler, in pages mode or per handler in any mode, wrap it in a function:
 

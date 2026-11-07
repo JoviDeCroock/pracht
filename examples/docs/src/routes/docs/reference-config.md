@@ -38,7 +38,7 @@ pass only an `adapter`.
 | Option | Default | Description |
 | --- | --- | --- |
 | `adapter` | Node adapter | Deployment target. See [Adapters](/docs/adapters) |
-| `pagesDir` | *(unset)* | Opt into [file-system routing](/docs/routing#pages-router-auto-discovery), e.g. `"/src/pages"`. Overrides `appFile` |
+| `pagesDir` | *(unset)* | Opt into [file-system routing](/docs/pages-router), e.g. `"/src/pages"`. Overrides `appFile` |
 | `pagesDefaultRender` | `"ssr"` | Render mode for pages that do not export `RENDER_MODE`. Pages router only |
 | `trailingSlash` | `"ignore"` | `"always"` or `"never"` makes `/about/` or `/about` the canonical page URL: links use it and the other spelling redirects with a `308`. `"ignore"` serves both. See [Trailing slashes](/docs/routing#trailing-slashes) |
 
@@ -63,7 +63,7 @@ options and `<Link>` props.
 | Option | Default | Description |
 | --- | --- | --- |
 | `client.prefetch` | `true` | JS [prefetching](/docs/prefetching#shipping-less-javascript) from `route({ prefetch })` and `<Link prefetch>`. Off makes `prefetch()` a no-op |
-| `client.navigationGuards` | `true` | [`useBlocker()`](/docs/data-loading#useblocker) navigation guards. Off makes `useBlocker()` never block; it warns in development |
+| `client.navigationGuards` | `true` | [`useBlocker()`](/docs/reference/hooks#useblocker) navigation guards. Off makes `useBlocker()` never block; it warns in development |
 | `client.accessibleNavigation` | `true` | After a client navigation to another page, focus moves to the new page's `autofocus` element or the top of the page, and screen readers hear the page's title, its first `<h1>`, or its path. Focus the page moves itself is left alone. Turn it off only if the app manages focus and announcements itself |
 | `client.hydrationWarnings` | `false` | Keep the [hydration-mismatch reporter](/docs/rendering#hydration-mismatch-warnings) in production client and islands bundles, to check a build before deploying it. Not for the build you ship |
 | `client.richData` | `false` | Send loader `Date`, `Map`, `Set`, `BigInt`, and shared references to the browser [as those types](/docs/data-loading#dates-maps-and-other-rich-values) instead of as JSON |
@@ -121,7 +121,7 @@ export const app = defineApp({
 | `capabilities` | Record\<string, ModuleRef\> | Named [capabilities](/docs/capabilities), e.g. `{ "notes.search": () => import("./capabilities/notes-search.ts") }`. Server-only and private unless they declare `expose` |
 | `notFound` | ModuleRef \| NotFoundConfig | The [404 page](/docs/data-loading#custom-404-page) |
 | `api` | ApiConfig | App-wide API policy; see [`api`](#api) |
-| `agents` | PrachtAgentsConfig | [Agent trust](/docs/agent-trust): Web Bot Auth policy and keys, the destructive-capability confirmation flow, and the [remote MCP endpoint](/docs/capabilities#remote-mcp-tools-for-agents-without-a-browser) with its optional OAuth resource-server config. Serializable data and module references only |
+| `agents` | PrachtAgentsConfig | [Agent trust](/docs/agent-trust): Web Bot Auth policy and keys, the destructive-capability confirmation flow, and the [remote MCP endpoint](/docs/mcp-tools#remote-mcp-tools-for-agents-without-a-browser) with its optional OAuth resource-server config. Serializable data and module references only |
 | `constraints` | RouteConstraint[] | Invariants over the resolved graph, checked by `pracht verify`. See [Coding agents](/docs/coding-agents#constraints) |
 | `viewTransitions` | boolean | Animate client navigations with the View Transitions API, and full page loads (islands and `hydration: "none"` routes) as cross-document transitions. See [View transitions](/docs/recipes/view-transitions) |
 | `loaderTimeoutMs` | number | Per-request budget in milliseconds for the `signal` passed to middleware, loaders, API handlers, and capabilities; it also aborts when the client disconnects. Default `30000`. Applies to SSG/ISG prerendering too, so a short budget can fail the build. See [Data loading](/docs/data-loading#signal) |

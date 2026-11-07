@@ -13,14 +13,14 @@ serves browsers and agents.
 `src/routes.ts` lists every page route with its file, shell, middleware, and
 render mode, plus the app's capabilities. A few things are discovered by
 directory instead: API routes in `src/api/`, islands in `src/islands/`, and, if
-you opt into the [pages router](/docs/routing#pages-router-auto-discovery),
+you opt into the [pages router](/docs/pages-router),
 pages in `src/pages/`. Either way the result is one graph that you, a reviewer,
 `pracht verify`, and `pracht plan` all read.
 
 **Agents use the same graph.** A [capability](/docs/capabilities) is served to
 your UI and to agents as a typed, validated tool over HTTP,
-[WebMCP](/docs/capabilities#webmcp-tools-for-in-browser-agents), and
-[remote MCP](/docs/capabilities#remote-mcp-tools-for-agents-without-a-browser),
+[WebMCP](/docs/mcp-tools#webmcp-tools-for-in-browser-agents), and
+[remote MCP](/docs/mcp-tools#remote-mcp-tools-for-agents-without-a-browser),
 and pages are listed in a generated
 [`llms.txt`](/docs/agents#discovery-markdown-and-llmstxt). Every transport runs
 the same function.
@@ -60,7 +60,7 @@ export const app = defineApp({
 
 The manifest shows which file handles each path, its shell, its middleware, and
 how it renders. File-based routing is the opt-in
-[pages router](/docs/routing#pages-router-auto-discovery).
+[pages router](/docs/pages-router).
 
 ### Per-route render modes
 
@@ -142,7 +142,7 @@ a remote MCP tool.
 - **Every call is recorded.** One structured audit event per dispatch, with
   transport, outcome, latency, and identity.
 - **Agent flows are tested.**
-  [`pracht eval`](/docs/agent-trust#pracht-eval-prove-agent-flows-in-ci) runs
+  [`pracht eval`](/docs/agent-eval) runs
   scripted agent tasks in CI, and `pracht plan` flags changes that widen what
   agents can reach.
 

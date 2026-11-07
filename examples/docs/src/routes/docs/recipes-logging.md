@@ -166,7 +166,7 @@ pracht turns loader and handler errors into responses inside its runtime. To obs
 
 ## Pages router: wrap API handlers
 
-In a [pages router](/docs/routing) app, `src/pages/_middleware.ts` wraps every page route with the same `MiddlewareFn`. It does not wrap API routes, capability HTTP endpoints, or `/mcp`, so log those with a higher-order handler:
+In a [pages router](/docs/pages-router) app, `src/pages/_middleware.ts` wraps every page route with the same `MiddlewareFn`. It does not wrap API routes, capability HTTP endpoints, or `/mcp`, so log those with a higher-order handler:
 
 ```ts [src/lib/with-request-logging.ts]
 import { PrachtHttpError, type ApiRouteHandler } from "@pracht/core";
@@ -259,4 +259,4 @@ Metrics to derive from these events:
 | Task completion | Share of calls per `capability` where `outcome === "ok"` or the status is 2xx | Whether agents finish what they came for |
 | Contract failures | Count of `invalid_input`, `invalid_output`, and `unauthorized` | Whether your schemas or auth are blocking them |
 
-In development, the **Agents** section of `/_pracht` shows the last 200 dispatches, and `/_pracht.json` exposes them under `agentTraffic`. Adapter-owned dev servers such as Cloudflare `workerd` return 404 for both; check the listener's own output there. See [Agent trust](/docs/agent-trust#audit-trail) for the full event shape and an OpenTelemetry recipe.
+In development, the **Agents** section of `/_pracht` shows the last 200 dispatches, and `/_pracht.json` exposes them under `agentTraffic`. Adapter-owned dev servers such as Cloudflare `workerd` return 404 for both; check the listener's own output there. See [Audit trail](/docs/agent-audit) for the full event shape and an OpenTelemetry recipe.

@@ -25,7 +25,7 @@ The CLI asks for:
 Pick the pages router if file-based routing is enough. You can eject it to a
 manifest later when you need per-route shells or middleware, explicit route ids,
 path-prefix groups, or webhook ISG; see
-[Pages router](/docs/routing#pages-router-auto-discovery).
+[Pages router](/docs/pages-router).
 
 To skip the prompts in CI or scripts, pass the choices as flags:
 

@@ -22,7 +22,7 @@ const RESERVED_SLUGS = new Set(["index"]);
 
 /** The URL the docs site publishes a page at; mirrors `examples/docs/content.ts`. */
 export function routeForSlug(slug) {
-  for (const prefix of ["recipes", "migrate", "reference"]) {
+  for (const prefix of ["recipes", "migrate", "reference", "adapters"]) {
     if (slug.startsWith(`${prefix}-`)) return `/docs/${prefix}/${slug.slice(prefix.length + 1)}`;
   }
   return `/docs/${slug}`;

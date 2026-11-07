@@ -14,11 +14,19 @@ export type NavIcon =
   | "apps"
   | "bolt"
   | "book"
+  | "brand-cloudflare"
+  | "brand-nodejs"
   | "broadcast"
+  | "checklist"
   | "cloud"
+  | "code"
+  | "file-export"
   | "file-text"
+  | "folders"
   | "forms"
   | "gauge"
+  | "heading"
+  | "history"
   | "key"
   | "language"
   | "layout"
@@ -41,6 +49,7 @@ export type NavIcon =
   | "triangle"
   | "typography"
   | "user-bolt"
+  | "webhook"
   | "world"
   | "world-bolt";
 
@@ -74,8 +83,10 @@ export const NAV: readonly NavSection[] = [
     llms: "/llms-core.txt",
     links: [
       { href: "/docs/routing", title: "Routing", icon: "route" },
+      { href: "/docs/pages-router", title: "Pages router", icon: "folders" },
       { href: "/docs/rendering", title: "Rendering modes", icon: "bolt" },
       { href: "/docs/data-loading", title: "Data loading", icon: "server" },
+      { href: "/docs/head", title: "Head and headers", icon: "heading" },
       { href: "/docs/shells", title: "Shells", icon: "layout" },
       { href: "/docs/middleware", title: "Middleware", icon: "shield" },
       { href: "/docs/api-routes", title: "API routes", icon: "plug" },
@@ -104,6 +115,10 @@ export const NAV: readonly NavSection[] = [
     links: [
       { href: "/docs/deployment", title: "Deployment", icon: "cloud" },
       { href: "/docs/adapters", title: "Adapters", icon: "plug" },
+      { href: "/docs/adapters/cloudflare", title: "Cloudflare Workers", icon: "brand-cloudflare" },
+      { href: "/docs/adapters/node", title: "Node.js", icon: "brand-nodejs" },
+      { href: "/docs/adapters/vercel-netlify", title: "Vercel and Netlify", icon: "triangle" },
+      { href: "/docs/adapters/static", title: "Static export", icon: "file-export" },
     ],
   },
   {
@@ -112,8 +127,11 @@ export const NAV: readonly NavSection[] = [
     links: [
       { href: "/docs/agents", title: "Overview", icon: "world-bolt" },
       { href: "/docs/capabilities", title: "Capabilities", icon: "robot" },
+      { href: "/docs/mcp-tools", title: "WebMCP and remote MCP", icon: "webhook" },
       { href: "/docs/standalone-capabilities", title: "Standalone capabilities", icon: "plug" },
       { href: "/docs/agent-trust", title: "Agent trust", icon: "shield-check" },
+      { href: "/docs/agent-audit", title: "Audit trail", icon: "history" },
+      { href: "/docs/agent-eval", title: "Testing agent flows", icon: "checklist" },
       { href: "/docs/coding-agents", title: "Coding agents", icon: "terminal" },
     ],
   },
@@ -139,6 +157,7 @@ export const NAV: readonly NavSection[] = [
     llms: "/llms-reference.txt",
     links: [
       { href: "/docs/reference/api", title: "API", icon: "book" },
+      { href: "/docs/reference/hooks", title: "Client hooks", icon: "code" },
       { href: "/docs/cli", title: "CLI", icon: "terminal" },
       { href: "/docs/reference/config", title: "Configuration", icon: "adjustments" },
       { href: "/docs/reference/i18n", title: "i18n", icon: "language" },

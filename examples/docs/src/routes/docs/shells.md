@@ -64,7 +64,7 @@ mounted and re-renders only the route. A navigation to a route with another
 shell re-renders the whole tree.
 
 With the pages router, shells come from
-[`_app.tsx` files](/docs/routing#shells-via-apptsx) instead.
+[`_app.tsx` files](/docs/pages-router#shells-via-apptsx) instead.
 
 ## Shell data
 
@@ -121,8 +121,8 @@ failed. Islands and `hydration: "none"` pages get shell data on the server only.
 Export `head` from a shell to set site-wide defaults such as the title, icons,
 and `og:site_name`. Route `head()` values override the shell's `title` and
 append to its `meta` and `link` arrays. See
-[Shell-level defaults](/docs/data-loading#shell-level-defaults) for the merge
-rules and [Head metadata](/docs/data-loading#head-metadata) for every field.
+[Shell-level defaults](/docs/head#shell-level-defaults) for the merge
+rules and [Head metadata](/docs/head#head-metadata) for every field.
 
 ## Shell document headers
 
@@ -209,7 +209,7 @@ client navigation; what the server render adds reaches it with the page.
 Request-dependent data still comes from loaders, and layout data from a
 [shell loader](#shell-data). Islands render without the app root, on the
 server too, so pass them what they need as props. An app without a root ships
-none of this code. With the [pages router](/docs/routing#file-conventions), the
+none of this code. With the [pages router](/docs/pages-router#file-conventions), the
 root is `pages/_root.tsx`.
 
 > [!WARNING]

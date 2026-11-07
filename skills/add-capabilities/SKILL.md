@@ -257,7 +257,7 @@ Rules to hold the user to:
   Removing `auth` or a required scope, or trusting another authorization server,
   is a guard weakening even when `/mcp` itself did not move.
 
-See <https://pracht.resynapse.dev/docs/capabilities> for the metadata document and the `verify` recipe.
+See <https://pracht.resynapse.dev/docs/mcp-tools#oauth-letting-a-real-host-connect> for the metadata document and the `verify` recipe.
 
 ## Step 5: Destructive capabilities
 

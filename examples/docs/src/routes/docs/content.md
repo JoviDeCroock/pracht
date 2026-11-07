@@ -65,7 +65,7 @@ export const app = defineApp({
 });
 ```
 
-The [pages router](/docs/routing#pages-router-auto-discovery) discovers `.md` files without a manifest.
+The [pages router](/docs/pages-router) discovers `.md` files without a manifest.
 
 ## Add the Vite integration
 
