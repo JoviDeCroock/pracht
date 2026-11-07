@@ -469,8 +469,16 @@ function joinDocumentLines(parts: string[], indent: string): string {
     .join("\n");
 }
 
+const htmlEncoder = new TextEncoder();
+
 export function htmlResponse(html: string, status = 200, initHeaders?: HeadersInit): Response {
-  return ownResponse(new Response(html, { status, headers: htmlResponseHeaders(initHeaders) }));
+  // Encoded here rather than handed over as a string: a string body is
+  // converted to a USVString (a full scan, and a flatten of the concatenated
+  // document) and then encoded again when the body is read, which costs more
+  // than rendering a large document. A byte body is read as is.
+  return ownResponse(
+    new Response(htmlEncoder.encode(html), { status, headers: htmlResponseHeaders(initHeaders) }),
+  );
 }
 
 /** The headers `htmlResponse()` sends, for a document that has to describe them. */
