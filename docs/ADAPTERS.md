@@ -193,6 +193,10 @@ legitimate route whose base-free path is `/my-project`.
   [Static paths](#static-paths-and-the-node-bridge)). Hashed assets under `/assets/` get `Cache-Control: public,
 max-age=31536000, immutable`; HTML and other files get `public, max-age=0,
 must-revalidate`. Clean URLs (e.g. `/about`) resolve to `about/index.html`.
+A path with no static file (every rendered route) is remembered for one second
+per handler, at most 1,024 paths, so a busy route does not pay two failed
+`lstat` calls per request; a file added to `dist/client/` at runtime is found
+once its path's window ends.
 Prerendered HTML receives route and shell document headers from
 `dist/server/headers-manifest.json`. When the server entry's
 `features.headersManifest` is `2` (the Node, Netlify, and Cloudflare adapters
