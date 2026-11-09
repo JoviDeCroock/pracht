@@ -55,7 +55,7 @@ pnpm create pracht my-app --adapter=vercel --template=tailwind --yes
 | `--json` | Print a machine-readable summary |
 | `--dry-run` | List files without writing them |
 
-Every generated app has `dev`, `build`, and `typecheck` scripts. Node, static, Cloudflare, and Netlify starters add `preview`; Node starters add `start`; Cloudflare, Netlify, and Vercel starters add `deploy`.
+Every generated app has `dev`, `build`, `typegen`, and `typecheck` scripts. The `dev` and `typecheck` scripts generate route, API, and capability types before running. Node, static, Cloudflare, and Netlify starters add `preview`; Node starters add `start`; Cloudflare, Netlify, and Vercel starters add `deploy`.
 
 ## pracht dev
 
@@ -166,7 +166,7 @@ Add `--json` for machine-readable output.
 
 `--check` compares declarations, not bytes, so reformatting the generated files never fails it, and regenerating leaves a correct file untouched.
 
-After the first run, `pracht dev` refreshes the types when route files, the manifest, or an imported definition module change. Re-run `pracht typegen` after upgrading pracht.
+New apps generate types during setup and before their `dev` and `typecheck` scripts run. In an existing app, run `pracht typegen` once to enable type generation. `pracht dev` then refreshes types when route files, the manifest, or an imported definition module change.
 
 ## pracht doctor
 

@@ -26,7 +26,14 @@ imports from `@pracht/core` on those client-facing surfaces therefore use the
 same declarations as a browser bundle and reject server-only exports at
 typecheck time. The base `tsconfig.json` still checks the whole project without
 that condition, preserving server and test resolution; the generated
-`typecheck` script runs both programs. The client program also includes
+`typecheck` script regenerates the app-graph types before running both programs.
+The starter also generates types after dependency installation, before its initial
+git commit, and its `dev` script runs `pracht typegen` before `pracht dev`.
+This keeps fresh and `--skip-install` scaffolds strict without changing the
+CLI's opt-in behavior for existing handwired apps. A failed initial generation
+prints a retry notice; `dev` and `typecheck` fail before their next step when
+generation fails. Cloudflare runs `wrangler types` before app typegen during
+`typecheck`, preserving binding registration. The client program also includes
 `src/**/*.d.ts`: `pracht typegen` output and `Register` augmentations live
 there, and without them typed hooks read as `unknown` and `<Link route>`
 accepts any string. `pracht doctor` warns when a client config's own

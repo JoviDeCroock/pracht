@@ -98,9 +98,15 @@ writing it would leave a config in the repo that nothing in the repo reads.
 
 ## Generated Scripts
 
-- `dev` -> `pracht dev`
+- `dev` -> `pracht typegen && pracht dev`
 - `build` -> `pracht build`
-- `typecheck` -> checks the server-capable base TypeScript program, then the browser-conditioned routes, shells, and islands in `tsconfig.client.json`
+- `typegen` -> `pracht typegen`
+- `typecheck` -> regenerates app types, then checks the server-capable base TypeScript program and browser-conditioned routes, shells, and islands in `tsconfig.client.json`
+
+Types are also generated after a successful dependency installation, before the
+initial git commit. If installation is skipped or initial generation fails,
+`dev` and `typecheck` generate them before proceeding. Cloudflare typechecks
+run `wrangler types` first to refresh binding types.
 
 Node starters also include:
 

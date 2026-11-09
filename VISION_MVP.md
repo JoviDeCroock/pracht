@@ -31,7 +31,7 @@ trust-gated tools for agents over HTTP, WebMCP, remote MCP, and `llms.txt`.
 - **Hybrid file-based routing**: route modules live in `src/routes/`, wired via an
   explicit `src/routes.ts` manifest using `defineApp()`, `route()`, `group()`.
 - **Dynamic segments**: `:param` syntax, catch-all segments.
-- **Typed route links**: `pracht typegen` emits route id/param types and href helpers for `<Link>`, `useNavigate()`, and code outside components.
+- **Typed route links**: `pracht typegen` emits route id/param types and href helpers for `<Link>`, `useNavigate()`, and code outside components. New starters generate app types during setup and before development or typechecking.
 - **Typed search params**: a route module exports a `search` Standard Schema;
   loaders, `head()`, and `useSearch()` get the parsed output, links and
   `href()` are checked against its input, and a rejected query renders the

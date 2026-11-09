@@ -120,6 +120,11 @@ Open `http://localhost:3000` and edit the first page: `src/routes/home.tsx`
 with the manifest router, `src/pages/index.tsx` with the pages router. The
 browser updates on save. Set `--port` or `PORT` to use another port.
 
+The dev script generates typed routes, API calls, and capabilities before
+starting, then keeps those types current while you edit. Run `pnpm typecheck`
+locally or in CI to regenerate the app types and check both server and browser
+code. After `--skip-install`, install dependencies before running either script.
+
 ## Build output
 
 ```sh

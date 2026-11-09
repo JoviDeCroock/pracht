@@ -1,6 +1,6 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, readlink, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readlink, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -56,6 +56,89 @@ describe("create-pracht", () => {
     expect(prompt).not.toContain("MCP, or agent trust");
   });
 
+  it.skipIf(process.platform === "win32")(
+    "generates types after installation and includes them in the initial commit",
+    async () => {
+      const root = await mkdtemp(join(tmpdir(), "pracht-start-first-types-"));
+      const targetDir = join(root, "app");
+      const binDir = join(root, "bin");
+      await mkdir(binDir);
+      // Stand in for dependency installation without downloading a second
+      // framework. Generating the file proves it runs inside the new app,
+      // after install and before git commits the scaffold.
+      const npmPath = join(binDir, "npm");
+      await writeFile(
+        npmPath,
+        `#!${process.execPath}
+import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
+const command = process.argv.slice(2).join(" ");
+appendFileSync("commands.log", command + "\\n");
+if (command === "run typegen") {
+  mkdirSync("src", { recursive: true });
+  writeFileSync("src/pracht.d.ts", "// Generated app types\\n");
+}
+`,
+      );
+      await chmod(npmPath, 0o755);
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("offline"));
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      vi.stubEnv("PATH", `${binDir}:${process.env.PATH}`);
+      vi.stubEnv("npm_config_user_agent", "npm/10.0.0");
+      try {
+        await run([
+          targetDir,
+          "--adapter=node",
+          "--router=manifest",
+          "--template=minimal",
+          "--no-agent-tools",
+          "--yes",
+        ]);
+        expect(await readFile(join(targetDir, "commands.log"), "utf-8")).toBe(
+          "install\nrun typegen\n",
+        );
+        expect(
+          execFileSync("git", ["show", "HEAD:src/pracht.d.ts"], {
+            cwd: targetDir,
+            encoding: "utf-8",
+          }),
+        ).toBe("// Generated app types\n");
+      } finally {
+        fetchSpy.mockRestore();
+        logSpy.mockRestore();
+        vi.unstubAllEnvs();
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it.each(["manifest", "pages"])(
+    "regenerates types before dev and clean CI checks for the %s starter",
+    async (router) => {
+      const root = await mkdtemp(join(tmpdir(), "pracht-start-type-scripts-"));
+      try {
+        await scaffoldProject({
+          adapter: NODE_ADAPTER,
+          agentTools: false,
+          packageManager: "pnpm",
+          resolveRemoteVersions: false,
+          router,
+          targetDir: root,
+        });
+        const { scripts } = JSON.parse(await readFile(join(root, "package.json"), "utf-8"));
+        expect(scripts.typegen).toBe("pracht typegen");
+        expect(scripts.dev).toBe("pracht typegen && pracht dev");
+        expect(scripts.typecheck).toBe(
+          "pracht typegen && tsrs --noEmit && tsrs --noEmit --project tsconfig.client.json",
+        );
+        expect(await readFile(join(root, "README.md"), "utf-8")).toContain(
+          "The dev and typecheck scripts generate route, API, and capability types before running.",
+        );
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+  );
+
   it("detects the package manager from the npm user agent", () => {
     expect(getPackageManager("pnpm/10.0.0 npm/? node/? darwin x64")).toBe("pnpm");
     expect(getPackageManager("yarn/4.7.0 npm/? node/? darwin x64")).toBe("yarn");
@@ -105,7 +188,7 @@ describe("create-pracht", () => {
     expect(packageJson).toContain('"preview": "pracht preview"');
     expect(packageJson).toContain('"start": "node dist/server/server.js"');
     expect(packageJson).toContain(
-      '"typecheck": "tsrs --noEmit && tsrs --noEmit --project tsconfig.client.json"',
+      '"typecheck": "pracht typegen && tsrs --noEmit && tsrs --noEmit --project tsconfig.client.json"',
     );
     expect(packageJson).toMatch(/"tsrs": "\d+\.\d+\.\d+-ts[\d.]+-beta"/);
     expect(packageJson).not.toContain('"typescript"');
@@ -471,7 +554,7 @@ describe("create-pracht", () => {
     // typecheck regenerates it before tsrs reads it.
     expect(parsedPackageJson.scripts["cf-typegen"]).toBe("wrangler types");
     expect(parsedPackageJson.scripts.typecheck).toBe(
-      "wrangler types && tsrs --noEmit && tsrs --noEmit --project tsconfig.client.json",
+      "wrangler types && pracht typegen && tsrs --noEmit && tsrs --noEmit --project tsconfig.client.json",
     );
     expect(packageJson).toContain('"wrangler": "^4.81.0"');
     // A fixed date, never a generated one: workerd refuses to start when asked
@@ -771,7 +854,7 @@ describe("create-pracht", () => {
 
     expect(packageJson).toContain('"deploy": "pracht build && vercel deploy --prebuilt"');
     expect(packageJson).toContain(
-      '"typecheck": "tsrs --noEmit && tsrs --noEmit --project tsconfig.client.json"',
+      '"typecheck": "pracht typegen && tsrs --noEmit && tsrs --noEmit --project tsconfig.client.json"',
     );
     expect(packageJson).not.toContain('"preview"');
     expect(readme).toContain("configured for Vercel");
