@@ -172,6 +172,8 @@ commands and [Adapters](/docs/adapters) for what each adapter emits.
 
 ## Next steps
 
+Build [your first shared operation](/docs/recipes/first-workflow): a validated note form, session protection, an agent call, and a production build in the runnable example.
+
 - [Routing](/docs/routing): declare routes, shells, middleware, and render modes in `src/routes.ts`.
 - [Rendering modes](/docs/rendering): choose SSR, SSG, ISG, or SPA per route.
 - [Data loading](/docs/data-loading): fetch data in loaders and handle mutations in API routes.
