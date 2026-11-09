@@ -1,6 +1,6 @@
 ---
 title: Forms
-lead: Submit forms with `<Form>` and API routes. Forms work without JavaScript and switch to fetch submissions once it loads.
+lead: Submit forms to API routes or shared capabilities, show field errors, and provide a retry form for visitors without JavaScript.
 ---
 
 This recipe builds a contact form that posts to an API route, shows field errors, and keeps working with JavaScript disabled.
@@ -319,6 +319,45 @@ export async function POST({ request }: ApiRouteArgs) {
   return Response.json({ ok: true, url });
 }
 ```
+
+## Capability Form Feedback
+
+For a [capability form](/docs/capabilities), group server validation issues with `capabilityFormFeedback()`. Failed enhanced submissions keep the current inputs, so visitors can correct them in place:
+
+```tsx
+import { useState } from "preact/hooks";
+import { Form } from "@pracht/core";
+import { capabilityFormFeedback } from "@pracht/capabilities";
+
+export function NoteForm() {
+  const [errors, setErrors] = useState<string[]>([]);
+  return (
+    <Form capability="notes.create" onCapabilityResult={(result) => {
+      setErrors(result.ok ? [] : capabilityFormFeedback(result.error).fieldErrors.title ?? []);
+    }}>
+      <label for="title">Title</label>
+      <input id="title" name="title" aria-invalid={errors.length > 0} aria-describedby="title-errors" />
+      <p id="title-errors" role="alert">{errors.join(" ")}</p>
+      <button type="submit">Create note</button>
+    </Form>
+  );
+}
+```
+
+For visitors without JavaScript, add `form` to the server-only capability. The renderer receives grouped `fieldErrors`, `formErrors`, and only the text fields you select in `retain`. Choose public text fields; leave passwords and tokens out.
+
+<!-- snippet: partial -->
+```ts [src/capabilities/notes-create.ts]
+form: {
+  retain: ["title"],
+  redirectTo: "/notes",
+  onInvalid: ({ request, feedback }) => renderNoteRetry(request, feedback),
+},
+```
+
+`renderNoteRetry()` returns your form as an HTML `Response` with status 400 or 422. Render `feedback.values.title` through Preact, associate `feedback.fieldErrors.title` with the input, and post back to `new URL(request.url).pathname`. Successful retries return to `redirectTo`, with your deploy base added automatically.
+
+The [basic example's retry renderer](https://github.com/JoviDeCroock/pracht/blob/main/examples/basic/src/server/note-form.tsx) shows the complete response. With JavaScript, the original form shows errors in place; without it, the retry page preserves selected text and lets the visitor submit corrected input.
 
 ## Search forms
 

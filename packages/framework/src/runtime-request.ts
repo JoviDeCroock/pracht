@@ -29,6 +29,7 @@ import {
   type RequestBudget,
 } from "@pracht/capabilities/server/internal";
 import {
+  PRACHT_BASE,
   resolveBaseRedirectLocation,
   resolveTrailingSlashRedirectLocation,
   restoreBasePathInRequest,
@@ -1014,6 +1015,7 @@ export async function dispatchAgentSurface<TContext>(
         request,
         url,
         pathname: capabilityMatch.httpPath ?? routePathname,
+        base: PRACHT_BASE,
         exposeErrors: ctx.exposeDiagnostics,
         apiMiddlewareFiles: resolveApiMiddlewareFiles(options.app),
         agents: options.app.agents,

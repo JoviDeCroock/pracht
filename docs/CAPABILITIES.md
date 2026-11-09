@@ -551,7 +551,9 @@ import { Form } from "@pracht/core";
   from the capability name once typegen has run).
 - Progressive enhancement: without JavaScript the endpoint accepts the
   form-encoded post and answers a successful document submission with a 303
-  back to the same-origin referring page. Failed posts keep the JSON envelope.
+  back to the same-origin referring page. A capability's optional `form`
+  renderer provides an HTML retry response on invalid native submissions;
+  without it failures keep the JSON envelope.
 - For capabilities with a custom `expose.http.path`, set `action` explicitly.
   A root-absolute action automatically receives Vite's deploy base.
 - Submit buttons can override that target with `formaction`; enhanced and
@@ -564,6 +566,54 @@ import { Form } from "@pracht/core";
   the same-origin form fetch and lets the browser navigate, so the external
   page is never fetched through CORS. Relative `Location` values resolve
   against the capability endpoint, matching native HTTP redirect behavior.
+
+### Form validation feedback
+
+`capabilityFormFeedback(error)` from `@pracht/capabilities` groups capability
+JSON Pointer issues into `fieldErrors` keyed by the decoded top-level field
+name, deduplicates each field's messages, and collects root issues in
+`formErrors`. When there are no issues it uses `error.message` as a form error.
+Use it in `onCapabilityResult` to display server errors beside inputs; failed
+enhanced submissions leave existing input elements and their values intact.
+
+For native document submissions, opt in on the server-only capability:
+
+```ts
+form: {
+  retain: ["title", "body"],
+  redirectTo: "/notes",
+  onInvalid: invalidNoteForm,
+},
+```
+
+`onInvalid({ request, feedback })` returns an HTML `Response` with status 400
+or 422 and no `Location` header. It receives no raw input object. The
+`feedback.values` record contains only strings from the explicit `retain`
+allowlist; all other fields and files are omitted. Repeated fields retain the
+last string value (a final non-string entry removes that value). The helper
+accepts the same policy through `{ entries, retain }` when used directly.
+Values remain untrusted text: render through Preact or another escaping
+renderer, and never select passwords, tokens, or other secrets for retention.
+
+`redirectTo` is a required exact same-origin route pathname; Pracht adds the
+configured deploy base. Successful native submissions redirect there with 303, including
+retries whose referring page is now the capability endpoint. Redirect targets
+never come from submitted fields. The HTML failure response always receives
+`Cache-Control: private, no-store` and `Referrer-Policy: same-origin`, preserving
+the browser provenance required for a native retry's CSRF check.
+
+The renderer runs only after an `invalid_input` result from a form-encoded
+document request accepting HTML, without an enhanced-form or transport marker.
+It never changes JSON calls, enhanced form responses, WebMCP, direct server
+invocation, or remote MCP. Input validation precedes named capability
+middleware, so the renderer must be a pure form response: it must not assume
+authentication middleware ran or load private application data. API middleware
+and host same-origin checks still wrap dispatch. Renderer failures use the
+normal redacted internal-error response and audit path.
+
+The basic example's `src/server/note-form.tsx` supplies an accessible Preact
+retry renderer, and `src/routes/notes.tsx` shows enhanced field feedback. Both
+submit to `notes.create` and use its existing validation contract.
 
 ## Generated types
 

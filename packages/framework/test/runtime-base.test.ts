@@ -53,6 +53,66 @@ async function renderUnderBase(
 }
 
 describe("server runtime under a deploy base", () => {
+  it("keeps corrected native capability forms inside the deploy base", async () => {
+    vi.resetModules();
+    vi.stubEnv("BASE_URL", "/app/");
+    const core = await import("../src/index.ts");
+    const server = await import("../src/server.ts");
+    const { defineCapability } = await import("@pracht/capabilities");
+    const capability = defineCapability({
+      title: "Create note",
+      description: "Create a public note.",
+      effect: "write",
+      input: {
+        type: "object",
+        properties: { title: { type: "string", minLength: 1 } },
+        required: ["title"],
+      },
+      output: { type: "object" },
+      expose: { http: true },
+      run: () => ({}),
+      form: {
+        redirectTo: "/notes",
+        retain: ["title"],
+        onInvalid: ({ request }) =>
+          new Response(`<form method="post" action="${new URL(request.url).pathname}"></form>`, {
+            status: 400,
+            headers: { "content-type": "text/html" },
+          }),
+      },
+    });
+    const app = core.defineApp({
+      routes: [],
+      capabilities: { "notes.create": "./capabilities/notes-create.ts" },
+    });
+    const registry = {
+      routeModules: {},
+      capabilityModules: {
+        "./capabilities/notes-create.ts": async () => ({ default: capability }),
+      },
+    };
+    const post = (title: string) =>
+      new Request("https://example.com/app/api/capabilities/notes/create", {
+        method: "POST",
+        headers: {
+          accept: "text/html",
+          origin: "https://example.com",
+          "content-type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({ title }),
+      });
+    const invalid = await server.handlePrachtRequest({ app, registry, request: post("") });
+    expect(invalid.status).toBe(400);
+    expect(await invalid.text()).toContain('action="/app/api/capabilities/notes/create"');
+    const corrected = await server.handlePrachtRequest({
+      app,
+      registry,
+      request: post("Corrected"),
+    });
+    expect(corrected.status).toBe(303);
+    expect(corrected.headers.get("location")).toBe("https://example.com/app/notes");
+  });
+
   it("redirects the bare base before rendering the root document", async () => {
     vi.resetModules();
     vi.stubEnv("BASE_URL", "/app/");

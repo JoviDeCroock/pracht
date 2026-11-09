@@ -1,4 +1,5 @@
 import type { StandardJSONSchemaV1, StandardSchemaV1 } from "@standard-schema/spec";
+import type { CapabilityFormOptions } from "./form-feedback.ts";
 
 import {
   capabilityExposureFromDescriptor,
@@ -8,6 +9,7 @@ import {
 } from "./descriptor.ts";
 import {
   isValidCapabilityName,
+  isValidCapabilityHttpPath,
   type CapabilityErrorCode,
   type PrachtAgentIdentity,
 } from "./protocol.ts";
@@ -150,6 +152,8 @@ export interface CapabilityDefinition<
   expose?: CapabilityExposeConfig;
   /** Per-capability Web Bot Auth policy override for the HTTP endpoint. */
   agentPolicy?: CapabilityAgentPolicy;
+  /** Render invalid native form posts using explicitly retained public text fields. */
+  form?: CapabilityFormOptions;
   run: (args: CapabilityRunArgs<TInput, TContext>) => TOutput | Promise<TOutput>;
 }
 
@@ -176,6 +180,7 @@ export interface Capability<TInput = unknown, TOutput = unknown, TContext = Capa
   middleware: string[];
   expose: CapabilityExposure | null;
   agentPolicy?: CapabilityAgentPolicy;
+  form?: CapabilityFormOptions;
   run: (args: CapabilityRunArgs<TInput, TContext>) => TOutput | Promise<TOutput>;
   /** Apply input defaults and validate. Returns the defaulted value on success. */
   validateInput: (value: unknown) => CapabilityValidation<TInput>;
@@ -260,6 +265,7 @@ export function defineCapability<TInput = unknown, TOutput = unknown, TContext =
     middleware: definition.middleware ?? [],
     expose,
     agentPolicy: definition.agentPolicy,
+    form: definition.form,
     run: definition.run,
     validateInput(value: unknown): CapabilityValidation<TInput> {
       const withDefaults = applySchemaDefaults(schemas.input, value === undefined ? {} : value);
@@ -401,6 +407,20 @@ function assertDefinition(
   }
   if (typeof definition.run !== "function") {
     throw new Error(`defineCapability("${label}"): "run" must be a function.`);
+  }
+  if (
+    definition.form !== undefined &&
+    (!definition.form ||
+      typeof definition.form !== "object" ||
+      typeof definition.form.onInvalid !== "function" ||
+      !isValidCapabilityHttpPath(definition.form.redirectTo) ||
+      (definition.form.retain !== undefined &&
+        (!Array.isArray(definition.form.retain) ||
+          definition.form.retain.some((name) => typeof name !== "string" || name.length === 0))))
+  ) {
+    throw new Error(
+      `defineCapability("${label}"): "form" needs an onInvalid function, a same-origin redirectTo pathname, and optional retain string array.`,
+    );
   }
   if (definition.name !== undefined && !isValidCapabilityName(definition.name)) {
     throw new Error(

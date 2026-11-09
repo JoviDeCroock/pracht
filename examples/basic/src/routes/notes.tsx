@@ -2,6 +2,7 @@ import { useState } from "preact/hooks";
 import { Form, useIsHydrated, useRouteData, type LoaderArgs } from "@pracht/core";
 import { invokeCapability } from "@pracht/core/server";
 import { capabilities, useCapability } from "virtual:pracht/capabilities";
+import { capabilityFormFeedback } from "@pracht/capabilities";
 
 // Direct server-side invocation: the loader calls the same capability the
 // HTTP projection serves, through the same validation + middleware pipeline.
@@ -24,6 +25,7 @@ export function Component() {
   const data = useRouteData<typeof loader>();
   const hydrated = useIsHydrated();
   const [status, setStatus] = useState<string | null>(null);
+  const [titleErrors, setTitleErrors] = useState<string[]>([]);
   const [searchCount, setSearchCount] = useState<number | null>(null);
   // useCapability owns the pending/error/result state for a user-triggered
   // call, so the component does not hand-roll it.
@@ -51,12 +53,25 @@ export function Component() {
         data-hydrated={hydrated}
         capability="notes.create"
         onCapabilityResult={(result) => {
+          setTitleErrors(
+            result.ok ? [] : (capabilityFormFeedback(result.error).fieldErrors.title ?? []),
+          );
           setStatus(
             result.ok ? `Created "${result.data.note.title}"` : `Error: ${result.error.message}`,
           );
         }}
       >
-        <input name="title" placeholder="Note title" />
+        <label for="create-note-title">Title</label>
+        <input
+          id="create-note-title"
+          name="title"
+          placeholder="Note title"
+          aria-invalid={titleErrors.length > 0}
+          aria-describedby="create-note-title-errors"
+        />
+        <p id="create-note-title-errors" role="alert">
+          {titleErrors.join(" ")}
+        </p>
         <input type="hidden" name="body" value="Created from the browser." />
         <button type="submit">Create note</button>
       </Form>

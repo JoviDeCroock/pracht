@@ -67,5 +67,12 @@ export {
 } from "./schema.ts";
 export type { CapabilityIssue, JsonSchema } from "./schema.ts";
 export { coerceFormInput } from "./form.ts";
+export { capabilityFormFeedback } from "./form-feedback.ts";
+export type {
+  CapabilityFormFeedback,
+  CapabilityFormFeedbackOptions,
+  CapabilityFormErrorArgs,
+  CapabilityFormOptions,
+} from "./form-feedback.ts";
 export { schemaToTypeText } from "./schema-type-text.ts";
 export type { SchemaTypePosition } from "./schema-type-text.ts";

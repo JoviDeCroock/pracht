@@ -14,9 +14,11 @@
 
 import { MCP_SCHEMA_ROOT_ERROR } from "../capability.ts";
 import { coerceFormInput } from "../form.ts";
+import { capabilityFormFeedback } from "../form-feedback.ts";
 import {
   CAPABILITY_EFFECT_HEADER,
   CAPABILITY_HTTP_PREFIX,
+  CAPABILITY_FORM_REQUEST_HEADER,
   CAPABILITY_TRANSPORT_HEADER,
   capabilityHttpPath,
   DEFAULT_MCP_ENDPOINT,
@@ -759,6 +761,8 @@ export interface HandleCapabilityRequestOptions<TContext> {
   url: URL;
   /** Matched HTTP pathname without the configured deployment base. */
   pathname?: string;
+  /** Framework deployment base, normalized with leading/trailing slashes. Standalone hosts use "/". */
+  base?: string;
   exposeErrors: boolean;
   /** App-level `api.middleware`, wrapped around the HTTP projection only. */
   apiMiddlewareFiles?: string[];
@@ -784,8 +788,8 @@ export interface HandleCapabilityRequestOptions<TContext> {
 
 /**
  * Handle a matched capability HTTP request. Method/CSRF checks already ran in
- * `handlePrachtRequest`. Always answers with the typed envelope, except for
- * middleware redirects (3xx pass through untouched). Emits one audit event
+ * `handlePrachtRequest`. Answers with the typed envelope except native form
+ * responses and middleware redirects (3xx pass through untouched). Emits one audit event
  * per dispatch (principal, capability, effect, outcome, duration).
  */
 export async function handleCapabilityRequest<TContext>(
@@ -1029,6 +1033,7 @@ async function dispatchCapabilityHttp<TContext>(
   const isFormPost =
     contentType.includes("application/x-www-form-urlencoded") ||
     contentType.includes("multipart/form-data");
+  let formEntries: [string, unknown][] = [];
   // `undefined` is a stream that broke mid-read; it parses as malformed below.
   let body: Uint8Array<ArrayBuffer> | null | undefined;
   try {
@@ -1054,7 +1059,8 @@ async function dispatchCapabilityHttp<TContext>(
       const form = await new Response(body, {
         headers: { "content-type": contentType },
       }).formData();
-      input = coerceFormInput(capability.input, form.entries());
+      formEntries = [...form.entries()];
+      input = coerceFormInput(capability.input, formEntries);
     } catch {
       return audited(
         envelopeResponse(
@@ -1118,6 +1124,43 @@ async function dispatchCapabilityHttp<TContext>(
     });
 
     if (outcome.kind === "envelope") {
+      if (
+        isFormPost &&
+        !outcome.envelope.ok &&
+        outcome.envelope.error.code === "invalid_input" &&
+        capability.form &&
+        !options.request.headers.has(CAPABILITY_FORM_REQUEST_HEADER) &&
+        !options.request.headers.has(CAPABILITY_TRANSPORT_HEADER) &&
+        options.transport !== "mcp" &&
+        (options.request.headers.get("accept") ?? "").includes("text/html")
+      ) {
+        const response = await capability.form.onInvalid({
+          request: options.request,
+          feedback: capabilityFormFeedback(outcome.envelope.error, {
+            entries: formEntries,
+            retain: capability.form.retain,
+          }),
+        });
+        if (
+          !(response instanceof Response) ||
+          ![400, 422].includes(response.status) ||
+          response.headers.get("content-type")?.split(";", 1)[0]?.trim() !== "text/html" ||
+          response.headers.has("location")
+        ) {
+          throw new Error(
+            "Capability form.onInvalid must return an HTML 400 or 422 response without a Location header.",
+          );
+        }
+        const headers = new Headers(response.headers);
+        headers.set("cache-control", "private, no-store");
+        // A native POST from a no-referrer document can carry Origin: null.
+        // Preserve same-origin provenance so the retry passes CSRF checks.
+        headers.set("referrer-policy", "same-origin");
+        return audited(
+          new Response(response.body, { status: response.status, headers }),
+          "invalid_input",
+        );
+      }
       // Progressive enhancement: a successful form post from a document (the
       // no-JS `<Form capability>` fallback) navigates back to the page it
       // was posted from instead of rendering the JSON envelope.
@@ -1126,7 +1169,10 @@ async function dispatchCapabilityHttp<TContext>(
         outcome.envelope.ok &&
         (options.request.headers.get("accept") ?? "").includes("text/html")
       ) {
-        const back = sameOriginReferer(options.request, options.url);
+        const back = capability.form
+          ? new URL(`${options.base ?? "/"}${capability.form.redirectTo.slice(1)}`, options.url)
+              .href
+          : sameOriginReferer(options.request, options.url);
         if (back) {
           return audited(Response.redirect(back, 303), "ok");
         }
