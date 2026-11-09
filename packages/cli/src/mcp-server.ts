@@ -13,6 +13,7 @@ import {
   searchDocs,
 } from "./docs.js";
 import { readProjectConfig } from "./project.js";
+import { readRuntimeDiagnostics } from "./runtime-diagnostics.js";
 import { runDoctor, runVerification } from "./verification.js";
 import {
   generateApi,
@@ -98,6 +99,30 @@ export function createPrachtMcpServer({ docsDir }: PrachtMcpServerOptions = {}):
       inputSchema: { ...cwdInput },
     },
     guard(({ cwd }) => runInspect(resolveCwd(cwd), { target: "build" })),
+  );
+
+  server.registerTool(
+    "get_runtime_diagnostics",
+    {
+      description:
+        "Read recent server request errors (including request-time SSR compilation failures) and capability traffic from a running local pracht dev server, without a WebMCP browser. Errors are retained history, not current error state; visit the failing route first and retry it after fixing. Does not collect browser errors or console logs. Requires the app's loopback URL and a current @pracht/vite-plugin; unavailable on adapter-owned dev servers.",
+      inputSchema: {
+        ...cwdInput,
+        url: z
+          .string()
+          .describe(
+            "Loopback URL printed by pracht dev, including the Vite base if configured, e.g. http://localhost:3000/ or http://127.0.0.1:3000/app/.",
+          ),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(50)
+          .optional()
+          .describe("Maximum recent errors and capability events to return (default 20 each)."),
+      },
+    },
+    guard(({ cwd, limit, url }) => readRuntimeDiagnostics({ root: resolveCwd(cwd), limit, url })),
   );
 
   server.registerTool(

@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -47,6 +48,7 @@ describe("pracht MCP server", () => {
       "generate_route",
       "generate_shell",
       "get_docs",
+      "get_runtime_diagnostics",
       "inspect_agents",
       "inspect_api",
       "inspect_build",
@@ -71,6 +73,43 @@ describe("pracht MCP server", () => {
     expect(result.isError).toBeFalsy();
     expect(textContent(result)).toContain("authoring guide for coding agents");
     expect(textContent(result)).toContain("pracht docs <topic>");
+  });
+
+  it("reads local runtime diagnostics over MCP and reports unsupported URLs as tool errors", async () => {
+    const server = createServer((request, response) => {
+      expect(request.url).toBe("/_pracht.json?diagnostics=1");
+      response.setHeader("content-type", "application/json");
+      response.end(
+        JSON.stringify({
+          schema: "pracht-dev-diagnostics/v1",
+          root: repoRoot,
+          errors: { limit: 50, recorded: 0, events: [] },
+          agentTraffic: { limit: 200, recorded: 0, events: [] },
+        }),
+      );
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    cleanups.push(
+      () =>
+        new Promise<void>((resolve, reject) => {
+          server.close((error) => (error ? reject(error) : resolve()));
+          server.closeAllConnections();
+        }),
+    );
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("Expected a TCP listener");
+    const client = await connectClient();
+    const report = await callToolJson(client, "get_runtime_diagnostics", {
+      cwd: repoRoot,
+      url: `http://127.0.0.1:${address.port}/`,
+    });
+    expect(report.errors).toEqual({ limit: 50, recorded: 0, events: [] });
+    const refused = await client.callTool({
+      name: "get_runtime_diagnostics",
+      arguments: { url: "https://example.com/" },
+    });
+    expect(refused.isError).toBe(true);
+    expect(textContent(refused)).toContain("loopback dev-server URL");
   });
 
   it("lists, searches, and reads the bundled docs", async () => {

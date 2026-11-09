@@ -1,6 +1,6 @@
 ---
 name: pracht-debug
-version: 1.5.0
+version: 1.6.0
 description: |
   Debug a pracht app root cause first: route matching, loader and API errors,
   rendering and hydration, middleware, HMR, and build failures.
@@ -35,6 +35,7 @@ Reach for these before deep manual inspection:
 | `pracht docs <topic>` / `pracht docs --search <query>` | Docs bundled with the installed CLI — check documented behavior before calling it a bug. Older CLIs lack the command; read https://pracht.resynapse.dev/llms.txt instead |
 | `pracht inspect routes\|api\|build --json` | The resolved graph — never reconstruct it from source |
 | `GET /_pracht` (JSON at `/_pracht.json`) | Same graph from a running dev server, no CLI needed |
+| MCP `get_runtime_diagnostics({ url })` | Recent server request errors and capability traffic, without a WebMCP browser; use the loopback dev URL including its base |
 | `Server-Timing` on dev SSR responses | `mw` / `loader` / `render` durations in ms — which phase is slow |
 | `pracht_*` WebMCP page tools in the open tab | Tab-scoped view from an agent-driven browser: `pracht_route`, `pracht_loader_data`, `pracht_islands`, `pracht_last_error`, `pracht_page_tools` |
 
@@ -43,6 +44,13 @@ needs a prior `pracht build`. Under a Vite deploy base, prefix `/_pracht` with
 that base (links from the devtools and dev-404 pages already do).
 
 MCP: if `pracht dev-mcp` is registered, prefer its `inspect_*`, `doctor`, and `verify` tools to the CLI.
+
+For a server failure, request the failing route before calling
+`get_runtime_diagnostics({ url: "http://localhost:3000/" })`. It returns retained
+errors with route/phase/file/stack and recent capability traffic, even when the
+graph cannot load. Retry the route after fixing it; old events stay until
+evicted or dev restarts. It does not capture browser errors or console logs.
+Adapter-owned dev servers such as Cloudflare use their platform's logs instead.
 
 When you are driving a browser against `pracht dev` with a WebMCP-compatible
 test harness or host, ask the tab before reading logs: every dev document registers read-only

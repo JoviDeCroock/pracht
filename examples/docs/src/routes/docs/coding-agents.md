@@ -56,7 +56,7 @@ This site is a pracht app, and the server is its own [remote MCP endpoint](/docs
 
 ## The authoring MCP server
 
-`pracht dev-mcp` gives an agent the resolved app graph, so it does not have to glob `src/` and guess. Each tool returns the same output as the matching CLI command.
+`pracht dev-mcp` gives an agent the resolved app graph, so it does not have to glob `src/` and guess. Its graph tools return the same output as the matching CLI command, and its runtime diagnostics read your running dev server.
 
 ```sh
 pracht dev-mcp
@@ -102,6 +102,7 @@ Every tool accepts an optional `cwd` (absolute path to the app root), defaulting
 | Tool | Inputs | Returns |
 | --- | --- | --- |
 | `doctor` | — | Wiring diagnostics with per-check status |
+| `get_runtime_diagnostics` | `url`, `limit?` | Recent server request errors and capability traffic from your running local dev server; 20 of each by default |
 | `verify` | `changed?` | Verification results, including [constraints](#constraints) and snapshot freshness |
 | `plan` | `base?` (default `origin/main`), `write?` | The [app-graph diff](#the-app-graph-snapshot), with `widensAgentSurface`. `write: true` refreshes the snapshot |
 | `report` | `base?` | [PR-ready markdown](#pr-reports-from-machine-truth) |
@@ -112,6 +113,12 @@ Every tool accepts an optional `cwd` (absolute path to the app root), defaulting
 | `search_docs` | `query`, `limit?` | The best-matching docs sections, each with a `slug#section` to pass to `get_docs` |
 
 **Scaffolding:** `generate_route`, `generate_shell`, `generate_middleware`, `generate_api`, and `generate_capability` take the [`pracht generate`](/docs/cli#pracht-generate) flags as camelCase inputs (`errorBoundary`, `staticPaths`), with lists as arrays. Each returns `{ kind, created, updated }`. When you edit a generated capability, keep `expose` and `effect` inline literals.
+
+### Reading live server failures
+
+Start `pracht dev`, request the failing route, then call `get_runtime_diagnostics({ url: "http://localhost:3000/" })`. Use the URL printed by your server, including its base path. The result includes recent server failures with their phase, route, source file, and stack, plus capability calls. It remains readable when the app graph fails to load and needs no WebMCP browser.
+
+Errors are retained history: after fixing one, request the route again to verify it. Restarting dev clears the history. Use the [dev page tools](#debugging-in-the-tab-dev-page-tools) for browser errors; runtime diagnostics cover failures observed by server requests. Adapters that run their own dev server, such as Cloudflare, use their platform's logs instead.
 
 ## Debugging in the tab: dev page tools
 

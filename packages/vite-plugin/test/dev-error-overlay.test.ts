@@ -134,16 +134,56 @@ async function render(
     fellThrough = resolve;
   });
   const next = vi.fn(() => fellThrough());
-  await createDevSSRMiddleware(server)(
+  const middleware = createDevSSRMiddleware(server);
+  await middleware(
     options.request ?? createRequest(options.apiModule ? "/api/boom" : "/boom"),
     res,
     next,
   );
   await Promise.race([finished, fallthrough]);
-  return { ...read(), logger, next };
+  return { ...read(), logger, middleware, next };
 }
 
 describe("dev SSR error overlay", () => {
+  it("serves captured request errors to local MCP clients without evaluating a broken graph", async () => {
+    const failure = Object.assign(new Error("module does not compile"), {
+      id: "/tmp/pracht-overlay-test/src/routes/boom.tsx",
+    });
+    const state = await render({}, { serverModuleError: failure });
+    const request = createRequest("/_pracht.json?diagnostics=1");
+    Object.assign(request, { socket: { remoteAddress: "127.0.0.1" } });
+    const response = createResponse();
+    response.res.setHeader("Access-Control-Allow-Origin", "*");
+    await state.middleware(request, response.res, vi.fn());
+    await response.finished;
+    const result = response.read();
+    expect(result.headers["cache-control"]).toBe("no-store");
+    expect(result.headers["access-control-allow-origin"]).toBeUndefined();
+    expect(JSON.parse(result.body)).toMatchObject({
+      schema: "pracht-dev-diagnostics/v1",
+      root: "/tmp/pracht-overlay-test",
+      errors: {
+        recorded: 1,
+        events: [
+          { path: "/boom", message: "module does not compile", file: "src/routes/boom.tsx" },
+        ],
+      },
+      agentTraffic: { recorded: 0, events: [] },
+    });
+    expect(state.logger.error).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses a browser on another origin before loading app modules", async () => {
+    const state = await render({ Component: () => h("p", null, "ok") });
+    const request = createRequest("/_pracht.json?diagnostics=1");
+    request.headers.origin = "https://evil.example";
+    Object.assign(request, { socket: { remoteAddress: "127.0.0.1" } });
+    const response = createResponse();
+    await state.middleware(request, response.res, vi.fn());
+    await response.finished;
+    expect(response.read().statusCode).toBe(403);
+  });
+
   it("embeds the failure as JSON for the dev page tools", async () => {
     const state = await render({
       loader: async () => {

@@ -254,7 +254,10 @@ pracht doctor --json
 
 Start a Model Context Protocol server on stdio that exposes inspect, doctor,
 verify, plan, report, generate, the authoring guide, and the bundled docs
-(`get_docs`, `list_docs`, `search_docs`) as native tools for coding agents. See
+(`get_docs`, `list_docs`, `search_docs`) as native tools for coding agents.
+`get_runtime_diagnostics({ url })` reads recent server request errors and
+capability traffic from the app's running loopback dev server without a WebMCP
+browser. See
 [docs/MCP.md](https://github.com/JoviDeCroock/pracht/blob/main/docs/MCP.md)
 for client registration and the tool reference.
 
