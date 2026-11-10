@@ -1,4 +1,8 @@
-import { applyHeadersManifest, type SharedHeadersManifest } from "@pracht/core/server";
+import {
+  applyHeadersManifest,
+  applyStaticFileSecurityHeaders,
+  type SharedHeadersManifest,
+} from "@pracht/core/server";
 import {
   applyDefaultSecurityHeaders,
   captureISGSnapshot,
@@ -373,8 +377,11 @@ async function maybeServeAsset(
 
   const headers = new Headers(response.headers);
   headers.append("Vary", "x-pracht-route-state-request");
-  applyDefaultSecurityHeaders(headers);
   applyHeadersManifest(headers, headersManifest, url.pathname);
+  // After the build headers, which can make an asset revalidate: only an
+  // immutable script, stylesheet, font or source map goes without the
+  // document-only defaults, as it does on the static-assets layer.
+  applyStaticFileSecurityHeaders(headers, url.pathname);
   const location = headers.get("location");
   if (
     response.status >= 300 &&

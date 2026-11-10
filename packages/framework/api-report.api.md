@@ -951,6 +951,7 @@ CapabilityTestRequestOptions: interface
 CapabilityValidation: type
 CapabilityValidationResult: type
 DEFAULT_WAIT_UNTIL_DRAIN_TIMEOUT_MS: const
+DOCUMENT_ONLY_SECURITY_HEADERS: const
 DataModule: interface
 DefineApiConfig: interface
 ErrorBoundaryProps: interface
@@ -972,6 +973,7 @@ HrefOptions: type
 HrefRouteDefinition: interface
 HttpMethod: type
 HydrationMode: type
+IMMUTABLE_SUBRESOURCE_EXTENSIONS: const
 ISGManifestEntry: interface
 ISGSnapshot: interface
 ISGSnapshotRejection: interface

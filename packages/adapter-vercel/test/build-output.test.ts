@@ -63,6 +63,28 @@ function routeRequest(
   return { dest: null, headers };
 }
 
+const IMMUTABLE = "public, max-age=31536000, immutable";
+
+const DEFAULT_SECURITY_HEADERS = {
+  "permissions-policy":
+    "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()",
+  "referrer-policy": "strict-origin-when-cross-origin",
+  "x-content-type-options": "nosniff",
+  "x-frame-options": "SAMEORIGIN",
+};
+
+/** Headers of a file Vercel's filesystem serves: the routes before it, then the `hit` phase. */
+function servedFileHeaders(routes: VercelRoute[], pathname: string): Record<string, string> {
+  const headers = routeRequest(routes, pathname).headers;
+  const hit = routes.findIndex((route) => route.handle === "hit");
+  for (const route of hit === -1 ? [] : routes.slice(hit + 1)) {
+    if (route.handle) break;
+    if (route.src && new RegExp(route.src, "i").test(pathname))
+      Object.assign(headers, route.headers);
+  }
+  return headers;
+}
+
 describe("writeVercelBuildOutput", () => {
   const roots: string[] = [];
 
@@ -703,12 +725,88 @@ describe("writeVercelBuildOutput", () => {
     };
     expect(config.routes.filter((route) => route.continue)).toEqual([
       expect.objectContaining({ src: "^/(.*)$" }),
+      expect.objectContaining({ src: expect.stringMatching(/^\^\(\?!\/assets\//) }),
       { continue: true, headers: { "x-frame-options": "DENY" }, src: "^/framed/?$" },
+      expect.objectContaining({ headers: { "cache-control": IMMUTABLE } }),
     ]);
     expect(routeRequest(config.routes, "/plain").headers).toEqual(defaults);
     expect(routeRequest(config.routes, "/framed").headers).toEqual({
       ...defaults,
       "x-frame-options": "DENY",
+    });
+  });
+
+  it("serves hashed subresources immutably without the document-only defaults", () => {
+    const root = createBuildRoot();
+    writeVercelBuildOutput({ isgManifest: {}, root, staticRoutes: ["/"] });
+    const { routes } = JSON.parse(
+      readFileSync(join(root, ".vercel/output/config.json"), "utf-8"),
+    ) as { routes: VercelRoute[] };
+
+    for (const file of [
+      "/assets/client-B1.js",
+      "/assets/app.CSS",
+      "/assets/f.woff2",
+      "/assets/a.js.map",
+    ]) {
+      expect(servedFileHeaders(routes, file)).toEqual({
+        "cache-control": IMMUTABLE,
+        "x-content-type-options": "nosniff",
+      });
+    }
+    // Anything a browser can render as a document keeps every default.
+    for (const file of ["/assets/logo.svg", "/assets/data.json", "/assets/page.html"]) {
+      expect(servedFileHeaders(routes, file)).toEqual({
+        ...DEFAULT_SECURITY_HEADERS,
+        "cache-control": IMMUTABLE,
+      });
+    }
+    expect(servedFileHeaders(routes, "/")).toEqual(DEFAULT_SECURITY_HEADERS);
+    expect(servedFileHeaders(routes, "/robots.txt")).toEqual(DEFAULT_SECURITY_HEADERS);
+    expect(servedFileHeaders(routes, "/widget.js")).toEqual(DEFAULT_SECURITY_HEADERS);
+    // The immutable policy only applies to files the filesystem served.
+    const hit = routes.findIndex((route) => route.handle === "hit");
+    expect(hit).toBeGreaterThan(routes.findIndex((route) => route.handle === "filesystem"));
+  });
+
+  it("scopes the asset rules to the deploy base", () => {
+    const root = createBuildRoot();
+    writeVercelBuildOutput({ base: "/app/", isgManifest: {}, root, staticRoutes: ["/"] });
+    const { routes } = JSON.parse(
+      readFileSync(join(root, ".vercel/output/config.json"), "utf-8"),
+    ) as { routes: VercelRoute[] };
+
+    expect(servedFileHeaders(routes, "/app/assets/client.js")).toEqual({
+      "cache-control": IMMUTABLE,
+      "x-content-type-options": "nosniff",
+    });
+    expect(servedFileHeaders(routes, "/assets/client.js")).toEqual(DEFAULT_SECURITY_HEADERS);
+  });
+
+  it("keeps an asset's own Cache-Control and restores the defaults it then needs", () => {
+    const root = createBuildRoot();
+    writeVercelBuildOutput({
+      headersManifest: {
+        "/assets/live.js": { "Cache-Control": "public, max-age=0, must-revalidate" },
+        "/assets/typed.js": { "content-type": "text/html" },
+      },
+      isgManifest: {},
+      root,
+      staticAssetRoutes: ["/assets/live.js", "/assets/typed.js"],
+      staticRoutes: [],
+    });
+    const { routes } = JSON.parse(
+      readFileSync(join(root, ".vercel/output/config.json"), "utf-8"),
+    ) as { routes: VercelRoute[] };
+
+    expect(servedFileHeaders(routes, "/assets/live.js")).toEqual({
+      ...DEFAULT_SECURITY_HEADERS,
+      "Cache-Control": "public, max-age=0, must-revalidate",
+    });
+    expect(servedFileHeaders(routes, "/assets/typed.js")).toEqual({
+      ...DEFAULT_SECURITY_HEADERS,
+      "cache-control": IMMUTABLE,
+      "content-type": "text/html",
     });
   });
 

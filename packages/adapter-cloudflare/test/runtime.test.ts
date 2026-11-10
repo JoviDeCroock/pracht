@@ -278,6 +278,44 @@ describe("createCloudflareFetchHandler under a deploy base", () => {
   });
 });
 
+describe("static asset security headers", () => {
+  async function serveAsset(cacheControl: string): Promise<Response> {
+    const handler = createCloudflareFetchHandler({ app: defineApp({ routes: [] }) });
+    const { executionContext } = createExecutionContext();
+    return handler(
+      new Request("https://example.com/assets/client-abc123.js"),
+      {
+        ASSETS: {
+          async fetch() {
+            return new Response("export default 1", {
+              headers: { "cache-control": cacheControl, "content-type": "text/javascript" },
+            });
+          },
+        },
+      },
+      executionContext,
+    );
+  }
+
+  it("serves an immutable script with nosniff only", async () => {
+    const response = await serveAsset("public, max-age=31536000, immutable");
+
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(response.headers.get("permissions-policy")).toBeNull();
+    expect(response.headers.get("referrer-policy")).toBeNull();
+    expect(response.headers.get("x-frame-options")).toBeNull();
+  });
+
+  it("keeps the document defaults on a script that revalidates", async () => {
+    const response = await serveAsset("public, max-age=0, must-revalidate");
+
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(response.headers.get("permissions-policy")).not.toBeNull();
+    expect(response.headers.get("referrer-policy")).not.toBeNull();
+    expect(response.headers.get("x-frame-options")).not.toBeNull();
+  });
+});
+
 describe("null-body response headers", () => {
   it.each([
     ["HEAD", 200],

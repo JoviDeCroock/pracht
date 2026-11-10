@@ -554,7 +554,10 @@ build).
 
 - **Asset serving**: uses `env.ASSETS.fetch()` binding for static files
   (Cloudflare handles caching and CDN distribution). Static responses inherit
-  the same default security headers applied to dynamic responses.
+  the same default security headers applied to dynamic responses, except that
+  an immutable subresource (`isImmutableSubresource()`, decided after the
+  headers manifest is applied) keeps only `X-Content-Type-Options: nosniff`,
+  as on Node.
   Prerendered HTML also receives route and shell document headers from
   `dist/client/_pracht/headers.json`.
 - **ISG revalidation**: runtime ISG uses the Workers Cache API as the
@@ -850,9 +853,13 @@ Because those responses skip `maybeServeAsset()`, `pracht build` writes
 `dist/client/_headers` for the `cloudflare` target
 (the adapter's `finalizeBuild`, `packages/adapter-cloudflare/src/build.ts`): one `/assets/*` rule with
 `Cache-Control: public, max-age=31536000, immutable` and the output of
-`applyDefaultSecurityHeaders()`, followed by an exact rule for each
-headers-manifest entry under `/assets/` (a content artifact's
-`must-revalidate`, for example) that the Worker would otherwise have applied.
+`applyDefaultSecurityHeaders()`, then one `/assets/*.<ext>` rule per
+`IMMUTABLE_SUBRESOURCE_EXTENSIONS` entry that detaches
+`DOCUMENT_ONLY_SECURITY_HEADERS` (`! permissions-policy`, and so on), followed
+by an exact rule for each headers-manifest entry under `/assets/` (a content
+artifact's `must-revalidate`, for example) that the Worker would otherwise
+have applied. An exact rule that leaves a subresource no longer immutable
+re-adds the document headers the extension rule detached.
 The layer applies matching rules in file order and appends a header an earlier
 rule set, so each exact rule first detaches (`! cache-control`) what the
 wildcard set. Entries `_headers` cannot match exactly (`*`, `:segment`) are
@@ -1528,7 +1535,15 @@ cache.
   marker as `failed: "uncacheable_render"`.
 - **Static security headers**: the generated `config.json` includes continuing
   `routes` entries with the baseline security headers for all responses,
-  including static assets served by Vercel's CDN. Static prerendered routes also
+  including static assets served by Vercel's CDN. `nosniff` applies to every
+  path; the three document-only headers use a second route whose `src`
+  excludes `/assets/**.{js,mjs,css,woff2,woff,ttf,otf,map}` with a negative
+  lookahead. After `{ handle: "filesystem" }`, a `{ handle: "hit" }` route
+  gives files the CDN served from `/assets/` `Cache-Control: public,
+  max-age=31536000, immutable` (Vercel's static default is `max-age=0`).
+  An `/assets/` path with its own header-manifest `Cache-Control` is excluded
+  from that route, and when its headers make it revalidate its grouped header
+  route re-adds the document-only headers. Static prerendered routes also
   get route and shell document headers from the prerender header manifest:
   headers equal to that baseline are dropped, and pages left with the same
   header set share `continue` routes whose `src` alternates their paths (each

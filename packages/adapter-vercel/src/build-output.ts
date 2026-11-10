@@ -10,7 +10,10 @@ import {
 } from "@pracht/core";
 import {
   decodeStaticPath,
+  DOCUMENT_ONLY_SECURITY_HEADERS,
   getTimeRevalidateSeconds,
+  IMMUTABLE_SUBRESOURCE_EXTENSIONS,
+  isImmutableSubresource,
   type ISGManifestEntry,
 } from "@pracht/core/server";
 import type { PrachtAdapterBuildContext } from "@pracht/core/adapter";
@@ -362,6 +365,22 @@ const VERCEL_DEFAULT_HEADERS: Readonly<Record<string, string>> = {
   "x-frame-options": "SAMEORIGIN",
 };
 
+const IMMUTABLE_ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable";
+
+/** The defaults an immutable script, stylesheet, font or source map keeps. */
+const VERCEL_SUBRESOURCE_HEADERS: Readonly<Record<string, string>> = Object.fromEntries(
+  Object.entries(VERCEL_DEFAULT_HEADERS).filter(
+    ([name]) => !DOCUMENT_ONLY_SECURITY_HEADERS.includes(name),
+  ),
+);
+
+/** The defaults only documents need, which immutable subresources go without. */
+const VERCEL_DOCUMENT_HEADERS: Readonly<Record<string, string>> = Object.fromEntries(
+  Object.entries(VERCEL_DEFAULT_HEADERS).filter(([name]) =>
+    DOCUMENT_ONLY_SECURITY_HEADERS.includes(name),
+  ),
+);
+
 /**
  * Upper bound for a merged route's `src`. Vercel documents 2,048 characters
  * as the limit for a route source, so merged patterns stay under it.
@@ -403,11 +422,20 @@ function createVercelOutputConfig({
   staticRoutes: string[];
 }): { routes: Record<string, unknown>[] } & Record<string, unknown> {
   const target = `/${functionName || "render"}`;
+  const assetsPrefix = escapeRegex(withVercelDeployBase("/assets/", deployBase));
+  const subresourcePattern = `${assetsPrefix}.+\\.(?:${Object.keys(IMMUTABLE_SUBRESOURCE_EXTENSIONS).join("|")})`;
   const routes: Record<string, unknown>[] = [
     {
       continue: true,
-      headers: { ...VERCEL_DEFAULT_HEADERS },
+      headers: { ...VERCEL_SUBRESOURCE_HEADERS },
       src: "^/(.*)$",
+    },
+    // Hashed scripts, stylesheets, fonts and source maps are only ever
+    // subresources, so they go without the document-only defaults, as on Node.
+    {
+      continue: true,
+      headers: { ...VERCEL_DOCUMENT_HEADERS },
+      src: `^(?!${subresourcePattern}$)/(.*)$`,
     },
     {
       dest: target,
@@ -460,7 +488,10 @@ function createVercelOutputConfig({
   for (const route of sortStaticRoutes([...staticRoutes, ...staticAssetRoutes])) {
     const routeHeaders = headersManifest[route];
     if (!routeHeaders) continue;
-    const headers = withoutVercelDefaultHeaders(routeHeaders);
+    const headers = withoutVercelDefaultHeaders(
+      routeHeaders,
+      subresourceLosesImmutability(route, routeHeaders) ? VERCEL_DOCUMENT_HEADERS : undefined,
+    );
     if (Object.keys(headers).length === 0) continue;
     const key = JSON.stringify(Object.entries(headers).sort(([a], [b]) => (a < b ? -1 : 1)));
     let group = headerGroups.get(key);
@@ -552,6 +583,29 @@ function createVercelOutputConfig({
 
   routes.push({ handle: "filesystem" });
   routes.push({ dest: target, src: "/(.*)" });
+
+  // Vercel serves every static file with `max-age=0, must-revalidate`, so a
+  // browser would revalidate each content-hashed chunk on every visit. The
+  // `hit` phase only runs for files the filesystem served, so a missing chunk
+  // is never cached for a year. A build header that sets its own
+  // Cache-Control (a content artifact under /assets/, say) keeps it.
+  const ownCacheControl: string[] = [];
+  for (const route of sortStaticRoutes([...staticRoutes, ...staticAssetRoutes])) {
+    if (!route.startsWith("/assets/")) continue;
+    const routeHeaders = headersManifest[route] ?? {};
+    if (Object.keys(routeHeaders).some((name) => name.toLowerCase() === "cache-control")) {
+      ownCacheControl.push(escapeRegex(withVercelDeployBase(route, deployBase)));
+    }
+  }
+  routes.push({ handle: "hit" });
+  routes.push({
+    continue: true,
+    headers: { "cache-control": IMMUTABLE_ASSET_CACHE_CONTROL },
+    src:
+      ownCacheControl.length > 0
+        ? `^(?!(?:${ownCacheControl.join("|")})$)${assetsPrefix}.+$`
+        : `^${assetsPrefix}.+$`,
+  });
 
   // `<path>.md` companions are plain static files reached through
   // `handle: filesystem`. Their type is stated rather than left to the
@@ -744,12 +798,44 @@ function joinRouteAlternatives(alternatives: readonly string[]): string[] {
   return sources;
 }
 
-function withoutVercelDefaultHeaders(headers: Record<string, string>): Record<string, string> {
-  return Object.fromEntries(
-    Object.entries(headers).filter(
-      ([name, value]) => VERCEL_DEFAULT_HEADERS[name.toLowerCase()] !== value,
+/**
+ * The headers a page's own route must set: its build headers minus those the
+ * catch-all routes already give it, plus `restore` — defaults the catch-all
+ * withheld that this path needs back.
+ */
+function withoutVercelDefaultHeaders(
+  headers: Record<string, string>,
+  restore: Readonly<Record<string, string>> = {},
+): Record<string, string> {
+  const own = new Set(Object.keys(headers).map((name) => name.toLowerCase()));
+  return {
+    ...Object.fromEntries(Object.entries(restore).filter(([name]) => !own.has(name))),
+    ...Object.fromEntries(
+      Object.entries(headers).filter(
+        ([name, value]) =>
+          name.toLowerCase() in restore || VERCEL_DEFAULT_HEADERS[name.toLowerCase()] !== value,
+      ),
     ),
-  );
+  };
+}
+
+/**
+ * Whether a file the catch-all serves without the document-only defaults (a
+ * script, stylesheet, font or source map under /assets/) stops being an
+ * immutable subresource once its build headers apply — a Cache-Control that
+ * makes it revalidate, or a different Content-Type — and so needs them back.
+ */
+function subresourceLosesImmutability(route: string, headers: Record<string, string>): boolean {
+  if (!route.startsWith("/assets/")) return false;
+  const extension = /\.([a-z0-9]+)$/i.exec(route)?.[1]?.toLowerCase();
+  const mediaType = extension ? IMMUTABLE_SUBRESOURCE_EXTENSIONS[extension] : undefined;
+  if (!mediaType) return false;
+  const effective = new Headers({
+    "cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
+    "content-type": mediaType,
+  });
+  for (const [name, value] of Object.entries(headers)) effective.set(name, value);
+  return !isImmutableSubresource(route, effective);
 }
 
 /**

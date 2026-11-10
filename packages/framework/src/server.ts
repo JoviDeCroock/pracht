@@ -64,6 +64,8 @@ export {
 export {
   applyDefaultSecurityHeaders,
   applyStaticFileSecurityHeaders,
+  DOCUMENT_ONLY_SECURITY_HEADERS,
+  IMMUTABLE_SUBRESOURCE_EXTENSIONS,
   createBaseRedirectResponse,
   createTrailingSlashRedirectResponse,
   formatServerTimingHeader,

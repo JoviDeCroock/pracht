@@ -95,6 +95,32 @@ const SUBRESOURCE_MEDIA_TYPES = new Set([
 const IMMUTABLE_DIRECTIVE_RE = /(?:^|,)\s*immutable\s*(?:,|$)/i;
 
 /**
+ * The media type a host serves for each file extension `isImmutableSubresource`
+ * accepts. Host configs that match on paths rather than on responses — the
+ * Cloudflare `_headers` file, Vercel routes — use it to make the same call.
+ */
+export const IMMUTABLE_SUBRESOURCE_EXTENSIONS: Readonly<Record<string, string>> = {
+  js: "text/javascript",
+  mjs: "text/javascript",
+  css: "text/css",
+  woff2: "font/woff2",
+  woff: "font/woff",
+  ttf: "font/ttf",
+  otf: "font/otf",
+  map: "application/json",
+};
+
+/**
+ * The default security headers that only apply to documents, which an
+ * immutable subresource is served without (see `applyStaticFileSecurityHeaders`).
+ */
+export const DOCUMENT_ONLY_SECURITY_HEADERS: readonly string[] = [
+  "permissions-policy",
+  "referrer-policy",
+  "x-frame-options",
+];
+
+/**
  * Whether a static file response is an immutable script, stylesheet, font, or
  * source map: content-hashed build output a browser loads as a subresource and
  * never revalidates.

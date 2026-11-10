@@ -33,9 +33,9 @@ including when it weakens a default. The framework does NOT set
 headers — those need a project decision.
 
 An immutable script, stylesheet, font, or source map under `/assets/` served
-by `adapter-node` (or the Netlify function) is never a document, so it carries
-only `x-content-type-options: nosniff`, without the three document-only
-headers or `etag` / `last-modified`. HTML, SVG, JSON, images, and public files
+is never a document, so it carries only `x-content-type-options: nosniff`,
+without the three document-only headers, on every first-party adapter (Node
+and Netlify also drop `etag` / `last-modified`). HTML, SVG, JSON, images, and public files
 keep all four. This is not a gap — do not report it as a finding.
 
 One deliberate exception: **protocol-switch responses** (a `101` WebSocket

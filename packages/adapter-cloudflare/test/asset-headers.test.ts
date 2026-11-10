@@ -33,8 +33,61 @@ describe("Cloudflare asset _headers", () => {
         referrer-policy: strict-origin-when-cross-origin
         x-content-type-options: nosniff
         x-frame-options: SAMEORIGIN
+      /assets/*.js
+        ! permissions-policy
+        ! referrer-policy
+        ! x-frame-options
+      /assets/*.mjs
+        ! permissions-policy
+        ! referrer-policy
+        ! x-frame-options
+      /assets/*.css
+        ! permissions-policy
+        ! referrer-policy
+        ! x-frame-options
+      /assets/*.woff2
+        ! permissions-policy
+        ! referrer-policy
+        ! x-frame-options
+      /assets/*.woff
+        ! permissions-policy
+        ! referrer-policy
+        ! x-frame-options
+      /assets/*.ttf
+        ! permissions-policy
+        ! referrer-policy
+        ! x-frame-options
+      /assets/*.otf
+        ! permissions-policy
+        ! referrer-policy
+        ! x-frame-options
+      /assets/*.map
+        ! permissions-policy
+        ! referrer-policy
+        ! x-frame-options
       "
     `);
+  });
+
+  it("restores the document defaults for an asset whose build headers make it revalidate", () => {
+    const { file } = createCloudflareAssetHeadersFile({
+      "/assets/live.js": { "cache-control": "public, max-age=0, must-revalidate" },
+      "/assets/pinned.js": { "x-frame-options": "DENY" },
+    });
+
+    expect(file.split("/assets/live.js\n")[1]!.split("\n/")[0]).toBe(
+      [
+        "  ! cache-control",
+        "  cache-control: public, max-age=0, must-revalidate",
+        "  permissions-policy: accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()",
+        "  referrer-policy: strict-origin-when-cross-origin",
+        "  x-frame-options: SAMEORIGIN",
+      ].join("\n"),
+    );
+    // Still immutable: only the header it sets itself comes back.
+    expect(file.split("/assets/pinned.js\n")[1]).toBe(
+      ["  ! x-frame-options", "  x-frame-options: DENY", ""].join("\n"),
+    );
   });
 
   it("keeps build headers for files under /assets/ that the Worker would have applied", () => {

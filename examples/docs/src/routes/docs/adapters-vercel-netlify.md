@@ -21,7 +21,7 @@ The adapter writes Vercel's Build Output API v3: SSG pages as static files, SSR 
 .vercel/
   output/
     config.json    // routes, rewrites, headers
-    static/        // SSG pages served from the filesystem
+    static/        // SSG pages, plus /assets/ files cached as immutable
     functions/
       render.func/ // Edge Function for SSR/API routes and webhook bridge
       pricing.func/ // Serverless Function for one ISG route

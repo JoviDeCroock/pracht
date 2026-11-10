@@ -2,6 +2,11 @@ import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { applyDefaultSecurityHeaders } from "@pracht/core";
+import {
+  DOCUMENT_ONLY_SECURITY_HEADERS,
+  IMMUTABLE_SUBRESOURCE_EXTENSIONS,
+  isImmutableSubresource,
+} from "@pracht/core/server";
 
 /**
  * Vite's content-hashed output directory. Node and Netlify already serve it
@@ -50,6 +55,13 @@ export function createCloudflareAssetHeadersFile(headersManifest: HeadersManifes
     CLOUDFLARE_HASHED_ASSET_PATTERN,
   ];
   for (const [name, value] of wildcard) lines.push(`  ${name}: ${value}`);
+  // Scripts, stylesheets, fonts and source maps are only ever subresources, so
+  // the document-only defaults do nothing for them; the Node adapter leaves
+  // them off too. One rule per extension, as a rule allows a single splat.
+  for (const extension of Object.keys(IMMUTABLE_SUBRESOURCE_EXTENSIONS)) {
+    lines.push(`${HASHED_ASSET_PREFIX}*.${extension}`);
+    for (const name of DOCUMENT_ONLY_SECURITY_HEADERS) lines.push(`  ! ${name}`);
+  }
 
   const skipped: string[] = [];
   for (const pathname of Object.keys(headersManifest).sort()) {
@@ -65,8 +77,37 @@ export function createCloudflareAssetHeadersFile(headersManifest: HeadersManifes
       if (wildcard.has(name)) lines.push(`  ! ${name.toLowerCase()}`);
     }
     for (const [name, value] of entries) lines.push(`  ${name.toLowerCase()}: ${value}`);
+    // A build header that makes such a file revalidate, or changes its type,
+    // turns it back into an ordinary static file, which keeps every default.
+    if (!keepsSubresourceHeaders(pathname, wildcard, entries)) {
+      const own = new Set(entries.map(([name]) => name.toLowerCase()));
+      for (const name of DOCUMENT_ONLY_SECURITY_HEADERS) {
+        if (!own.has(name)) lines.push(`  ${name}: ${wildcard.get(name)}`);
+      }
+    }
   }
   return { file: `${lines.join("\n")}\n`, skipped };
+}
+
+/**
+ * Whether an exact `/assets/` rule still describes an immutable subresource
+ * once its build headers apply, given the extension rule that already
+ * detached the document-only defaults.
+ */
+function keepsSubresourceHeaders(
+  pathname: string,
+  wildcard: Headers,
+  entries: [string, string][],
+): boolean {
+  const extension = /\.([a-z0-9]+)$/i.exec(pathname)?.[1]?.toLowerCase();
+  const mediaType = extension ? IMMUTABLE_SUBRESOURCE_EXTENSIONS[extension] : undefined;
+  if (!mediaType) return true;
+  const headers = new Headers({
+    "cache-control": wildcard.get("cache-control")!,
+    "content-type": mediaType,
+  });
+  for (const [name, value] of entries) headers.set(name, value);
+  return isImmutableSubresource(pathname, headers);
 }
 
 /**
