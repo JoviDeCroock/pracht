@@ -101,7 +101,7 @@ const FALLBACK_VERSION_RANGES = {
   "@tailwindcss/vite": "^4.1.0",
   "netlify-cli": "^21.6.0",
   tailwindcss: "^4.1.0",
-  typescript: "^6.0.0",
+  tsrs: "^0.24.0-ts7.1.0-beta",
   vercel: "^56.5.0",
   ...loadFallbackVersionRanges(PACKAGE_ROOT),
 };
@@ -751,7 +751,7 @@ async function buildProjectFiles({
     "@pracht/vite-plugin",
     "@pracht/core",
     adapter.packageName,
-    "typescript",
+    "tsrs",
   ];
   if (adapter.id === "vercel") {
     packagesToResolve.push("vercel");
@@ -922,7 +922,7 @@ function createPackageJson({ adapter, projectName, tailwind, versions }) {
   const scripts = {
     build: "pracht build",
     dev: "pracht dev",
-    typecheck: "tsc --noEmit && tsc --noEmit --project tsconfig.client.json",
+    typecheck: "tsrs --noEmit && tsrs --noEmit --project tsconfig.client.json",
   };
 
   if (adapter.id === "node") {
@@ -940,14 +940,16 @@ function createPackageJson({ adapter, projectName, tailwind, versions }) {
     preact: "^11.0.1",
     // At least @pracht/core's peer floor, or the first install warns.
     "preact-render-to-string": "^6.7.0",
-    typescript: versions["typescript"],
+    // The Rust port of the TypeScript 7 compiler: `tsc`-compatible, faster,
+    // and one native binary per platform.
+    tsrs: versions["tsrs"],
     vite: "^8.0.0",
   };
 
   if (adapter.id === "cloudflare") {
     // `wrangler types` writes the `Env` interface for the bindings in
     // wrangler.jsonc, plus the Workers runtime types, to
-    // worker-configuration.d.ts. Regenerating before `tsc` keeps the check
+    // worker-configuration.d.ts. Regenerating before `tsrs` keeps the check
     // honest after a binding changes.
     scripts["cf-typegen"] = "wrangler types";
     scripts.typecheck = `wrangler types && ${scripts.typecheck}`;

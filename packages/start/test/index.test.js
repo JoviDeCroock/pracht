@@ -105,9 +105,10 @@ describe("create-pracht", () => {
     expect(packageJson).toContain('"preview": "pracht preview"');
     expect(packageJson).toContain('"start": "node dist/server/server.js"');
     expect(packageJson).toContain(
-      '"typecheck": "tsc --noEmit && tsc --noEmit --project tsconfig.client.json"',
+      '"typecheck": "tsrs --noEmit && tsrs --noEmit --project tsconfig.client.json"',
     );
-    expect(packageJson).toMatch(/"typescript": "\^\d+\.\d+\.\d+"/);
+    expect(packageJson).toMatch(/"tsrs": "\^\d+\.\d+\.\d+/);
+    expect(packageJson).not.toContain('"typescript"');
     expect(packageJson).not.toContain("wrangler");
     expect(gitignore).toContain(".env*");
     expect(gitignore).toContain("!.env.example");
@@ -467,10 +468,10 @@ describe("create-pracht", () => {
 
     expect(packageJson).toContain('"preview": "pracht preview"');
     // `wrangler types` generates the `Env` that src/env.d.ts registers, so the
-    // typecheck regenerates it before tsc reads it.
+    // typecheck regenerates it before tsrs reads it.
     expect(parsedPackageJson.scripts["cf-typegen"]).toBe("wrangler types");
     expect(parsedPackageJson.scripts.typecheck).toBe(
-      "wrangler types && tsc --noEmit && tsc --noEmit --project tsconfig.client.json",
+      "wrangler types && tsrs --noEmit && tsrs --noEmit --project tsconfig.client.json",
     );
     expect(packageJson).toContain('"wrangler": "^4.81.0"');
     // A fixed date, never a generated one: workerd refuses to start when asked
@@ -770,7 +771,7 @@ describe("create-pracht", () => {
 
     expect(packageJson).toContain('"deploy": "pracht build && vercel deploy --prebuilt"');
     expect(packageJson).toContain(
-      '"typecheck": "tsc --noEmit && tsc --noEmit --project tsconfig.client.json"',
+      '"typecheck": "tsrs --noEmit && tsrs --noEmit --project tsconfig.client.json"',
     );
     expect(packageJson).not.toContain('"preview"');
     expect(readme).toContain("configured for Vercel");

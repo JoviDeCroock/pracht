@@ -103,6 +103,12 @@ scaffolds the right value, and `pracht doctor` warns about the old one.
 See [Import paths](/docs/reference/api#import-paths) for the matching
 `tsconfig.client.json`.
 
+`pnpm typecheck` checks both tsconfig files with
+[tsrs](https://www.npmjs.com/package/tsrs), a `tsc`-compatible Rust port of the
+TypeScript 7 compiler that `create-pracht` installs in place of `typescript`.
+To use `tsc` instead, install `typescript` and replace `tsrs` with `tsc` in the
+`typecheck` script.
+
 ## Development
 
 ```sh
