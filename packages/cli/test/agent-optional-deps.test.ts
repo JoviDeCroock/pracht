@@ -41,6 +41,15 @@ describe("@pracht/cli agent tooling dependencies", () => {
     expect(manifest.peerDependenciesMeta?.["playwright-core"]?.optional).toBe(true);
   });
 
+  it("does not install a schema library for the MCP tool inputs", () => {
+    const manifest = JSON.parse(readFileSync(resolve(packageDir, "package.json"), "utf-8"));
+    expect(Object.keys(manifest.dependencies)).not.toContain("zod");
+    const zodImports = sourceFiles(resolve(packageDir, "src")).filter((file) =>
+      /from\s+["']zod(?:\/[^"']*)?["']/.test(readFileSync(file, "utf-8")),
+    );
+    expect(zodImports).toEqual([]);
+  });
+
   it("loads playwright-core only when a command launches Chrome", () => {
     const staticImports = sourceFiles(resolve(packageDir, "src")).filter((file) =>
       /^import\s+(?!type\b)[^;]*?from\s+["'](?:playwright-core|@modelcontextprotocol\/[^"']*)["']/m.test(

@@ -51,8 +51,7 @@
   "dependencies": {
     "@pracht/capabilities": "workspace:^",
     "@pracht/core": "workspace:^",
-    "citty": "^0.1.6",
-    "zod": "^4.4.3"
+    "citty": "^0.1.6"
   },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",

@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { parseInput, toJsonSchema, type InferInput, type InputShape } from "./mcp-input-schema.js";
 
 /**
  * A tools-only Model Context Protocol server for `pracht dev-mcp`.
@@ -53,8 +53,8 @@ export interface McpMessageTransport {
 
 interface RegisteredTool {
   description: string;
-  input: z.ZodObject<z.ZodRawShape>;
-  handler: (input: any) => Promise<CallToolResult> | CallToolResult;
+  input: InputShape;
+  handler: (input: Record<string, unknown>) => Promise<CallToolResult> | CallToolResult;
 }
 
 const PARSE_ERROR = -32700;
@@ -74,16 +74,17 @@ export class McpToolServer {
     this.#info = info;
   }
 
-  registerTool<Shape extends z.ZodRawShape>(
+  registerTool<Shape extends InputShape>(
     name: string,
     config: { description: string; inputSchema: Shape },
-    handler: (input: z.output<z.ZodObject<Shape>>) => Promise<CallToolResult> | CallToolResult,
+    handler: (input: InferInput<Shape>) => Promise<CallToolResult> | CallToolResult,
   ): void {
     if (this.#tools.has(name)) throw new Error(`Tool ${name} is already registered`);
     this.#tools.set(name, {
       description: config.description,
-      input: z.object(config.inputSchema),
-      handler,
+      input: config.inputSchema,
+      // parseInput() hands the handler exactly InferInput<Shape>.
+      handler: handler as RegisteredTool["handler"],
     });
   }
 
@@ -154,7 +155,7 @@ export class McpToolServer {
           tools: [...this.#tools].map(([name, tool]) => ({
             name,
             description: tool.description,
-            inputSchema: z.toJSONSchema(tool.input, { target: "draft-7", io: "input" }),
+            inputSchema: toJsonSchema(tool.input),
           })),
         };
       case "tools/call":
@@ -171,10 +172,10 @@ export class McpToolServer {
     }
     const tool = this.#tools.get(name);
     if (!tool) return toolError(`Tool ${name} not found`);
-    const parsed = tool.input.safeParse(args ?? {});
+    const parsed = parseInput(tool.input, args ?? {});
     if (!parsed.success) {
       return toolError(
-        `Input validation error: Invalid arguments for tool ${name}: ${parsed.error.message}`,
+        `Input validation error: Invalid arguments for tool ${name}: ${parsed.message}`,
       );
     }
     try {

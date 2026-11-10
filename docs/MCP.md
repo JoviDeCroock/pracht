@@ -91,9 +91,14 @@ the server from the project directory.
 The server is tools-only, so `packages/cli/src/mcp-tool-server.ts` implements that slice of
 the protocol directly (newline-delimited JSON-RPC over stdio: `initialize`, `ping`,
 `tools/list`, `tools/call`) instead of depending on the MCP SDK, which would otherwise ship
-its HTTP server stack in every app's `@pracht/cli` install. Tool input schemas are zod raw
-shapes converted with `z.toJSONSchema` (draft-7, input side), and invalid arguments or an
-unknown tool come back as `isError` results, matching the SDK's behaviour. The tests drive it
+its HTTP server stack in every app's `@pracht/cli` install. Tool input schemas are declared
+with the small builders in `packages/cli/src/mcp-input-schema.ts` (strings, booleans, bounded
+integers, string enums, arrays), which emit the draft-07 JSON Schema for `tools/list`,
+validate `tools/call` arguments (unknown keys are stripped), and infer each handler's input
+type, so the CLI carries no schema library. Their JSON Schema and issue format match what
+the earlier zod schemas produced; `test/fixtures/mcp-tool-input-schemas.json` pins the
+former. Invalid arguments or an unknown tool come back as `isError` results, matching the
+SDK's behaviour. The tests drive it
 with the SDK client (a devDependency) over both in-memory and real stdio transports. Adding
 resources, prompts or sampling would mean revisiting this choice.
 

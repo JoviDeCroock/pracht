@@ -1,9 +1,16 @@
 import { resolve } from "node:path";
 
-import { z } from "zod";
-
 import { AUTHORING_GUIDE } from "./authoring-guide.js";
 import { McpToolServer, type CallToolResult } from "./mcp-tool-server.js";
+import {
+  arrayOf,
+  boolean,
+  integer,
+  oneOf,
+  optional,
+  required,
+  string,
+} from "./mcp-input-schema.js";
 import { VERSION } from "./constants.js";
 import {
   extractDocsSection,
@@ -33,10 +40,10 @@ import { DEFAULT_BASE_REF, runPlan } from "./commands/plan.js";
 import { runReport } from "./commands/report.js";
 
 const cwdInput = {
-  cwd: z
-    .string()
-    .optional()
-    .describe("Absolute path to the pracht app root. Defaults to the server's working directory."),
+  cwd: optional(
+    string(),
+    "Absolute path to the pracht app root. Defaults to the server's working directory.",
+  ),
 };
 
 export interface PrachtMcpServerOptions {
@@ -117,10 +124,10 @@ export function createPrachtMcpServer({ docsDir }: PrachtMcpServerOptions = {}):
         "Run fast framework-aware verification checks on a pracht app. Same payload as `pracht verify --json`.",
       inputSchema: {
         ...cwdInput,
-        changed: z
-          .boolean()
-          .optional()
-          .describe("Only check files changed according to git (maps to --changed)."),
+        changed: optional(
+          boolean(),
+          "Only check files changed according to git (maps to --changed).",
+        ),
       },
     },
     guard(({ changed, cwd }) => runVerification(resolveCwd(cwd), { changed: Boolean(changed) })),
@@ -133,14 +140,11 @@ export function createPrachtMcpServer({ docsDir }: PrachtMcpServerOptions = {}):
         "Semantic app-graph diff against a base git ref: routes/API/capabilities/constraints added, removed, and changed, plus `widensAgentSurface` when a capability change widened the agent-reachable surface. Same payload as `pracht plan --json`. Set write=true to refresh the committed .pracht/app-graph.json snapshot instead.",
       inputSchema: {
         ...cwdInput,
-        base: z
-          .string()
-          .optional()
-          .describe("Base git ref to diff against (defaults to origin/main)."),
-        write: z
-          .boolean()
-          .optional()
-          .describe("Write the current app graph to .pracht/app-graph.json instead of diffing."),
+        base: optional(string(), "Base git ref to diff against (defaults to origin/main)."),
+        write: optional(
+          boolean(),
+          "Write the current app graph to .pracht/app-graph.json instead of diffing.",
+        ),
       },
     },
     guard(({ base, cwd, write }) =>
@@ -159,10 +163,7 @@ export function createPrachtMcpServer({ docsDir }: PrachtMcpServerOptions = {}):
         "PR-ready markdown report assembled from machine truth: app-graph diff, `pracht verify` results, and client JS budgets. Use it as the factual half of a PR description.",
       inputSchema: {
         ...cwdInput,
-        base: z
-          .string()
-          .optional()
-          .describe("Base git ref to diff against (defaults to origin/main)."),
+        base: optional(string(), "Base git ref to diff against (defaults to origin/main)."),
       },
     },
     guardText(({ base, cwd }) =>
@@ -180,10 +181,10 @@ export function createPrachtMcpServer({ docsDir }: PrachtMcpServerOptions = {}):
         "Regenerate typed routes, href helpers, and capability types (src/pracht.d.ts, src/pracht-routes.ts, src/pracht-capabilities.d.ts). Run this after adding, removing, or renaming routes or capabilities. `check: true` reports staleness without writing. A non-empty `unreadableCapabilities` in the result means those capabilities' input and output types are `unknown` because their module could not be loaded.",
       inputSchema: {
         ...cwdInput,
-        check: z
-          .boolean()
-          .optional()
-          .describe("Report whether generated files are up to date instead of writing them."),
+        check: optional(
+          boolean(),
+          "Report whether generated files are up to date instead of writing them.",
+        ),
       },
     },
     guardText(async ({ check, cwd }) => {
@@ -205,11 +206,8 @@ export function createPrachtMcpServer({ docsDir }: PrachtMcpServerOptions = {}):
         'Run scripted agent-task scenarios (evals/**/*.eval.json) against an already-running app\'s agent surface — the capability HTTP projection, or the remote MCP endpoint when the scenario sets "transport": "mcp". Start the app yourself first and pass its base URL. Reports each step\'s outcome and whether the scenario passed.',
       inputSchema: {
         ...cwdInput,
-        url: z.string().describe("Base URL of the running app, e.g. http://localhost:3000."),
-        files: z
-          .array(z.string())
-          .optional()
-          .describe("Scenario files. Defaults to evals/**/*.eval.json."),
+        url: required(string(), "Base URL of the running app, e.g. http://localhost:3000."),
+        files: optional(arrayOf(string()), "Scenario files. Defaults to evals/**/*.eval.json."),
       },
     },
     guardText(async ({ cwd, files, url }) => {
@@ -252,12 +250,10 @@ export function createPrachtMcpServer({ docsDir }: PrachtMcpServerOptions = {}):
       description:
         "Without `topic`: the pracht authoring guide for coding agents (project layout, conventions, constraints, and the commands to run before finishing a change) — read it before authoring pracht app code. With `topic`: that page of the pracht docs bundled with the installed CLI, so it matches the app's pracht version. Find topics with list_docs or search_docs.",
       inputSchema: {
-        topic: z
-          .string()
-          .optional()
-          .describe(
-            "Docs page slug or title, e.g. routing, data-loading, recipes-auth. Append #section to read one section, e.g. routing#route-manifest.",
-          ),
+        topic: optional(
+          string(),
+          "Docs page slug or title, e.g. routing, data-loading, recipes-auth. Append #section to read one section, e.g. routing#route-manifest.",
+        ),
       },
     },
     guardText(({ topic }) => {
@@ -291,12 +287,11 @@ export function createPrachtMcpServer({ docsDir }: PrachtMcpServerOptions = {}):
       description:
         "Keyword search over the pracht docs bundled with the installed CLI. Returns the best-matching sections (slug, heading, anchor, snippet); read one with get_docs({ topic: `<slug>#<anchor>` }). Same payload as `pracht docs --search <query> --json`.",
       inputSchema: {
-        query: z
-          .string()
-          .describe(
-            "Keywords, e.g. `loader revalidate`; sections matching more of them rank first.",
-          ),
-        limit: z.number().int().min(1).max(50).optional().describe("Maximum results (default 10)."),
+        query: required(
+          string(),
+          "Keywords, e.g. `loader revalidate`; sections matching more of them rank first.",
+        ),
+        limit: optional(integer({ minimum: 1, maximum: 50 }), "Maximum results (default 10)."),
       },
     },
     guard(({ limit, query }) => ({ query, results: searchDocs(query, { dir: docsDir, limit }) })),
@@ -309,32 +304,25 @@ export function createPrachtMcpServer({ docsDir }: PrachtMcpServerOptions = {}):
         "Scaffold a pracht route module and wire it into the app (manifest apps update src/routes.ts; pages apps create the page file). Returns the files created and updated.",
       inputSchema: {
         ...cwdInput,
-        path: z.string().describe("Route path, e.g. /dashboard or /blog/:slug"),
-        render: z
-          .enum(["spa", "ssr", "ssg", "isg"])
-          .optional()
-          .describe("Render mode (defaults to ssr)."),
-        shell: z.string().optional().describe("Registered shell name (manifest apps only)."),
-        middleware: z
-          .array(z.string())
-          .optional()
-          .describe("Registered middleware names (manifest apps only)."),
-        loader: z.boolean().optional().describe("Include a loader export."),
-        errorBoundary: z.boolean().optional().describe("Include an error boundary export."),
-        staticPaths: z.boolean().optional().describe("Include a getStaticPaths export."),
-        title: z.string().optional().describe("Page title used in the head export."),
-        revalidate: z
-          .number()
-          .int()
-          .positive()
-          .optional()
-          .describe("ISG revalidation window in seconds (isg render mode only)."),
-        test: z
-          .boolean()
-          .optional()
-          .describe(
-            "Emit a Playwright smoke test in e2e/ (defaults to on when the app has a Playwright setup).",
-          ),
+        path: required(string(), "Route path, e.g. /dashboard or /blog/:slug"),
+        render: optional(oneOf(["spa", "ssr", "ssg", "isg"]), "Render mode (defaults to ssr)."),
+        shell: optional(string(), "Registered shell name (manifest apps only)."),
+        middleware: optional(
+          arrayOf(string()),
+          "Registered middleware names (manifest apps only).",
+        ),
+        loader: optional(boolean(), "Include a loader export."),
+        errorBoundary: optional(boolean(), "Include an error boundary export."),
+        staticPaths: optional(boolean(), "Include a getStaticPaths export."),
+        title: optional(string(), "Page title used in the head export."),
+        revalidate: optional(
+          integer({ exclusiveMinimum: 0 }),
+          "ISG revalidation window in seconds (isg render mode only).",
+        ),
+        test: optional(
+          boolean(),
+          "Emit a Playwright smoke test in e2e/ (defaults to on when the app has a Playwright setup).",
+        ),
       },
     },
     guard((input) => {
@@ -364,11 +352,8 @@ export function createPrachtMcpServer({ docsDir }: PrachtMcpServerOptions = {}):
         "Scaffold a pracht shell component and register it in the app manifest (manifest apps only). Returns the files created and updated.",
       inputSchema: {
         ...cwdInput,
-        name: z.string().describe("Shell name, e.g. app or public"),
-        loader: z
-          .boolean()
-          .optional()
-          .describe("Include a shell loader whose data useShellData() reads."),
+        name: required(string(), "Shell name, e.g. app or public"),
+        loader: optional(boolean(), "Include a shell loader whose data useShellData() reads."),
       },
     },
     guard(({ cwd, name, loader }) => {
@@ -384,7 +369,7 @@ export function createPrachtMcpServer({ docsDir }: PrachtMcpServerOptions = {}):
         "Scaffold a pracht middleware function and register it in the app manifest (manifest apps), or scaffold the root src/pages/_middleware.ts applied to every page route (pages apps using a serverful adapter; name must be `_middleware`). Pure static exports have no request runtime and cannot use middleware. Returns the files created and updated.",
       inputSchema: {
         ...cwdInput,
-        name: z.string().describe("Middleware name, e.g. auth (manifest) or _middleware (pages)"),
+        name: required(string(), "Middleware name, e.g. auth (manifest) or _middleware (pages)"),
       },
     },
     guard(({ cwd, name }) => {
@@ -400,24 +385,20 @@ export function createPrachtMcpServer({ docsDir }: PrachtMcpServerOptions = {}):
         "Scaffold a capability module (a typed operation callable from server code, HTTP, WebMCP, and remote MCP). Manifest apps get a `capabilities` registry entry; pages apps auto-discover `src/capabilities/`, so the module declares its own `name` instead. Keeps `expose`/`effect`/`input` as inline literals, which the browser projection's static analysis requires. Then edit the schemas and run() body.",
       inputSchema: {
         ...cwdInput,
-        name: z.string().describe("Dot-separated capability name, e.g. notes.search"),
-        effect: z
-          .enum(["read", "write", "destructive"])
-          .optional()
-          .describe(
-            "Effect class (defaults to read). `destructive` is confirmation-gated and may be exposed over http and mcp, never webmcp.",
-          ),
-        expose: z
-          .array(z.enum(["http", "webmcp", "mcp"]))
-          .optional()
-          .describe("Transports to expose. Omit to keep the capability private."),
-        title: z.string().optional().describe("Human-readable title."),
-        description: z
-          .string()
-          .optional()
-          .describe(
-            "Contract description — the text an agent reads to decide whether to call the tool. Required whenever `expose` is set.",
-          ),
+        name: required(string(), "Dot-separated capability name, e.g. notes.search"),
+        effect: optional(
+          oneOf(["read", "write", "destructive"]),
+          "Effect class (defaults to read). `destructive` is confirmation-gated and may be exposed over http and mcp, never webmcp.",
+        ),
+        expose: optional(
+          arrayOf(oneOf(["http", "webmcp", "mcp"])),
+          "Transports to expose. Omit to keep the capability private.",
+        ),
+        title: optional(string(), "Human-readable title."),
+        description: optional(
+          string(),
+          "Contract description — the text an agent reads to decide whether to call the tool. Required whenever `expose` is set.",
+        ),
       },
     },
     guard(({ cwd, description, effect, expose, name, title }) =>
@@ -435,11 +416,11 @@ export function createPrachtMcpServer({ docsDir }: PrachtMcpServerOptions = {}):
         "Scaffold a pracht API route with typed HTTP method handlers. Returns the files created and updated.",
       inputSchema: {
         ...cwdInput,
-        path: z.string().describe("API endpoint path, e.g. /health or /users/:id"),
-        methods: z
-          .array(z.string())
-          .optional()
-          .describe('HTTP methods to scaffold, e.g. ["GET", "POST"] (defaults to GET).'),
+        path: required(string(), "API endpoint path, e.g. /health or /users/:id"),
+        methods: optional(
+          arrayOf(string()),
+          'HTTP methods to scaffold, e.g. ["GET", "POST"] (defaults to GET).',
+        ),
       },
     },
     guard(({ cwd, methods, path }) => {

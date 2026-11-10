@@ -12,7 +12,6 @@ export default defineConfig({
     /^node:/,
     "vite",
     "citty",
-    "zod",
     "playwright-core",
   ],
 });

@@ -1,0 +1,325 @@
+{
+  "inspect_routes": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "properties": {
+      "cwd": {
+        "description": "Absolute path to the pracht app root. Defaults to the server's working directory.",
+        "type": "string"
+      }
+    }
+  },
+  "inspect_api": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "properties": {
+      "cwd": {
+        "description": "Absolute path to the pracht app root. Defaults to the server's working directory.",
+        "type": "string"
+      }
+    }
+  },
+  "inspect_capabilities": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "properties": {
+      "cwd": {
+        "description": "Absolute path to the pracht app root. Defaults to the server's working directory.",
+        "type": "string"
+      }
+    }
+  },
+  "inspect_agents": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "properties": {
+      "cwd": {
+        "description": "Absolute path to the pracht app root. Defaults to the server's working directory.",
+        "type": "string"
+      }
+    }
+  },
+  "inspect_build": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "properties": {
+      "cwd": {
+        "description": "Absolute path to the pracht app root. Defaults to the server's working directory.",
+        "type": "string"
+      }
+    }
+  },
+  "doctor": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "properties": {
+      "cwd": {
+        "description": "Absolute path to the pracht app root. Defaults to the server's working directory.",
+        "type": "string"
+      }
+    }
+  },
+  "verify": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "properties": {
+      "cwd": {
+        "description": "Absolute path to the pracht app root. Defaults to the server's working directory.",
+        "type": "string"
+      },
+      "changed": {
+        "description": "Only check files changed according to git (maps to --changed).",
+        "type": "boolean"
+      }
+    }
+  },
+  "plan": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "properties": {
+      "cwd": {
+        "description": "Absolute path to the pracht app root. Defaults to the server's working directory.",
+        "type": "string"
+      },
+      "base": {
+        "description": "Base git ref to diff against (defaults to origin/main).",
+        "type": "string"
+      },
+      "write": {
+        "description": "Write the current app graph to .pracht/app-graph.json instead of diffing.",
+        "type": "boolean"
+      }
+    }
+  },
+  "report": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "properties": {
+      "cwd": {
+        "description": "Absolute path to the pracht app root. Defaults to the server's working directory.",
+        "type": "string"
+      },
+      "base": {
+        "description": "Base git ref to diff against (defaults to origin/main).",
+        "type": "string"
+      }
+    }
+  },
+  "typegen": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "properties": {
+      "cwd": {
+        "description": "Absolute path to the pracht app root. Defaults to the server's working directory.",
+        "type": "string"
+      },
+      "check": {
+        "description": "Report whether generated files are up to date instead of writing them.",
+        "type": "boolean"
+      }
+    }
+  },
+  "eval": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "properties": {
+      "cwd": {
+        "description": "Absolute path to the pracht app root. Defaults to the server's working directory.",
+        "type": "string"
+      },
+      "url": {
+        "type": "string",
+        "description": "Base URL of the running app, e.g. http://localhost:3000."
+      },
+      "files": {
+        "description": "Scenario files. Defaults to evals/**/*.eval.json.",
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    },
+    "required": ["url"]
+  },
+  "get_docs": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "properties": {
+      "topic": {
+        "description": "Docs page slug or title, e.g. routing, data-loading, recipes-auth. Append #section to read one section, e.g. routing#route-manifest.",
+        "type": "string"
+      }
+    }
+  },
+  "list_docs": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "properties": {}
+  },
+  "search_docs": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "string",
+        "description": "Keywords, e.g. `loader revalidate`; sections matching more of them rank first."
+      },
+      "limit": {
+        "description": "Maximum results (default 10).",
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 50
+      }
+    },
+    "required": ["query"]
+  },
+  "generate_route": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "properties": {
+      "cwd": {
+        "description": "Absolute path to the pracht app root. Defaults to the server's working directory.",
+        "type": "string"
+      },
+      "path": {
+        "type": "string",
+        "description": "Route path, e.g. /dashboard or /blog/:slug"
+      },
+      "render": {
+        "description": "Render mode (defaults to ssr).",
+        "type": "string",
+        "enum": ["spa", "ssr", "ssg", "isg"]
+      },
+      "shell": {
+        "description": "Registered shell name (manifest apps only).",
+        "type": "string"
+      },
+      "middleware": {
+        "description": "Registered middleware names (manifest apps only).",
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "loader": {
+        "description": "Include a loader export.",
+        "type": "boolean"
+      },
+      "errorBoundary": {
+        "description": "Include an error boundary export.",
+        "type": "boolean"
+      },
+      "staticPaths": {
+        "description": "Include a getStaticPaths export.",
+        "type": "boolean"
+      },
+      "title": {
+        "description": "Page title used in the head export.",
+        "type": "string"
+      },
+      "revalidate": {
+        "description": "ISG revalidation window in seconds (isg render mode only).",
+        "type": "integer",
+        "exclusiveMinimum": 0,
+        "maximum": 9007199254740991
+      },
+      "test": {
+        "description": "Emit a Playwright smoke test in e2e/ (defaults to on when the app has a Playwright setup).",
+        "type": "boolean"
+      }
+    },
+    "required": ["path"]
+  },
+  "generate_shell": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "properties": {
+      "cwd": {
+        "description": "Absolute path to the pracht app root. Defaults to the server's working directory.",
+        "type": "string"
+      },
+      "name": {
+        "type": "string",
+        "description": "Shell name, e.g. app or public"
+      },
+      "loader": {
+        "description": "Include a shell loader whose data useShellData() reads.",
+        "type": "boolean"
+      }
+    },
+    "required": ["name"]
+  },
+  "generate_middleware": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "properties": {
+      "cwd": {
+        "description": "Absolute path to the pracht app root. Defaults to the server's working directory.",
+        "type": "string"
+      },
+      "name": {
+        "type": "string",
+        "description": "Middleware name, e.g. auth (manifest) or _middleware (pages)"
+      }
+    },
+    "required": ["name"]
+  },
+  "generate_capability": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "properties": {
+      "cwd": {
+        "description": "Absolute path to the pracht app root. Defaults to the server's working directory.",
+        "type": "string"
+      },
+      "name": {
+        "type": "string",
+        "description": "Dot-separated capability name, e.g. notes.search"
+      },
+      "effect": {
+        "description": "Effect class (defaults to read). `destructive` is confirmation-gated and may be exposed over http and mcp, never webmcp.",
+        "type": "string",
+        "enum": ["read", "write", "destructive"]
+      },
+      "expose": {
+        "description": "Transports to expose. Omit to keep the capability private.",
+        "type": "array",
+        "items": {
+          "type": "string",
+          "enum": ["http", "webmcp", "mcp"]
+        }
+      },
+      "title": {
+        "description": "Human-readable title.",
+        "type": "string"
+      },
+      "description": {
+        "description": "Contract description — the text an agent reads to decide whether to call the tool. Required whenever `expose` is set.",
+        "type": "string"
+      }
+    },
+    "required": ["name"]
+  },
+  "generate_api": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "properties": {
+      "cwd": {
+        "description": "Absolute path to the pracht app root. Defaults to the server's working directory.",
+        "type": "string"
+      },
+      "path": {
+        "type": "string",
+        "description": "API endpoint path, e.g. /health or /users/:id"
+      },
+      "methods": {
+        "description": "HTTP methods to scaffold, e.g. [\"GET\", \"POST\"] (defaults to GET).",
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    },
+    "required": ["path"]
+  }
+}
