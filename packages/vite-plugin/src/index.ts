@@ -1,5 +1,4 @@
 import { preactSsrPrecompile } from "@pracht/preact-ssr-precompile";
-import preact from "@preact/preset-vite";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { isBuiltin } from "node:module";
 import { resolve } from "node:path";
@@ -24,6 +23,7 @@ import { createEnvSafetyPlugin, PUBLIC_ENV_PREFIX, SERVER_ENV_MODULE_ID } from "
 import { createServerCssAssetsPlugin } from "./plugin-server-css.ts";
 import { findAppRootModule } from "./plugin-app-root.ts";
 import { createClientModulePrefreshPlugin } from "./client-module-prefresh.ts";
+import { createPreactPlugins } from "./preact-plugins.ts";
 import { reachesRouteHintedModule } from "./head-hint-reload.ts";
 import { sendRouteDataStale } from "./route-data-stale.ts";
 import { sendServerOnlyFullReload } from "./hot-update-reload.ts";
@@ -1101,7 +1101,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       })
     : null;
 
-  const preactPlugins = preact();
+  const preactPlugins = createPreactPlugins();
   // Ordered right after `clientModuleTransformPlugin` on purpose: prefresh has
   // to see the module with its server-only exports already stripped.
   const clientModulePrefreshPlugin = createClientModulePrefreshPlugin(preactPlugins, {

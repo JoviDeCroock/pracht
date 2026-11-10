@@ -76,8 +76,7 @@ export function createClientModulePrefreshPlugin(
 type TransformHandler = NonNullable<Extract<Plugin["transform"], (...args: never[]) => unknown>>;
 
 /**
- * `@preact/preset-vite` returns a plugin array whose shape is its own business;
- * find prefresh by name rather than by position, and treat its absence as "no
+ * Find prefresh in the Preact plugin array by name rather than by position, and treat its absence as "no
  * Fast Refresh configured" rather than an error.
  */
 function resolvePrefreshTransform(preactPlugins: PluginOption[]): TransformHandler | null {
