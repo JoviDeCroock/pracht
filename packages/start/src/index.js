@@ -95,13 +95,18 @@ function readFileSyncSafe(path) {
 
 const PACKAGE_ROOT = fileURLToPath(new URL("..", import.meta.url));
 
+// The Rust port of the TypeScript 7 compiler: `tsc`-compatible, faster, and one
+// native binary per platform. It only publishes prereleases, and a semver range
+// never crosses from one prerelease line to the next, so scaffolds pin the
+// release this template was checked against instead of the registry's latest.
+const TSRS_VERSION = "0.24.0-ts7.1.0-beta";
+
 // Used only when the registry lookup fails. The `@pracht/*` ranges are the
 // versions this create-pracht was built alongside (see src/versions.js).
 const FALLBACK_VERSION_RANGES = {
   "@tailwindcss/vite": "^4.1.0",
   "netlify-cli": "^21.6.0",
   tailwindcss: "^4.1.0",
-  tsrs: "^0.24.0-ts7.1.0-beta",
   vercel: "^56.5.0",
   ...loadFallbackVersionRanges(PACKAGE_ROOT),
 };
@@ -751,7 +756,6 @@ async function buildProjectFiles({
     "@pracht/vite-plugin",
     "@pracht/core",
     adapter.packageName,
-    "tsrs",
   ];
   if (adapter.id === "vercel") {
     packagesToResolve.push("vercel");
@@ -940,9 +944,7 @@ function createPackageJson({ adapter, projectName, tailwind, versions }) {
     preact: "^11.0.1",
     // At least @pracht/core's peer floor, or the first install warns.
     "preact-render-to-string": "^6.7.0",
-    // The Rust port of the TypeScript 7 compiler: `tsc`-compatible, faster,
-    // and one native binary per platform.
-    tsrs: versions["tsrs"],
+    tsrs: TSRS_VERSION,
     vite: "^8.0.0",
   };
 

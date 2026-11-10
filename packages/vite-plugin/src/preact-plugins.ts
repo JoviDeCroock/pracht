@@ -1,5 +1,5 @@
 import prefresh from "@prefresh/vite";
-import type { Plugin } from "vite";
+import type { Plugin, Rolldown } from "vite";
 
 import { PRACHT_CLIENT_MODULE_ID, PRACHT_ISLANDS_CLIENT_MODULE_ID } from "./plugin-assets.ts";
 
@@ -17,6 +17,24 @@ const REACT_ALIASES = {
 /** Parser features prefresh's Babel pass must accept in application source. */
 const PREFRESH_PARSER_PLUGINS = ["importMeta", "explicitResourceManagement", "topLevelAwait"];
 
+type WarningHandler = NonNullable<Rolldown.InputOptions["onwarn"]>;
+
+/**
+ * Bundling drops module-level `"use client"` directives, which only mean
+ * something to React Server Components. Libraries in `node_modules` ship them
+ * for React and the warning is not actionable, so keep it out of build output
+ * and hand every other warning to the app's own handler.
+ */
+function silenceUseClientDirectives(appHandler: WarningHandler | undefined): WarningHandler {
+  return (warning, defaultHandler) => {
+    if (warning.code === "MODULE_LEVEL_DIRECTIVE" && warning.message.includes("use client")) {
+      return;
+    }
+    if (appHandler) appHandler(warning, defaultHandler);
+    else defaultHandler(warning);
+  };
+}
+
 const DEV_CLIENT_ENTRY_IDS = new Set([PRACHT_CLIENT_MODULE_ID, PRACHT_ISLANDS_CLIENT_MODULE_ID]);
 
 /**
@@ -29,8 +47,11 @@ export function createPreactPlugins(): Plugin[] {
     {
       name: "pracht:preact",
       enforce: "pre",
-      config(_config, env) {
+      config(config, env) {
+        const appOnwarn =
+          config.build?.rolldownOptions?.onwarn ?? config.build?.rollupOptions?.onwarn;
         return {
+          build: { rolldownOptions: { onwarn: silenceUseClientDirectives(appOnwarn) } },
           resolve: { alias: REACT_ALIASES },
           oxc: { jsx: { runtime: "automatic", importSource: "preact" } },
           optimizeDeps: {

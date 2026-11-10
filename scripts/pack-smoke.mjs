@@ -147,7 +147,7 @@ try {
       },
       include: ["pack-smoke-probe.ts"],
     });
-    run("pnpm", ["exec", "tsc", "--project", "tsconfig.pack-smoke.json"], { cwd: appDir });
+    run("pnpm", ["exec", "tsrs", "--project", "tsconfig.pack-smoke.json"], { cwd: appDir });
     rmSync(join(appDir, "pack-smoke-out"), { force: true, recursive: true });
     rmSync(join(appDir, "pack-smoke-probe.ts"));
     rmSync(join(appDir, "tsconfig.pack-smoke.json"));

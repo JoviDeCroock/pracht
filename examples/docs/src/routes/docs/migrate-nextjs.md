@@ -35,7 +35,7 @@ import { useState } from "preact/hooks";
 ```
 
 > [!TIP]
-> pracht resolves `react` and `react-dom` to `preact/compat`, so a React component library works during the migration without extra config. The compat layer adds about 0.75 KB gzip ([Performance](/docs/performance#what-pracht-costs-a-page)).
+> pracht resolves `react` and `react-dom` to `preact/compat`. Vite keeps packages in `node_modules` external during server rendering, where that alias does not apply, so list a React library in `ssr.noExternal` in `vite.config.ts`; otherwise its pages fail with `Cannot read properties of null`. The compat layer adds about 0.75 KB gzip ([Performance](/docs/performance#what-pracht-costs-a-page)).
 
 ## Routing
 

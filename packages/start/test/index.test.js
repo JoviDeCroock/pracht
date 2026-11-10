@@ -107,7 +107,7 @@ describe("create-pracht", () => {
     expect(packageJson).toContain(
       '"typecheck": "tsrs --noEmit && tsrs --noEmit --project tsconfig.client.json"',
     );
-    expect(packageJson).toMatch(/"tsrs": "\^\d+\.\d+\.\d+/);
+    expect(packageJson).toMatch(/"tsrs": "\d+\.\d+\.\d+-ts[\d.]+-beta"/);
     expect(packageJson).not.toContain('"typescript"');
     expect(packageJson).not.toContain("wrangler");
     expect(gitignore).toContain(".env*");
