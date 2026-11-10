@@ -628,7 +628,10 @@ plugin run a second, discarded pass.
 ### Optional server JSX precompile
 
 `pracht({ precompileSsrJsx: true })` inserts `@pracht/preact-ssr-precompile`
-before the normal Preact Vite preset for SSR transforms. The transform rewrites
+before pracht's Preact plugins (`packages/vite-plugin/src/preact-plugins.ts`:
+Oxc automatic JSX, React aliases, dev DevTools hookup, prefresh) for SSR
+transforms. It parses with the `parseSync` Vite re-exports, so it never installs
+a second Rolldown. The transform rewrites
 safe native DOM JSX into `preact/jsx-runtime` `jsxTemplate()` calls, matching the
 hidden runtime path used by Deno's JSX precompile transform. `preact-render-to-string`
 then concatenates the static template strings and only renders dynamic VNodes,

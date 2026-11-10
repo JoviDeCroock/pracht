@@ -35,7 +35,7 @@ import { useState } from "preact/hooks";
 ```
 
 > [!TIP]
-> For a large React component library, alias `react` and `react-dom` to `preact/compat` with `resolve.alias` in `vite.config.ts` during the migration. The compat layer adds about 0.75 KB gzip ([Performance](/docs/performance#what-pracht-costs-a-page)).
+> pracht resolves `react` and `react-dom` to `preact/compat`, so a React component library works during the migration without extra config. The compat layer adds about 0.75 KB gzip ([Performance](/docs/performance#what-pracht-costs-a-page)).
 
 ## Routing
 
