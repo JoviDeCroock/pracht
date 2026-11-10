@@ -278,7 +278,8 @@ export async function executeBrowserTool(
             // the draft (https://webmachinelearning.github.io/webmcp/, 16 October
             // 2026: `executeTool(RegisteredTool tool, optional object
             // inputObject, ...)`) and its IDL binding rejects a string with a
-            // TypeError ("invalid input object: value is not an object"). Both
+            // TypeError ("invalid input object: value is not an object"; Chrome
+            // 157: "parameter 2 is not of type 'object'"). Both
             // rejections happen before the tool runs, so retry with the object
             // only on those two messages.
             raw = await context.executeTool(
@@ -292,7 +293,9 @@ export async function executeBrowserTool(
             const rejectedString =
               /parse input arguments/i.test(detail) ||
               (firstError instanceof TypeError &&
-                /executeTool.*invalid input object/i.test(detail));
+                /executeTool.*(?:invalid input object|parameter 2 is not of type 'object')/i.test(
+                  detail,
+                ));
             if (!rejectedString) throw firstError;
             raw = await context.executeTool(
               tool,

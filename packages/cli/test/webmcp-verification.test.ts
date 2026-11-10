@@ -145,6 +145,25 @@ describe("WebMCP browser compatibility", () => {
     expect(calls).toEqual(['{"query":"a"}', { query: "a" }]);
   });
 
+  it("executes tools through the input-object signature of Chrome 157", async () => {
+    const calls: unknown[] = [];
+    const page = fakePage(async (_tool, input) => {
+      calls.push(input);
+      if (typeof input !== "object" || input === null) {
+        throw new TypeError(
+          "Failed to execute 'executeTool' on 'ModelContext': parameter 2 is not of type 'object'.",
+        );
+      }
+      return JSON.stringify({ ok: true, data: input });
+    });
+
+    await expect(executeBrowserTool(page, "notes.search", { query: "a" })).resolves.toEqual({
+      error: null,
+      value: { ok: true, data: { query: "a" } },
+    });
+    expect(calls).toEqual(['{"query":"a"}', { query: "a" }]);
+  });
+
   it("does not re-run a tool whose own execution failed", async () => {
     let runs = 0;
     const page = fakePage(async () => {
