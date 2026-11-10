@@ -4,4 +4,4 @@
 "@pracht/adapter-netlify": patch
 ---
 
-Immutable scripts, stylesheets, fonts, and source maps under `/assets/` are served with only `X-Content-Type-Options: nosniff` of the default security headers and without `ETag` or `Last-Modified`, since the others never apply to them.
+Hashed scripts, stylesheets, fonts, and source maps under `/assets/` are served with smaller response headers, dropping the document-only security headers and the unused `ETag` and `Last-Modified` validators.
