@@ -204,6 +204,8 @@ export {
 } from "./runtime-request.ts";
 export {
   applyDefaultSecurityHeaders,
+  applyStaticFileSecurityHeaders,
+  isImmutableSubresource,
   isProtocolSwitchResponse,
   normalizeResponseHeaders,
   preventHeuristicCaching,

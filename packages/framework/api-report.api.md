@@ -1107,6 +1107,7 @@ apiFetch: function
 apiValidationErrorResponse: function
 applyDefaultSecurityHeaders: function
 applyHeadersManifest: function
+applyStaticFileSecurityHeaders: function
 applyTrailingSlash: function
 assertHumanApprovalIdentity: function
 buildAppGraph: function
@@ -1154,6 +1155,7 @@ isAuthorizedRevalidationRequest: function
 isCacheableISGResponse: function
 isDangerousPrerenderHeader: function
 isISGSnapshotRejection: function
+isImmutableSubresource: function
 isMcpResourceMetadataPath: function
 isProtocolSwitchResponse: function
 isStreamingHtmlResponse: function

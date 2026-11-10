@@ -77,6 +77,59 @@ export function applyDefaultSecurityHeaders(headers: Headers): Headers {
   return headers;
 }
 
+/**
+ * Media types a browser only ever loads as a subresource: scripts,
+ * stylesheets, and fonts. Nothing a browser renders as a document — HTML, SVG,
+ * XML, PDF, images — is listed.
+ */
+const SUBRESOURCE_MEDIA_TYPES = new Set([
+  "application/javascript",
+  "text/javascript",
+  "text/css",
+  "font/woff2",
+  "font/woff",
+  "font/ttf",
+  "font/otf",
+]);
+
+const IMMUTABLE_DIRECTIVE_RE = /(?:^|,)\s*immutable\s*(?:,|$)/i;
+
+/**
+ * Whether a static file response is an immutable script, stylesheet, font, or
+ * source map: content-hashed build output a browser loads as a subresource and
+ * never revalidates.
+ */
+export function isImmutableSubresource(pathname: string, headers: Pick<Headers, "get">): boolean {
+  if (!IMMUTABLE_DIRECTIVE_RE.test(headers.get("cache-control") ?? "")) return false;
+  const mediaType = (headers.get("content-type") ?? "").split(";")[0]!.trim().toLowerCase();
+  if (SUBRESOURCE_MEDIA_TYPES.has(mediaType)) return true;
+  return mediaType === "application/json" && pathname.toLowerCase().endsWith(".map");
+}
+
+/**
+ * Apply pracht's default security headers to a static file response, returning
+ * whether it is an immutable subresource (see `isImmutableSubresource`).
+ *
+ * Such a response keeps only `X-Content-Type-Options: nosniff`, which is what
+ * stops a script or stylesheet being executed under a sniffed type. The other
+ * defaults have no effect on it: `Permissions-Policy` and `X-Frame-Options`
+ * govern documents, and `Referrer-Policy` only changes the referrer of requests
+ * a stylesheet or module makes, whose referrer is the asset's own URL — and its
+ * value is the browser default anyway. Without it those requests follow the
+ * page's policy. Callers also leave validators off these responses: an
+ * `immutable` response is never revalidated.
+ */
+export function applyStaticFileSecurityHeaders(headers: Headers, pathname: string): boolean {
+  if (!isImmutableSubresource(pathname, headers)) {
+    applyDefaultSecurityHeaders(headers);
+    return false;
+  }
+  if (!headers.has("x-content-type-options")) {
+    headers.set("x-content-type-options", "nosniff");
+  }
+  return true;
+}
+
 export function applySecurityAndRouteHeaders(
   headers: Headers,
   options?: { isRouteStateRequest: boolean; loaderCache?: LoaderCache },

@@ -192,7 +192,16 @@ legitimate route whose base-free path is `/my-project`.
   spellings `staticPathCandidates()` names (see
   [Static paths](#static-paths-and-the-node-bridge)). Hashed assets under `/assets/` get `Cache-Control: public,
 max-age=31536000, immutable`; HTML and other files get `public, max-age=0,
-must-revalidate`. Clean URLs (e.g. `/about`) resolve to `about/index.html`.
+must-revalidate`. An immutable script, stylesheet, font, or source map (core's
+`isImmutableSubresource()`, decided on the final `Cache-Control` and
+`Content-Type`, so SVG, HTML, JSON, images, and anything a build header makes
+revalidate are excluded) gets only `X-Content-Type-Options: nosniff` of the
+default security headers and no `ETag` / `Last-Modified`:
+`Permissions-Policy` and `X-Frame-Options` only govern documents,
+`Referrer-Policy` only sets the policy for requests a stylesheet or module makes
+(whose referrer is the asset URL) and equals the browser default, and an
+`immutable` response is never revalidated. Clean URLs (e.g. `/about`) resolve
+to `about/index.html`.
 A path with no static file (every rendered route) is remembered for one second
 per handler, at most 1,024 paths, so a busy route does not pay two failed
 `lstat` calls per request; a file added to `dist/client/` at runtime is found
@@ -254,9 +263,9 @@ that manifest.
   regeneration of that file pauses for one revalidate window after each failed
   write instead of re-rendering on every request.
   Static and ISG files are
-  streamed, and static responses support `ETag` / `Last-Modified` conditional
-  revalidation and single byte ranges (`206`, `416`, `If-Range` by date;
-  multi-range requests get the whole file).
+  streamed, and static responses other than immutable subresources support
+  `ETag` / `Last-Modified` conditional revalidation and single byte ranges
+  (`206`, `416`, `If-Range` by date; multi-range requests get the whole file).
 - **Vite manifest**: the server bundle embeds the asset URLs it needs at build
   time; `pracht build` then moves the client manifest to
   `dist/server/.vite/client-manifest.json`, so no adapter serves it.
@@ -1295,7 +1304,8 @@ bypass it at the origin root. This keeps `Accept: text/markdown` negotiation
 and route-state requests inside Pracht without charging a function invocation
 for hashed assets. Under a Vite deploy base, the publish tree remains
 base-free, so the function bundles those framework asset and state trees and
-serves them after stripping the public base. Add application-specific static
+serves them after stripping the public base, with the same immutable-subresource
+header trim as the Node adapter. Add application-specific static
 prefixes with `netlifyAdapter({ excludedPath: ["/images/*"] })`; do not exclude
 page URLs.
 At the origin root, default and prefix-shaped exclusions are also omitted from

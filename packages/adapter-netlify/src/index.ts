@@ -11,6 +11,7 @@ import { URLPattern } from "urlpattern-polyfill";
 import type { Plugin } from "vite";
 import {
   applyDefaultSecurityHeaders,
+  applyStaticFileSecurityHeaders,
   classifyRevalidationSkip,
   createBaseRedirectResponse,
   createTrailingSlashRedirectResponse,
@@ -989,12 +990,10 @@ async function serveStaticFile(
   pathname: string,
   staticMaxAge: number,
 ): Promise<Response> {
-  const headers = applyDefaultSecurityHeaders(
-    new Headers({
-      "content-type": file.contentType,
-      "accept-ranges": "bytes",
-    }),
-  );
+  const headers = new Headers({
+    "content-type": file.contentType,
+    "accept-ranges": "bytes",
+  });
   applyHeadersManifest(headers, headersManifest, pathname);
   if (!hasExplicitCachePolicy(headers)) {
     headers.set(
@@ -1005,6 +1004,7 @@ async function serveStaticFile(
     );
     headers.set("netlify-cdn-cache-control", `public, durable, max-age=${staticMaxAge}`);
   }
+  applyStaticFileSecurityHeaders(headers, pathname);
   if (file.document) ensureNetlifyPageVary(headers);
   if (request.method === "HEAD") return new Response(null, { headers });
   const body = await readFile(file.filePath);

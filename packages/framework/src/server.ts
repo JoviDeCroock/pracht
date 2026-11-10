@@ -63,10 +63,12 @@ export {
 } from "./runtime-wait-until.ts";
 export {
   applyDefaultSecurityHeaders,
+  applyStaticFileSecurityHeaders,
   createBaseRedirectResponse,
   createTrailingSlashRedirectResponse,
   formatServerTimingHeader,
   handlePrachtRequest,
+  isImmutableSubresource,
   isProtocolSwitchResponse,
   normalizeResponseHeaders,
   preventHeuristicCaching,

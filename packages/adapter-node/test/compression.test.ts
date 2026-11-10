@@ -1215,6 +1215,13 @@ describe("static asset compression", () => {
       `// pracht\n${'console.log("payload");\n'.repeat(300)}`,
       "utf-8",
     );
+    // A public file revalidates, so it carries the validators an immutable
+    // `/assets/` script does without.
+    writeFileSync(
+      join(staticDir, "app.js"),
+      `// public\n${'console.log("payload");\n'.repeat(300)}`,
+      "utf-8",
+    );
     writeFileSync(join(staticDir, "assets", "tiny.css"), "a{color:red}", "utf-8");
     writeFileSync(join(staticDir, "assets", "pixel.png"), Buffer.alloc(4096, 3));
     writeFileSync(join(staticDir, "assets", "module.wasm"), Buffer.alloc(4096, 5));
@@ -1236,8 +1243,8 @@ describe("static asset compression", () => {
     const { handler } = createStaticHandler();
     const base = await listen(handler);
 
-    const identity = await rawRequest(`${base}/assets/app.js`);
-    const compressed = await rawRequest(`${base}/assets/app.js`, {
+    const identity = await rawRequest(`${base}/app.js`);
+    const compressed = await rawRequest(`${base}/app.js`, {
       "accept-encoding": "gzip, br",
     });
 
@@ -1260,8 +1267,8 @@ describe("static asset compression", () => {
     const { handler } = createStaticHandler();
     const base = await listen(handler);
 
-    const compressed = await rawRequest(`${base}/assets/app.js`, { "accept-encoding": "br" });
-    const revalidated = await rawRequest(`${base}/assets/app.js`, {
+    const compressed = await rawRequest(`${base}/app.js`, { "accept-encoding": "br" });
+    const revalidated = await rawRequest(`${base}/app.js`, {
       "accept-encoding": "br",
       "if-none-match": compressed.headers.etag!,
     });
@@ -1270,8 +1277,8 @@ describe("static asset compression", () => {
     expect(revalidated.body.byteLength).toBe(0);
 
     // The identity ETag does not validate the encoded variant.
-    const identity = await rawRequest(`${base}/assets/app.js`);
-    const crossEncoding = await rawRequest(`${base}/assets/app.js`, {
+    const identity = await rawRequest(`${base}/app.js`);
+    const crossEncoding = await rawRequest(`${base}/app.js`, {
       "accept-encoding": "br",
       "if-modified-since": "Thu, 01 Jan 1970 00:00:00 GMT",
       "if-none-match": identity.headers.etag!,
@@ -1285,9 +1292,7 @@ describe("static asset compression", () => {
     const fixedTimestamp = new Date(Math.floor(Date.now() / 1000) * 1000);
     const createReplica = (): string => {
       const staticDir = makeTempDir();
-      const assetDir = join(staticDir, "assets");
-      const assetPath = join(assetDir, "app.js");
-      mkdirSync(assetDir, { recursive: true });
+      const assetPath = join(staticDir, "app.js");
       writeFileSync(assetPath, source, "utf-8");
       utimesSync(assetPath, fixedTimestamp, fixedTimestamp);
       return staticDir;
@@ -1299,11 +1304,12 @@ describe("static asset compression", () => {
     const secondBase = await listen(
       createNodeRequestHandler({ app: defineApp({ routes: [] }), staticDir: createReplica() }),
     );
-    const first = await rawRequest(`${firstBase}/assets/app.js`, { "accept-encoding": "gzip" });
-    const second = await rawRequest(`${secondBase}/assets/app.js`, {
+    const first = await rawRequest(`${firstBase}/app.js`, { "accept-encoding": "gzip" });
+    const second = await rawRequest(`${secondBase}/app.js`, {
       "accept-encoding": "gzip",
     });
 
+    expect(first.headers.etag).toBeDefined();
     expect(first.headers.etag).toBe(second.headers.etag);
     expect(gunzipSync(first.body)).toEqual(gunzipSync(second.body));
   });
@@ -1433,9 +1439,7 @@ describe("static asset compression", () => {
 
   it("reads the same file version that supplied compression metadata", async () => {
     const staticDir = makeTempDir();
-    const assetDir = join(staticDir, "assets");
-    const assetPath = join(assetDir, "app.js");
-    mkdirSync(assetDir, { recursive: true });
+    const assetPath = join(staticDir, "app.js");
     const oldSource = `// old\n${"oldPayload();\n".repeat(400)}`;
     const newSource = `// new\n${"newPayload();\n".repeat(80_000)}`;
     writeFileSync(assetPath, oldSource, "utf-8");
@@ -1464,14 +1468,14 @@ describe("static asset compression", () => {
     let raced: RawResponse;
 
     try {
-      raced = await rawRequest(`${base}/assets/app.js`, { "accept-encoding": "gzip" });
+      raced = await rawRequest(`${base}/app.js`, { "accept-encoding": "gzip" });
       expect(replaced).toBe(true);
       expect(gunzipSync(raced.body).toString("utf-8")).toBe(oldSource);
     } finally {
       readFileSpy.mockRestore();
     }
 
-    const replacement = await rawRequest(`${base}/assets/app.js`, {
+    const replacement = await rawRequest(`${base}/app.js`, {
       "accept-encoding": "gzip",
     });
     expect(gunzipSync(replacement.body).toString("utf-8")).toBe(newSource);
@@ -1482,14 +1486,14 @@ describe("static asset compression", () => {
     const { handler } = createStaticHandler();
     const base = await listen(handler);
 
-    const identity = await rawRequest(`${base}/assets/app.js`);
+    const identity = await rawRequest(`${base}/app.js`);
 
     // A client revalidating its identity-encoded cache entry sends both
     // validators. The brotli variant carries a different ETag, so this must
     // be a fresh 200: the still-fresh Last-Modified date must not shadow the
     // ETag mismatch, or the client's identity body would be relabeled with
     // the brotli variant's validator by a spurious 304.
-    const crossEncoding = await rawRequest(`${base}/assets/app.js`, {
+    const crossEncoding = await rawRequest(`${base}/app.js`, {
       "accept-encoding": "br",
       "if-modified-since": identity.headers["last-modified"]!,
       "if-none-match": identity.headers.etag!,
@@ -1498,7 +1502,7 @@ describe("static asset compression", () => {
     expect(crossEncoding.headers["content-encoding"]).toBe("br");
 
     // A matching ETag still answers 304 even alongside a stale IMS date.
-    const conditional = await rawRequest(`${base}/assets/app.js`, {
+    const conditional = await rawRequest(`${base}/app.js`, {
       "accept-encoding": "br",
       "if-modified-since": "Thu, 01 Jan 1970 00:00:00 GMT",
       "if-none-match": crossEncoding.headers.etag!,

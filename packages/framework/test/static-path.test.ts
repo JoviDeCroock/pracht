@@ -4,7 +4,11 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { isgPathKey } from "../src/revalidation.ts";
-import { getManifestHeaders } from "../src/runtime-headers.ts";
+import {
+  applyStaticFileSecurityHeaders,
+  getManifestHeaders,
+  isImmutableSubresource,
+} from "../src/runtime-headers.ts";
 import {
   decodeStaticPath,
   staticByteRange,
@@ -104,6 +108,67 @@ describe("getManifestHeaders", () => {
     const manifest = { "/posts/caf%C3%A9": { "x-page": "café" } };
     expect(getManifestHeaders(manifest, "/posts/caf%c3%a9")).toEqual({ "x-page": "café" });
     expect(getManifestHeaders(manifest, "/posts/caf%c3%a9/")).toEqual({ "x-page": "café" });
+  });
+});
+
+describe("isImmutableSubresource", () => {
+  const immutable = "public, max-age=31536000, immutable";
+
+  it.each([
+    ["/assets/app-Ab12.js", "application/javascript"],
+    ["/assets/app-Ab12.mjs", "text/javascript; charset=utf-8"],
+    ["/assets/style-Ab12.css", "text/css"],
+    ["/assets/font-Ab12.woff2", "font/woff2"],
+    ["/assets/font-Ab12.ttf", "font/ttf"],
+    ["/assets/app-Ab12.js.map", "application/json"],
+  ])("accepts %s (%s)", (pathname, contentType) => {
+    const headers = new Headers({ "cache-control": immutable, "content-type": contentType });
+    expect(isImmutableSubresource(pathname, headers)).toBe(true);
+  });
+
+  it.each([
+    ["/assets/logo-Ab12.svg", "image/svg+xml", immutable],
+    ["/assets/page-Ab12.html", "text/html; charset=utf-8", immutable],
+    ["/assets/feed-Ab12.xml", "application/xml", immutable],
+    ["/assets/doc-Ab12.pdf", "application/pdf", immutable],
+    ["/assets/data-Ab12.json", "application/json", immutable],
+    ["/assets/photo-Ab12.png", "image/png", immutable],
+    ["/assets/blob-Ab12", "application/octet-stream", immutable],
+    ["/widget.js", "application/javascript", "public, max-age=0, must-revalidate"],
+    ["/widget.js", "application/javascript", "public, max-age=31536000"],
+  ])("rejects %s (%s, %s)", (pathname, contentType, cacheControl) => {
+    const headers = new Headers({ "cache-control": cacheControl, "content-type": contentType });
+    expect(isImmutableSubresource(pathname, headers)).toBe(false);
+  });
+});
+
+describe("applyStaticFileSecurityHeaders", () => {
+  it("keeps only nosniff on an immutable subresource", () => {
+    const headers = new Headers({
+      "cache-control": "public, max-age=31536000, immutable",
+      "content-type": "text/css",
+    });
+
+    expect(applyStaticFileSecurityHeaders(headers, "/assets/style-Ab12.css")).toBe(true);
+    expect([...headers.keys()]).toEqual([
+      "cache-control",
+      "content-type",
+      "x-content-type-options",
+    ]);
+  });
+
+  it("applies every default to anything else, keeping values already set", () => {
+    const headers = new Headers({
+      "cache-control": "public, max-age=31536000, immutable",
+      "content-type": "image/svg+xml",
+      "x-frame-options": "DENY",
+    });
+
+    expect(applyStaticFileSecurityHeaders(headers, "/assets/logo-Ab12.svg")).toBe(false);
+    expect(headers.get("permissions-policy")).not.toBeNull();
+    expect(headers.get("referrer-policy")).toBe("strict-origin-when-cross-origin");
+    expect(headers.get("x-content-type-options")).toBe("nosniff");
+    expect(headers.get("x-frame-options")).toBe("DENY");
   });
 });
 

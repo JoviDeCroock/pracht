@@ -5,6 +5,7 @@ import { join, resolve, sep } from "node:path";
 
 import {
   applyDefaultSecurityHeaders,
+  applyStaticFileSecurityHeaders,
   createBaseRedirectResponse,
   createTrailingSlashRedirectResponse,
   getTimeRevalidateSeconds,
@@ -653,16 +654,18 @@ async function serveStaticFile(
     const fileStat = await file.stat();
     const compressionGeneration = compression?.cache.getPathGeneration(staticResult.filePath) ?? 0;
     const compressionFileVersion = compression ? createCompressionFileVersion(fileStat) : undefined;
-    const headers = applyDefaultSecurityHeaders(
-      new Headers({
-        "content-type": staticResult.contentType,
-        "cache-control": staticResult.cacheControl,
-        etag: createWeakEtag(fileStat),
-        "last-modified": fileStat.mtime.toUTCString(),
-        "accept-ranges": "bytes",
-      }),
-    );
+    const headers = new Headers({
+      "content-type": staticResult.contentType,
+      "cache-control": staticResult.cacheControl,
+      "accept-ranges": "bytes",
+    });
     applyHeadersManifest(headers, headersManifest, pathname);
+    // An immutable script, stylesheet, or font is never revalidated, so it
+    // gets no validators to spend bytes on.
+    if (!applyStaticFileSecurityHeaders(headers, pathname)) {
+      if (!headers.has("etag")) headers.set("etag", createWeakEtag(fileStat));
+      if (!headers.has("last-modified")) headers.set("last-modified", fileStat.mtime.toUTCString());
+    }
     const encoding = negotiateFileEncoding(request, headers, fileStat.size, compression);
 
     if (isNotModified(request, headers, compressionGeneration === 0)) {

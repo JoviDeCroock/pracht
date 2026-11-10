@@ -637,6 +637,11 @@ describe("createNetlifyHandler", () => {
 
     expect(response.headers.get("content-type")).toContain("application/javascript");
     expect(response.headers.get("cache-control")).toContain("immutable");
+    // Only nosniff applies to an immutable script; the document-only defaults are left off.
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(response.headers.get("permissions-policy")).toBeNull();
+    expect(response.headers.get("referrer-policy")).toBeNull();
+    expect(response.headers.get("x-frame-options")).toBeNull();
     expect(await response.text()).toBe("export default 1");
   });
 
@@ -647,6 +652,9 @@ describe("createNetlifyHandler", () => {
 
     expect(response.headers.get("content-type")).toContain("text/plain");
     expect(response.headers.get("cache-control")).toBe("public, max-age=0, must-revalidate");
+    expect(response.headers.get("x-frame-options")).toBe("SAMEORIGIN");
+    expect(response.headers.get("permissions-policy")).not.toBeNull();
+    expect(response.headers.get("referrer-policy")).toBe("strict-origin-when-cross-origin");
     expect(await response.text()).toBe("User-agent: *");
   });
 

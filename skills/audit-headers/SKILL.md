@@ -1,6 +1,6 @@
 ---
 name: audit-headers
-version: 1.2.1
+version: 1.2.2
 description: |
   Audit security headers in a pracht app: `headers()` exports that weaken the
   defaults, static hosts that drop them, and HSTS and CSP choices.
@@ -16,10 +16,10 @@ allowed-tools:
 # Pracht Audit Headers
 
 What the framework guarantees: four default security headers are applied
-automatically on EVERY framework response path — SSR pages, API responses,
-404s, and static/ISG output on the first-party adapters (`adapter-node`,
-`adapter-cloudflare`) as well as the Vercel headers config generated at build
-time:
+automatically on every framework response path that can be a document — SSR
+pages, API responses, 404s, and static/ISG output on the first-party adapters
+(`adapter-node`, `adapter-cloudflare`) as well as the Vercel headers config
+generated at build time:
 
 - `permissions-policy` (disables device sensors)
 - `referrer-policy: strict-origin-when-cross-origin`
@@ -31,6 +31,12 @@ The helper behind this (`applyDefaultSecurityHeaders`) only sets a header
 including when it weakens a default. The framework does NOT set
 `strict-transport-security`, `content-security-policy`, or `cross-origin-*`
 headers — those need a project decision.
+
+An immutable script, stylesheet, font, or source map under `/assets/` served
+by `adapter-node` (or the Netlify function) is never a document, so it carries
+only `x-content-type-options: nosniff`, without the three document-only
+headers or `etag` / `last-modified`. HTML, SVG, JSON, images, and public files
+keep all four. This is not a gap — do not report it as a finding.
 
 One deliberate exception: **protocol-switch responses** (a `101` WebSocket
 handshake, or any response carrying a `webSocket` handle) are returned exactly
