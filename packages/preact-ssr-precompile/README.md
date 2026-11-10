@@ -56,7 +56,9 @@ By default the transform runs only when Vite calls plugin transforms with
 
 ### Rolldown server builds
 
-For a dedicated server-only Rolldown build, disable the Vite SSR guard:
+For a dedicated server-only Rolldown build, disable the Vite SSR guard. The
+plugin parses with the `parseSync` that `vite` re-exports, so `vite` must be
+installed even when Rolldown runs the build:
 
 ```ts
 import { defineConfig } from "rolldown";

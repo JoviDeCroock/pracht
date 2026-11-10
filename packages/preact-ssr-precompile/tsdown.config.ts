@@ -5,5 +5,5 @@ export default defineConfig({
   entry: ["src/index.ts"],
   format: "esm",
   dts: true,
-  external: ["rolldown", "rolldown/utils", "rolldown-string"],
+  external: ["magic-string", "vite"],
 });

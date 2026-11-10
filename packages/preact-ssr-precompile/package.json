@@ -50,14 +50,8 @@
     "preact-render-to-string": "^6.5.13",
     "vite": "^8.0.0"
   },
-  "peerDependenciesMeta": {
-    "vite": {
-      "optional": true
-    }
-  },
   "dependencies": {
-    "rolldown": "^1.0.0-rc.12",
-    "rolldown-string": "^0.3.0"
+    "magic-string": "^0.30.21"
   },
   "devDependencies": {
     "preact": "11.0.1",

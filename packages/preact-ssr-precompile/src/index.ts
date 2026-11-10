@@ -1,11 +1,5 @@
-import type { Plugin } from "vite";
-import { parseSync } from "rolldown/utils";
-import {
-  generateTransform,
-  rolldownString,
-  withMagicString,
-  type RolldownString,
-} from "rolldown-string";
+import MagicString from "magic-string";
+import { parseSync, type Plugin } from "vite";
 
 import { decodeJsxEntities } from "./jsx-entities.ts";
 
@@ -95,14 +89,19 @@ export function preactSsrPrecompile(options: PreactSsrPrecompileOptions = {}): P
       filter: {
         id: /\.[cm]?[jt]sx?(?:$|\?)/,
       },
-      handler: withMagicString(function (s, id, transformOptions?: any) {
+      handler(code, id, transformOptions) {
         const filename = stripQuery(id);
         if (ssrOnly && transformOptions?.ssr !== true) return;
         if (!filter(filename)) return;
-        if (!looksLikeJSX(s.original)) return;
+        if (!looksLikeJSX(code)) return;
 
-        transformPreactSsrMagicString(s, filename, options);
-      }),
+        const s = new MagicString(code, { filename: id });
+        if (!transformPreactSsrMagicString(s, filename, options)) return;
+        return {
+          code: s.toString(),
+          map: s.generateMap({ source: id, includeContent: true, hires: "boundary" }),
+        };
+      },
     },
   };
 }
@@ -115,15 +114,12 @@ export function transformPreactSsrJsx(
   id = "preact-ssr.tsx",
   options: TransformPreactSsrJsxOptions = {},
 ): string | null {
-  const s = rolldownString(code, id);
-  const changed = transformPreactSsrMagicString(s, id, options);
-  if (!changed) return null;
-  const result = generateTransform(s, id, true);
-  return result ? String(result.code) : null;
+  const s = new MagicString(code, { filename: id });
+  return transformPreactSsrMagicString(s, id, options) ? s.toString() : null;
 }
 
 function transformPreactSsrMagicString(
-  s: RolldownString,
+  s: MagicString,
   id: string,
   options: TransformPreactSsrJsxOptions,
 ): boolean {
@@ -131,7 +127,7 @@ function transformPreactSsrMagicString(
   try {
     program = parseProgram(id, s.original);
   } catch (error) {
-    // Bail out so the next plugin (e.g. @preact/preset-vite) can surface the
+    // Bail out so the next plugin (Vite's own JSX transform) can surface the
     // real parser diagnostics. Warn so silent skips are still discoverable.
     const message = error instanceof Error ? error.message : String(error);
     console.warn(`[preact-ssr-precompile] Skipping ${id}: ${message}`);
@@ -648,7 +644,7 @@ function isStringifiedBooleanAttr(name: string): boolean {
   return name.charCodeAt(4) === 45 || HTML_ENUMERATED_ATTRS.has(name);
 }
 
-function insertPrelude(s: RolldownString, program: NodeLike, prelude: string): void {
+function insertPrelude(s: MagicString, program: NodeLike, prelude: string): void {
   if (prelude.trim() === "") return;
 
   const insertAt = findPreludeInsertionPoint(s.original, program);
