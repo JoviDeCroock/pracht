@@ -30,6 +30,7 @@ import { staticContentType } from "@pracht/core/server";
 import type { AgentTrafficBuffer } from "./agent-traffic.ts";
 import type { PrachtAdapterDevOptions } from "./plugin-adapter.ts";
 import { createAgentTrafficBuffer } from "./agent-traffic.ts";
+import { createDevErrorBuffer, isLocalDiagnosticsRequest } from "./dev-diagnostics.ts";
 import {
   CLIENT_BROWSER_PATH,
   DEV_PAGE_TOOLS_BROWSER_PATH,
@@ -53,6 +54,8 @@ export const MAX_DEV_CSS_BUFFER_BYTES = 8 * 1024 * 1024;
 export const DEVTOOLS_PATH = "/_pracht";
 export const DEVTOOLS_JSON_PATH = "/_pracht.json";
 export const LLMS_TXT_PATH = "/llms.txt";
+
+const devErrors = new WeakMap<ViteDevServer, ReturnType<typeof createDevErrorBuffer>>();
 
 export function isEventStreamContentType(contentType: string): boolean {
   return contentType.split(";", 1)[0]?.trim().toLowerCase() === "text/event-stream";
@@ -265,6 +268,8 @@ export function createDevSSRMiddleware(
   // capability dispatch on every transport (HTTP, WebMCP, remote MCP, and
   // nested `invokeCapability()` composition).
   const agentTraffic = createAgentTrafficBuffer();
+  const errors = createDevErrorBuffer();
+  devErrors.set(server, errors);
 
   // A hand-written public/llms.txt and the generated one disagree about who
   // wins: Vite's publicDir middleware serves the static file in dev (before
@@ -283,6 +288,31 @@ export function createDevSSRMiddleware(
   return async (req: IncomingMessage, res: ServerResponse, next: Connect.NextFunction) => {
     const url = req.url ?? "/";
     const requestUrl = new URL(url, "http://localhost");
+    // This projection must remain readable when evaluating the app graph fails.
+    // It reuses the devtools URL, but never imports or executes app modules.
+    if (
+      requestUrl.pathname === DEVTOOLS_JSON_PATH &&
+      requestUrl.searchParams.get("diagnostics") === "1"
+    ) {
+      res.setHeader("Cache-Control", "no-store");
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.removeHeader("Access-Control-Allow-Origin");
+      res.removeHeader("Access-Control-Allow-Credentials");
+      if (req.method !== "GET" || !isLocalDiagnosticsRequest(req)) {
+        res.statusCode = 403;
+        res.end(JSON.stringify({ error: "Dev diagnostics require a same-origin loopback GET." }));
+        return;
+      }
+      res.end(
+        JSON.stringify({
+          schema: "pracht-dev-diagnostics/v1",
+          root: server.config.root,
+          errors: errors.snapshot(),
+          agentTraffic: agentTraffic.snapshot(),
+        }),
+      );
+      return;
+    }
     // The overlay is a browser-only surface: a `curl`, a client-side
     // navigation, or a test run used to see a 500 with nothing at all in the
     // terminal that started `pracht dev`. Remember what has already been
@@ -832,14 +862,23 @@ function logDevRequestError(
   if (!shouldLogDevRequestError(options.error)) return;
 
   const { error } = options;
+  const file =
+    describeAnnotatedUserModule(error, server.config.root) ??
+    describeRouteErrorModule(options.context);
+  devErrors.get(server)?.record({
+    path: options.path,
+    phase: options.context?.phase ?? null,
+    routeId: options.context?.routeId ?? null,
+    file: file ?? null,
+    message: error instanceof Error ? error.message : String(error),
+    stack: error instanceof Error ? (error.stack ?? null) : null,
+  });
   const line = formatRequestErrorLine({
     // A compile failure carries the module it could not build but no route
     // context — it happened before anything matched — so without this a route
     // file's syntax error names no file at all on a route-state poll, where
     // there is no overlay to fall back on.
-    file:
-      describeAnnotatedUserModule(error, server.config.root) ??
-      describeRouteErrorModule(options.context),
+    file,
     message: error instanceof Error ? error.message : String(error),
     path: options.path,
     phase: options.context?.phase,

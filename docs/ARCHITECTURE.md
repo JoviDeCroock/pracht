@@ -381,7 +381,10 @@ exist at all (they 404), rather than existing and reporting nothing.
   each route's active WebMCP tools. Apps that register capabilities additionally
   get a Capabilities table with the inverse route mapping and an Agents traffic log.
 - `GET /_pracht.json` serves the same data as JSON, plus the `agentTraffic` field
-  described below.
+  described below. Its loopback-only `?diagnostics=1` projection serves recent
+  server request errors and the same traffic before loading the graph, for the
+  authoring MCP's `get_runtime_diagnostics` tool. See [MCP.md](MCP.md#live-development-diagnostics)
+  for its retention, access checks, and result shape.
 - The static part of both is built from the shared app-graph helpers in
   `packages/framework/src/app-graph.ts` (`@pracht/core/devtools`) — the same
   serialization `pracht inspect --json` uses, so the CLI and the page never drift
@@ -400,7 +403,7 @@ exist at all (they 404), rather than existing and reporting nothing.
 - The buffer is merged into the response in `serveDevtools()`, not into
   `buildAppGraph()`. The graph is the static shape of the app and stays
   byte-identical to `pracht inspect --json`; traffic is live dev-server state, so
-  `agentTraffic` exists only on the `/_pracht.json` response.
+  `agentTraffic` exists only on the devtools JSON responses.
 - `agentTraffic` is `{ limit, recorded, events[] }`. `recorded` is the total since
   the dev server started and survives eviction, so the page can report how many
   older events were dropped. Events carry `transport`, so JSON consumers do their

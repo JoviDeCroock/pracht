@@ -6,9 +6,10 @@ other MCP client) native, structured access to the same capabilities the CLI exp
 inspecting the resolved app graph, diagnosing wiring problems, running framework-aware
 verification, and scaffolding routes, shells, middleware, and API handlers.
 
-Every tool is a thin wrapper over the CLI internals and returns the same JSON payloads as
-the `--json` flags of `pracht inspect`, `pracht doctor`, and `pracht verify`, so agents
-work with the resolved graph instead of globbing `src/`.
+The graph tools wrap the CLI internals and return the same JSON payloads as the
+`--json` flags of `pracht inspect`, `pracht doctor`, and `pracht verify`, so agents
+work with the resolved graph instead of globbing `src/`. Runtime diagnostics read
+the running local dev server.
 
 > This is the **development-time** server: it exposes your app's *graph* to coding agents.
 > To expose your app's *operations* to end-user agents in production, see
@@ -73,6 +74,7 @@ the server from the project directory.
 | `inspect_capabilities` | `cwd?`                                                                                                          | Registered capabilities: name, effect class, exposure transports, HTTP path, middleware, source file, input/output JSON Schemas, plus `mcpEndpoint`, `mcpDestructive`, `mcpRuntimeStatus`, and `mcpUnavailableReasons`. Same as `pracht inspect capabilities --json`. |
 | `inspect_agents`      | `cwd?`                                                                                                              | Configured agent surface: Web Bot Auth policy/keys/directories, destructive-confirmation mode, remote MCP endpoint, whether `llms.txt` is generated, per-capability transports, and exposure counts. Same as `pracht inspect agents --json`. |
 | `inspect_build`       | `cwd?`                                                                                                              | Build metadata: adapter target, client entry URL, CSS/JS manifests (requires a prior `pracht build`). Same as `pracht inspect build --json`. |
+| `get_runtime_diagnostics` | `url`, `cwd?`, `limit?` (1–50, default 20) | Recent server request errors and capability traffic from this project's running local dev server, including retained failures when its graph no longer loads. |
 | `doctor`              | `cwd?`                                                                                                              | Wiring diagnostics with per-check status. Same as `pracht doctor --json`.            |
 | `verify`              | `cwd?`, `changed?` (boolean, maps to `--changed`)                                                                   | Framework verification checks with scope info — including `defineApp({ constraints })` enforcement and app-graph snapshot freshness. Same as `pracht verify --json`. |
 | `plan`                | `cwd?`, `base?` (git ref, default `origin/main`), `write?` (boolean)                                                | Semantic app-graph diff against the base ref's committed `.pracht/app-graph.json`: routes/API/capabilities/constraints added, removed, changed, plus `widensAgentSurface` when a capability change widened the agent-reachable surface. Same as `pracht plan --json`. `write: true` refreshes the snapshot instead. |
@@ -87,6 +89,36 @@ the server from the project directory.
 | `generate_capability` | `cwd?`, `name`, `effect?`, `expose?`, `title?`, `description?`                                                      | Files created and updated. Manifest apps get a `capabilities` registry entry; pages apps auto-discover `src/capabilities/`, so the module declares its own `name`. |
 
 ## Implementation
+
+### Live development diagnostics
+
+`get_runtime_diagnostics({ url: "http://localhost:3000/" })` reads the fixed
+`/_pracht.json?diagnostics=1` projection (under the URL's base path). It does
+not start a server or visit an application route. Request the failing route,
+read the diagnostics, fix it, then request the route again. Returned errors
+are retained history rather than a claim about the current error state.
+
+The dev middleware serves this projection before evaluating the app graph.
+Its `schema` is `pracht-dev-diagnostics/v1`, `root` identifies the Vite project,
+and `errors` and `agentTraffic` each contain `{ limit, recorded, events }`.
+Errors come from the existing request-error logger, including loader, render,
+API, background-task, response-stream, and request-time SSR compilation failures;
+expected HTTP outcomes below 500 are omitted. Browser errors, console logs,
+and compile failures never observed by a server request are not captured.
+The per-server error ring retains 50 newest-first events, each with `at`,
+`path`, `phase`, `routeId`, `file`, `message`, and `stack`. Messages are capped
+at 4,096 characters and stacks at 8,192. Existing capability traffic retains
+200 events. Totals survive eviction; restarting the server clears both rings.
+
+The projection requires a loopback connection and loopback Host, rejects
+cross-origin browser requests, removes CORS headers, and sends `no-store`.
+It exists only in the standard dev SSR middleware, so adapter-owned dev servers
+and production/preview servers do not expose it. The MCP reader accepts only
+literal loopback hosts or `localhost` (trying `127.0.0.1` and `::1` without DNS), follows no
+redirects, limits the response to 1 MiB and three seconds, and checks that
+the returned project root matches `cwd` after resolving symlinks.
+
+### Stdio protocol
 
 The server is tools-only, so `packages/cli/src/mcp-tool-server.ts` implements that slice of
 the protocol directly (newline-delimited JSON-RPC over stdio: `initialize`, `ping`,

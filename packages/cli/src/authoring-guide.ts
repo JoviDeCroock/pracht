@@ -227,6 +227,7 @@ policy change a human must approve.
 - \`pracht docs [topic] [--search <query>]\` — the pracht docs for the installed version, offline.
 - \`pracht dev-mcp\` — this CLI as an authoring MCP server (inspect/verify/generate/docs tools).
   Not your app's own remote MCP endpoint, which serves capabilities to end-user agents.
+  Its \`get_runtime_diagnostics({ url })\` tool reads recent server request errors and capability traffic from the app's loopback dev server. Request the failing route first; errors are retained history, so retry the route after fixing it. Use browser tools for client errors.
 
 ## Finishing a change
 
