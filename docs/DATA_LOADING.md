@@ -415,6 +415,12 @@ settle in, and a redirect hop keeps the same page up without dropping back to
 `<Suspense>` boundaries: content behind a boundary may suspend more than once
 (its code, then its data) and the fallback stays for all of it while the rest
 of the page is untouched. Both halves are covered in `router-waterfall.test.ts`.
+A suspension with no boundary above it is not recovered: the page stays
+incomplete, and in development the router logs which page and how to fix it
+(`router-suspension-diagnostic.test.ts`). Catching the promise in the
+outermost error boundary and rendering again when it settles was tried and is
+not a fix: it left a duplicated shell in the DOM. Recovering needs a real
+Suspense-style boundary.
 
 Prefetching runs the same operation earlier rather than a different one:
 `prefetch()` and every link strategy call the router's module warm-up and

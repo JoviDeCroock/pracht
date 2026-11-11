@@ -668,6 +668,10 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
   // outgoing page's height would clamp the restored position).
   let afterCommitCallback: (() => void) | null = null;
 
+  // Development only: the route state whose missing `<Suspense>` boundary was
+  // already reported.
+  let reportedSuspension: number | undefined;
+
   // The committing navigation's options, on a static host only: a render
   // error while a fallback boot commits must not reload into the fallback.
   let committingOpts: InternalNavigateOptions | undefined;
@@ -684,6 +688,21 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     { v?: number }
   > {
     componentDidCatch(error: unknown): void {
+      // A thrown promise got this far, so no `<Suspense>` is above the
+      // component that suspended and nothing will render it again.
+      if (
+        import.meta.env?.DEV &&
+        typeof (error as { then?: unknown })?.then === "function" &&
+        reportedSuspension !== this.props.v
+      ) {
+        // Once per page: the component throws again on every later render.
+        reportedSuspension = this.props.v;
+        console.error(
+          `[pracht] A component on ${window.location.pathname} suspended with no <Suspense> ` +
+            "boundary above it, so the page stays incomplete. Wrap it in <Suspense>, or load " +
+            "its data in the route loader.",
+        );
+      }
       if (
         !afterCommitCallback ||
         typeof (error as { then?: unknown })?.then === "function" ||
