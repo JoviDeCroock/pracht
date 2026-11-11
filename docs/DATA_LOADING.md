@@ -386,6 +386,47 @@ For SPA routes, the initial HTML can still include the matched shell and an
 optional shell `Loading` export so the page is not blank before the route-state
 request resolves.
 
+### Waterfall-free loading
+
+Route loaders are the default home for the data a page needs to render. A
+component that fetches in a mount effect or during render discovers that work
+only after its code has loaded and rendered; a loader lets the framework start
+it alongside the code. Three places schedule that, and each is pinned by a test
+that holds the promises itself instead of measuring time:
+
+| Where | What starts together | Prerequisite | Test |
+| ----- | -------------------- | ------------ | ---- |
+| Server, page and route-state requests | Route and shell module imports with the middleware chain; then the route and shell loaders with each other | Loaders wait for the whole middleware chain: it authorizes the request and writes the context they read. A chain that answers itself starts no loader. | `packages/framework/test/loader-scheduling.test.ts` |
+| Client navigation (`navigate()`) | Route-state request, route chunk import, shell chunk import, all before the first `await` | A loader redirect is only known once its state arrives; the hop it causes starts all three together again | `packages/framework/test/router-waterfall.test.ts` |
+| Client first load (`initClientRouter()`) | Route chunk and shell chunk imports; for an SPA document also its route-state request | None | same file |
+
+Inside a loader the ordering is the app's: await a real prerequisite, then
+`Promise.all` the calls that depend on it but not on each other. Nothing is
+parallelized on the app's behalf, because the framework cannot tell an
+independent call from one that needs the previous result.
+
+**Retention is separate from scheduling.** A client navigation commits once:
+after the route state, the route chunk, the shell chunk and (with a `search`
+schema) the parsed query have all resolved. Until then the page being left
+stays mounted, `useNavigation()` reports `loading`, and history is untouched.
+One of them resolving is never treated as readiness, whichever order they
+settle in, and a redirect hop keeps the same page up without dropping back to
+`idle` in between. After the commit, suspension belongs to the route's own
+`<Suspense>` boundaries: content behind a boundary may suspend more than once
+(its code, then its data) and the fallback stays for all of it while the rest
+of the page is untouched. Both halves are covered in `router-waterfall.test.ts`.
+
+Prefetching runs the same operation earlier rather than a different one:
+`prefetch()` and every link strategy call the router's module warm-up and
+`prefetchRouteState()` together, and `navigate()` reads the module cache and the
+route-state cache they filled, joining a prefetch that is still in flight.
+Passive strategies (`viewport`, `render`) are capped at three concurrent
+prefetches and skipped under Save-Data or a 2G connection.
+
+Deliberately not built: a dev warning for late-discovered fetches, a ban on
+component-level fetching, or another loading abstraction. `defer()` behind a
+local boundary is the supported way to make content secondary.
+
 ### Shell loaders
 
 A shell module can export its own `loader` for data every route under it shows.

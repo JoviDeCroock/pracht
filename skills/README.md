@@ -31,7 +31,7 @@ collide with other skill packs installed in the same app.
 
 | Skill               | Use when                                                            |
 | ------------------- | ------------------------------------------------------------------- |
-| `/audit-loaders`    | Check loaders for serializability, leaked secrets, browser-only APIs. |
+| `/audit-loaders`    | Check loaders for serializability, leaked secrets, browser-only APIs, and waterfalls. |
 | `/audit-shells`     | Verify shell composition: `Loading()`, `head()`, no document tags.  |
 | `/audit-islands`    | Find over-hydration and islands misuse; recommend hydration modes.  |
 | `/audit-auth`       | Find protected routes missing auth middleware.                      |

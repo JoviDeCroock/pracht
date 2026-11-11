@@ -47,6 +47,9 @@ trust-gated tools for agents over HTTP, WebMCP, remote MCP, and `llms.txt`.
 - **Navigation UX**: automatic scroll restoration, link prefetching
   (`intent`/`viewport`/`render`), and opt-in View Transitions (client navigations
   plus cross-document transitions for full page loads to islands/static pages).
+- **Waterfall-free by default**: a navigation requests route data and the
+  route's code together and keeps the current page until both are ready; a
+  prefetch warms the same two things into the caches navigation reads.
 
 ### Rendering Modes
 

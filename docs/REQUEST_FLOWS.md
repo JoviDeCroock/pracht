@@ -706,6 +706,10 @@ recipe: `examples/docs/src/routes/docs/recipes-streaming.md`.
 │    import("./routes/blog-post.js")   ← already cached?   │
 │    import("./shells/public.js")      ← already cached?   │
 │                                                           │
+│  Commit: once, after all three have resolved. Until then │
+│  the page being left stays on screen and history is not  │
+│  touched, whichever of the three settles first.          │
+│                                                           │
 │  Module chunks are cached after the first import.        │
 │  Navigating to the same route twice only fetches JSON.   │
 │                                                           │
@@ -714,6 +718,12 @@ recipe: `examples/docs/src/routes/docs/recipes-streaming.md`.
 │    2. Module chunks (browser module cache)               │
 └─────────────────────────────────────────────────────────┘
 ```
+
+The first load follows the same rule: `initClientRouter()` starts the route and
+shell chunk imports together, and an SPA document — served without loader data —
+starts its route-state request next to them. See
+[DATA_LOADING.md](./DATA_LOADING.md#waterfall-free-loading) for the scheduling
+and retention guarantees and the tests that pin them.
 
 ---
 

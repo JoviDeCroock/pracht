@@ -831,11 +831,15 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     routeModPromise?: Promise<any> | null,
     shellModPromise?: Promise<any> | null,
   ): Promise<RouteRenderState | null> {
-    const routeMod = await (routeModPromise ?? startRouteImport(match));
+    // Both imports are in flight before either is awaited: the shell chunk
+    // must not queue behind the route chunk.
+    routeModPromise ??= startRouteImport(match);
+    shellModPromise ??= startShellImport(match);
+    const routeMod = await routeModPromise;
     if (!routeMod) return null;
 
     let Shell: FunctionComponent | null = null;
-    const resolvedShell = await (shellModPromise ?? startShellImport(match));
+    const resolvedShell = await shellModPromise;
     if (resolvedShell) {
       Shell = resolvedShell.Shell;
     }
@@ -1445,10 +1449,10 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
         }
       : undefined;
   if (initialMatch) {
-    const initialShellPromise =
-      initialMatch.route.render === "spa" && options.initialState.pending
-        ? startShellImport(initialMatch)
-        : null;
+    // Started here so both chunks load alongside each other, and alongside the
+    // route-state request an SPA document makes below.
+    const initialRoutePromise = startRouteImport(initialMatch);
+    const initialShellPromise = startShellImport(initialMatch);
     let state: LoadedRouteState = {
       data: options.initialState.data,
       error: options.initialState.error ?? null,
@@ -1520,7 +1524,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
         initialMatch,
         state,
         initialRequestUrl,
-        undefined,
+        initialRoutePromise,
         initialShellPromise,
       );
       if (resolvedState) {
@@ -1531,7 +1535,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
         initialMatch,
         state,
         initialRequestUrl,
-        undefined,
+        initialRoutePromise,
         initialShellPromise,
       );
       if (initialRouteState) {

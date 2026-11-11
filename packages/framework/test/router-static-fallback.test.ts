@@ -296,4 +296,61 @@ describe("static fallback router readiness", () => {
 
     expect(root.textContent).toBe("handled: not-found loader rejected the path");
   });
+
+  it("starts the not-found page's shell chunk without waiting for its route chunk", async () => {
+    history.replaceState(null, "", "/actually-missing");
+
+    const app = resolveApp(
+      defineApp({
+        notFound: { component: "./routes/not-found.tsx", shell: "site" },
+        routes: [],
+        shells: { site: "./shells/site.tsx" },
+      }),
+    );
+    const starts: string[] = [];
+    let resolveRoute!: (module: unknown) => void;
+    let resolveShell!: (module: unknown) => void;
+
+    const booting = initClientRouter({
+      app,
+      routeModules: {
+        "./routes/not-found.tsx": () => {
+          starts.push("route");
+          return new Promise((resolve) => {
+            resolveRoute = resolve;
+          });
+        },
+      },
+      shellModules: {
+        "./shells/site.tsx": () => {
+          starts.push("shell");
+          return new Promise((resolve) => {
+            resolveShell = resolve;
+          });
+        },
+      },
+      initialState: {
+        data: undefined,
+        error: null,
+        fallback: true,
+        pending: true,
+        routeId: "__pracht_not_found__",
+        url: "/",
+      },
+      root,
+      findModuleKey: (_modules, file) => file,
+    });
+    for (let i = 0; i < 10; i++) await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+    // Neither import has resolved, so the shell did not queue behind the route.
+    expect(starts).toEqual(["route", "shell"]);
+
+    resolveRoute({ default: () => h("main", null, "not found") });
+    resolveShell({
+      Shell: ({ children }: { children?: unknown }) => h("div", { id: "site" }, children as never),
+    });
+    await booting;
+
+    expect(root.querySelector("#site main")?.textContent).toBe("not found");
+  });
 });
