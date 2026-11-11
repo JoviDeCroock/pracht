@@ -72,6 +72,7 @@ export const NAV: readonly NavSection[] = [
     llms: "/llms-start.txt",
     links: [
       { href: "/docs/getting-started", title: "Quick start", icon: "rocket" },
+      { href: "/docs/recipes/first-workflow", title: "Your first shared operation", icon: "forms" },
       { href: "/docs/why-pracht", title: "Why pracht", icon: "sparkles" },
       { href: "/docs/demo-comparison", title: "Example app tour", icon: "presentation" },
       { href: "/docs/examples", title: "Examples", icon: "apps" },

@@ -339,6 +339,9 @@ function compilerOptions(): ts.CompilerOptions {
   const parsed = ts.parseJsonConfigFileContent(config, ts.sys, repoRoot, undefined, configPath);
   return {
     ...parsed.options,
+    // The CLI depends on Zod; use its installed validator for recipe examples
+    // instead of treating that external import as an elided application helper.
+    paths: { ...parsed.options.paths, zod: [resolve(repoRoot, "packages/cli/node_modules/zod")] },
     // A recipe is written for an app that has not opted into this repo's
     // module-syntax policy, so `import { ApiRouteArgs }` without `type` is
     // idiomatic there and must not read as an error here.

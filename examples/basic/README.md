@@ -17,6 +17,10 @@ image service is enabled, set `PRACHT_IMAGE_BACKEND=cloudflare` or
 `PRACHT_IMAGE_BACKEND=vercel` while building to exercise that platform loader
 instead.
 
+Follow [Your first shared operation](https://pracht.resynapse.dev/docs/recipes/first-workflow)
+for a guided schema, session-protected mutation, human form, agent call, and
+production-build exercise using this example.
+
 ## Commands
 
 - `pnpm pracht dev` starts the app with the regular Pracht/Vite development server.

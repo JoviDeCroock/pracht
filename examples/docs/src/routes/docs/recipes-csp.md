@@ -76,6 +76,8 @@ Register it in `defineApp({ middleware })` and add it to the group that uses the
 `defineFont()`, `pracht({ inlineCss: true })`, and `defineApp({ viewTransitions: true })` emit inline `<style>` elements. Return the nonce as `styleNonce` from the shell's `head()` and allow it in `style-src`:
 
 ```ts [src/shells/public.tsx]
+import { inter } from "../fonts.ts";
+
 export function head({ context }) {
   return { fonts: [inter], styleNonce: context.cspNonce };
 }

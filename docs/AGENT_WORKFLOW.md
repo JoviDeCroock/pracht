@@ -232,3 +232,19 @@ public Testing agent flows page explains the distinction for app authors;
 - **Weakening a constraint is a policy change.** The authoring guide instructs
   agents to never delete or loosen a constraint to make verification pass;
   constraint edits surface as their own plan lines for the reviewer.
+
+## First shared-operation walkthrough
+
+The public `/docs/recipes/first-workflow` tutorial uses `examples/basic` as
+a runnable starting point. It replaces `notes.create` with shared Zod input
+and output schemas, applies the existing session middleware independently to
+the page and capability, and enables route-scoped WebMCP beside the HTTP
+projection. The example notebook is shared in-memory state, not tenant storage.
+
+Its recipe fences participate in `examples/docs/test/recipes-snippets.test.ts`,
+which resolves Zod through the CLI workspace dependency so Standard Schema
+inference is checked against the real validator.
+The walkthrough deliberately uses existing form/result handling and session
+login rather than introducing a second mutation or authentication API. The
+production check runs the Node build locally; publication remains a separate
+deployment step with a real user store and persistent storage.

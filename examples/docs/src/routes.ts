@@ -33,6 +33,13 @@ export const app = defineApp({
       route("/docs/getting-started", () => import("./routes/docs/getting-started.md"), {
         id: "getting-started",
       }),
+      route(
+        "/docs/recipes/first-workflow",
+        () => import("./routes/docs/recipes-first-workflow.md"),
+        {
+          id: "first-workflow",
+        },
+      ),
       route("/docs/why-pracht", () => import("./routes/docs/why-pracht.md"), {
         id: "why-pracht",
       }),
