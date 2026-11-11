@@ -1,6 +1,6 @@
 ---
 name: typed-routes
-version: 1.3.0
+version: 1.3.1
 description: |
   Generate typed route helpers with `pracht typegen` and replace hard-coded
   hrefs and `navigate()` paths with route-id links.
@@ -46,7 +46,8 @@ pages-router apps — gets a fallback id derived from the route path (`/` →
 
 ## Step 2: Generate route types and helpers
 
-Run:
+New `create-pracht` apps generate types after installation and before their
+`dev` and `typecheck` scripts. For an existing app, run:
 
 ```bash
 pracht typegen
@@ -70,7 +71,9 @@ Do not hand-edit generated files. If they are stale, update the route graph and
 run typegen again — or rely on `pracht dev`, which refreshes them when route
 files are added, removed, or renamed and when the route manifest or an imported
 definition module changes. The dev banner prompts for the initial typegen run
-when `src/pracht.d.ts` does not exist. In CI, prefer:
+when `src/pracht.d.ts` does not exist. New starters regenerate types as part of
+`typecheck`, including on a clean CI checkout. To check that committed generated
+files match the graph without rewriting them, run:
 
 ```bash
 pracht typegen --check

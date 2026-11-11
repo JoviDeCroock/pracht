@@ -353,11 +353,13 @@ params, and — for `defineApi()` routes — request/response types become
 available to the typed `apiFetch()` client. See
 [docs/API_VALIDATION.md](API_VALIDATION.md).
 
-Use `pracht typegen --check` in CI to fail when generated route files are
-stale. While `pracht dev` runs, the generated files refresh automatically when
-route files are added, removed, or renamed, and when the route manifest or one
-of its imported definition modules changes. The dev banner prompts for the
-first `pracht typegen` run when `src/pracht.d.ts` does not exist yet.
+New starters generate app types after installation and before their `dev` and
+`typecheck` scripts run. Existing handwired apps still enable the watcher with
+one `pracht typegen` run; the dev banner prompts when `src/pracht.d.ts` is
+absent. While `pracht dev` runs, generated files refresh when route files are
+added, removed, or renamed, and when the route manifest or one of its imported
+definition modules changes. Use `pracht typegen --check` to reject stale
+committed generated files without rewriting them.
 
 ### Search params
 

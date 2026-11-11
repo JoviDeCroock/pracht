@@ -257,6 +257,15 @@ export async function run(argv = process.argv.slice(2)) {
     await execCommand(packageManager, ["run", "cf-typegen"], targetDir);
   }
 
+  // Generate before the initial commit so the editor is strict on first open.
+  // The dev/typecheck scripts retry this after a skipped or failed generation.
+  if (installSucceeded) {
+    const generated = await execCommand(packageManager, ["run", "typegen"], targetDir);
+    if (!generated) {
+      log("Could not generate app types. The dev and typecheck scripts will retry.");
+    }
+  }
+
   let gitInitialized = false;
   if (options.git) {
     const gitResult = await initGitRepository(targetDir);
@@ -925,8 +934,9 @@ async function readSkillFiles(scope = "core") {
 function createPackageJson({ adapter, projectName, tailwind, versions }) {
   const scripts = {
     build: "pracht build",
-    dev: "pracht dev",
-    typecheck: "tsrs --noEmit && tsrs --noEmit --project tsconfig.client.json",
+    dev: "pracht typegen && pracht dev",
+    typegen: "pracht typegen",
+    typecheck: "pracht typegen && tsrs --noEmit && tsrs --noEmit --project tsconfig.client.json",
   };
 
   if (adapter.id === "node") {
@@ -1766,8 +1776,8 @@ function createAgentInstructions({
       "external and user-provided URLs.",
   );
   lines.push(
-    "- Run `pracht typegen` once to type route ids, params, and `apiFetch()`; `pracht dev` keeps " +
-      "them in sync.",
+    "- The dev and typecheck scripts generate route, API, and capability types before running. " +
+      "`pracht dev` keeps them in sync while you work.",
   );
 
   if (agentTools) {
@@ -1983,6 +1993,9 @@ function createReadme({
   lines.push("");
   lines.push("## Checks");
   lines.push("");
+  lines.push(
+    "- The dev and typecheck scripts generate route, API, and capability types before running.",
+  );
   lines.push(
     router === "pages"
       ? "- `pracht verify` validates routes."
