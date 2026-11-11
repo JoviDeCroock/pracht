@@ -1,4 +1,4 @@
-# Pracht — Vision & MVP
+# Pracht — Vision
 
 Pracht is a full-stack Preact framework built on Vite. It resolves routing, rendering,
 data loading, API endpoints, and capabilities into one explicit app graph, then projects
@@ -7,19 +7,51 @@ trust-gated tools for agents over HTTP, WebMCP, remote MCP, and `llms.txt`.
 
 ---
 
+## One Graph, Two Audiences
+
+Pracht is a web framework and an agent platform, and it stays both. They are two
+projections of the same resolved graph, not two products sharing a repo.
+
+- **For browsers** — per-route render and hydration modes, shells, loaders, API
+  routes, and five deployment adapters. Small by default: a static route ships no
+  client JavaScript, an islands route about 8 KB gzip, and a fully hydrated route
+  with the client router about 17 KB gzip. `bench/baseline.json` holds the exact
+  bytes and `pnpm bench:check` gates them.
+- **For agents** — one capability contract per application operation, projected to
+  a server call, an HTTP endpoint, a WebMCP page tool, and a remote MCP tool, with
+  verified agent identity, per-capability policy, a confirmation gate for
+  destructive effects, and an audit event per dispatch.
+- **Why one graph** — the graph is declared, not inferred, so the same structure
+  drives the router, `pracht typegen`, `pracht inspect`, `pracht verify`,
+  `pracht plan`, `llms.txt`, and the tool lists agents see. An operation declared
+  once keeps the same validation, middleware, and effect class whether a form, a
+  `fetch`, or an agent calls it.
+
+Each half stands on its own. The agent surface is opt-in and private by default,
+so an app that declares none exposes none. `createCapabilityHost()` serves the same
+capability pipeline from applications that are not built on pracht.
+
+---
+
 ## Core Principles
 
-1. **Preact-first** — lightweight by default; ship less JavaScript to the client.
+1. **Preact-first, small by default** — ship less JavaScript to the client, and
+   measure it: client bytes are a gated number, not a claim.
 2. **Vite-native** — leverage Vite's dev server, HMR, and multi-environment builds.
-3. **Explicit over magic** — hybrid routing (file modules + manifest config) so
-   developers always know what runs where.
-4. **Deploy anywhere** — platform adapters isolate runtime differences; one codebase
-   targets Cloudflare Workers, Vercel, Node, etc.
-5. **AI-assisted** — Claude Code skills for scaffolding, debugging, and operating
-   the framework.
-6. **Proven by tests** — thorough E2E testing (Playwright) to prove SSR, SSG, ISG,
-   SPA, and client navigation actually work in production scenarios.
-7. **Instant local DX** — one command to start, instant HMR, zero config. Hit a
+3. **Explicit over magic** — a typed manifest wires routes, shells, middleware,
+   and capabilities, so developers and tools always know what runs where. The
+   opt-in pages router derives the same graph from the filesystem.
+4. **Declared for agents, never scraped** — exposure is explicit per capability
+   and per transport, and the trust layer ships with the surface.
+5. **Deploy anywhere** — platform adapters isolate runtime differences; one codebase
+   targets Node, Cloudflare Workers, Netlify, Vercel, or a static host.
+6. **Operable by coding agents** — skills, the `pracht dev-mcp` authoring server,
+   and `verify`/`plan`/`report` make a change provable and reviewable whoever
+   wrote it.
+7. **Proven by tests** — Playwright E2E proves SSR, SSG, ISG, SPA, islands, and
+   client navigation in production builds, one conformance matrix runs against
+   every adapter, and a byte gate holds the client size.
+8. **Instant local DX** — one command to start, instant HMR, zero config. Hit a
    button and you're rolling.
 
 ---
@@ -30,6 +62,10 @@ trust-gated tools for agents over HTTP, WebMCP, remote MCP, and `llms.txt`.
 
 - **Hybrid file-based routing**: route modules live in `src/routes/`, wired via an
   explicit `src/routes.ts` manifest using `defineApp()`, `route()`, `group()`.
+- **Pages router**: opt in with `pagesDir` to route from the filesystem with no
+  manifest. Directory `_app.tsx` files provide shells, a root `_middleware.ts`
+  wraps every page, and `src/capabilities/` plus `_app.config.ts` provide the
+  same agent surface. Render modes and adapters are unchanged.
 - **Dynamic segments**: `:param` syntax, catch-all segments.
 - **Typed route links**: `pracht typegen` emits route id/param types and href helpers for `<Link>`, `useNavigate()`, and code outside components. New starters generate app types during setup and before development or typechecking.
 - **Typed search params**: a route module exports a `search` Standard Schema;
@@ -115,7 +151,12 @@ Two styles, both fully supported — pick whichever fits your mental model:
   or client navigation time. Returns typed, serializable data — JSON, or with
   `client.richData` also Date, Map, Set, BigInt, and shared references, which
   then arrive in the browser as the same types.
-- **Form**: A component that allows posting to one of our API routes
+- **Deferred data and streaming**: a loader can `defer()` a slow value and the
+  component reads it with `use()`. Adding `streaming: true` to an SSR route sends
+  the page before deferred values settle, each boundary showing its fallback
+  until its value arrives.
+- **Form**: `<Form>` posts to an API route or a capability, and works without
+  JavaScript.
 
 **Separate files (manifest-wired):**
 
@@ -193,8 +234,12 @@ from `@pracht/capabilities`:
 - One contract (JSON Schema input/output — handwritten or derived from a shared
   Standard JSON Schema validator — effect class, named middleware,
   server-only `run()`), projected to direct server invocation
-  (`invokeCapability()`), a generated HTTP endpoint (`expose.http`), and a
-  WebMCP page tool for in-browser agents (`expose.webmcp`).
+  (`invokeCapability()`), a generated HTTP endpoint (`expose.http`), a
+  WebMCP page tool for in-browser agents (`expose.webmcp`), and a tool on the
+  app's own remote MCP endpoint for agents that never open a browser
+  (`expose.mcp`).
+- The same pipeline runs outside the framework: `createCapabilityHost()` from
+  `@pracht/capabilities/server` mounts it in any application.
 - The same contract serves the human UI: `<Form capability>` posts to the
   capability endpoint (with a no-JS form-encoded fallback), and successful
   non-`read` browser calls revalidate route data automatically — the effect
@@ -236,8 +281,9 @@ Platform adapters export a request handler shaped for their runtime:
 | `adapter-cloudflare` | Workers `fetch`   | `env.ASSETS`, Cache API-backed ISG, opt-in Workers Caching |
 | `adapter-netlify`    | Functions v2      | Durable CDN caching and tag-based ISG purges              |
 | `adapter-vercel`     | Serverless / Edge | Build Output API v3 + native ISR                          |
+| `adapter-static`     | None              | Prerenders every route; `dist/client` deploys to any host |
 
-Each adapter:
+Each server adapter:
 
 - Converts platform request → Web `Request`
 - Loads Vite manifests for asset injection
@@ -276,78 +322,114 @@ apps by `create-pracht` — see the [skills catalog](skills/README.md):
 - **Deploy**: guided adapter setup and deployment
 - **Audit**: loaders, auth, CSRF, headers, secrets, bundles, SEO, a11y, and more
 
+### Companion Packages
+
+Optional, independently versioned, and paid for only by the apps that install
+them:
+
+- **`@pracht/session`** — encrypted cookie or store-backed sessions, secret
+  rotation, flash values, and session middleware on WebCrypto, so it runs on
+  every adapter. See [docs/SESSION.md](docs/SESSION.md).
+- **`@pracht/query`** — TanStack Query with a per-request `QueryClient`,
+  server-fetched queries hydrated into the browser cache, and invalidation after
+  capability mutations.
+- **`@pracht/image`** — a CLS-safe `<Image>` with pluggable optimization loaders
+  and build-time variants. See [docs/IMAGES.md](docs/IMAGES.md).
+- **`@pracht/i18n`** — locale-detection middleware, lazy typed dictionaries, and
+  hreflang helpers.
+- **`@pracht/content`** and **`@pracht/markdown`** — content collections and
+  Markdown route modules. See [docs/CONTENT.md](docs/CONTENT.md).
+- **`@pracht/openapi`** — OpenAPI 3.1 from `defineApi()` routes. See
+  [docs/OPENAPI.md](docs/OPENAPI.md).
+- **`@pracht/test`** — typed factories for loader, API, and middleware args, a
+  middleware chain runner, and form submission helpers.
+
+### Safe and Small by Default
+
+- **Security defaults**: document responses carry default security headers, and
+  cross-origin state-changing API requests are rejected unless
+  `api.requireSameOrigin` is turned off. A Content Security Policy stays the
+  app's choice; see [docs/CSP.md](docs/CSP.md).
+- **Env safety**: typed `serverEnv`/`publicEnv` with a `PRACHT_PUBLIC_` prefix
+  rule, and a build that fails when a client bundle references a non-public
+  variable. See [docs/ENV.md](docs/ENV.md).
+- **Budgets**: `pracht build --analyze` reports client JavaScript per route, and
+  per-route `budgets` fail the build when a route ships too much. Router features
+  an app does not use compile out through `pracht({ client })`. See
+  [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
+
 ---
 
-## MVP Scope — Phase 1
+## 1.0
 
-Phase 1 delivers a working framework that can build and serve a Preact app with
-SSR and SSG, deployed to Node. Thoroughly tested with Playwright E2E tests.
+The MVP this document once scoped — SSR and SSG on Node, proven by E2E tests —
+shipped long ago. 1.0 is the point where the framework commits to its public API.
 
-### Phase 1 Deliverables
+**Stable at 1.0.** Breaking changes to these packages are reserved for major
+releases:
 
-1. **`packages/framework`** — core exports
-   - `defineApp()`, `route()`, `group()` — route manifest API
-   - `RouteModule` type — loader, head, default/Component, errorBoundary
-   - `ShellModule` type — layout wrapper with head contribution
-   - `MiddlewareModule` type — server-side request interceptor
-   - Router: `matchAppRoute()` segment-based matching
-   - Server renderer: `handlePrachtRequest()` → full HTML with hydration state
-   - Client runtime: `startApp()`, hydration, client-side navigation
-   - Hooks: `useRouteData()`, `useRevalidate()`, `<Form>`
+- `@pracht/core`, `@pracht/capabilities`, and `@pracht/vite-plugin`, which
+  release together at one version. Core's public API is tracked in
+  `packages/framework/api-report.api.md`.
+- The five adapters: Node, Cloudflare Workers, Netlify, Vercel, and static
+  export.
+- `@pracht/cli`, already on 1.x and versioned independently.
 
-2. **`packages/vite-plugin`** — Vite integration
-   - Virtual modules: `virtual:pracht/client`, `virtual:pracht/server`
-   - Multi-environment build (client + ssr)
-   - `import.meta.glob()` module registry generation
-   - SSG prerendering at build time (concurrent, configurable)
-   - Dev server with HMR
+Both halves are in that promise: the capability contract, its HTTP and remote MCP
+projections, and the trust layer are as much part of 1.0 as routing and
+rendering.
 
-3. **`packages/adapter-node`** — Node.js adapter
-   - `createNodeRequestHandler()` — Web Request/Response over `http`
-   - Static file serving from `dist/client/`
-   - Vite manifest loading for asset injection
-   - ISG time-window and webhook revalidation
+**Still moving.**
 
-4. **`packages/cli`** — developer tooling (instant local DX)
-   - `pracht dev` — one command, instant Vite dev server with HMR
-   - `pracht build` — production build with clear output
-   - Node targets run the production build with `node dist/server/server.js`; Cloudflare, Netlify, and Vercel use their platform CLIs
-   - Zero config to start — sensible defaults, override when needed
-   - Fast feedback loop: save a file → see the change instantly
+- The companion packages and `create-pracht` stay on 0.x until their own APIs
+  settle.
+- `@pracht/preact-ssr-precompile` is experimental.
+- WebMCP is an evolving browser API. The projection tracks it, and stays a thin
+  layer over the capability contract so that tracking it never reaches core.
 
-5. **Example app** — demonstrates SSR + SSG routes, shells, loaders, and forms
+**After 1.0.**
 
-6. **E2E tests** — Playwright tests proving:
-   - SSR renders correct HTML on the server
-   - SSG generates static files at build time
-   - Client-side navigation works without full page reload
-   - Loaders return correct data
-   - Shells wrap routes correctly
-   - Hydration completes without errors
+- The Preact MCP Apps projection and the remaining workflow stages in
+  [docs/CAPABILITY_GRAPH.md](docs/CAPABILITY_GRAPH.md) are unbuilt.
+- New features must not add client bytes to apps that do not use them.
+
+---
 
 ## Monorepo Structure
 
 ```
 pracht/
   packages/
-    framework/        # Core: routing, rendering, runtime, types
-    vite-plugin/      # Vite integration, virtual modules, build
-    adapter-node/     # Node.js server adapter
-    adapter-cloudflare/  # Cloudflare Workers adapter
-    adapter-netlify/     # Netlify Functions v2 adapter
-    adapter-vercel/      # Vercel Edge adapter
-    cli/              # Dev/build/generate/inspect/verify/plan/report/doctor commands
-    content/          # Server-only content registry + generated artifacts
-    markdown/         # Official Markdown route modules + local image imports
-    image/            # Responsive <Image> component + runtime/static optimization
-    i18n/             # Locale-detection middleware, typed dictionaries, hreflang helpers
-    create-pracht/     # (Phase 2) Starter scaffolding
-  example/            # Working example app
-  docs/               # Architecture and design docs
-  e2e/                # Playwright end-to-end tests
+    framework/              # @pracht/core: routing, rendering, runtime, types
+    capabilities/           # Capability contracts, standalone host, WebMCP registrar
+    vite-plugin/            # Vite integration, virtual modules, build
+    cli/                    # dev, build, preview, typegen, generate, inspect, verify,
+                            #   plan, report, doctor, eval, docs, dev-mcp
+    start/                  # create-pracht starter scaffolding
+    adapter-node/           # Node.js server adapter
+    adapter-cloudflare/     # Cloudflare Workers adapter
+    adapter-netlify/        # Netlify Functions v2 adapter
+    adapter-vercel/         # Vercel Edge adapter
+    adapter-static/         # Static export, no server
+    adapter-conformance/    # Private: one request matrix run against every adapter
+    session/                # Cookie and store-backed sessions
+    query/                  # TanStack Query integration
+    image/                  # Responsive <Image> + runtime/static optimization
+    i18n/                   # Locale detection, typed dictionaries, hreflang helpers
+    content/                # Server-only content registry + generated artifacts
+    markdown/               # Markdown route modules + local image imports
+    openapi/                # OpenAPI 3.1 generation for API routes
+    test/                   # Testing utilities for app developers
+    preact-ssr-precompile/  # Experimental server JSX precompile
+  examples/                 # basic, showcase, islands, pages-router, static,
+                            #   cloudflare, tsrx, and docs (the published site)
+  skills/                   # Agent skills, one SKILL.md each
+  docs/                     # Internal architecture and design docs
+  bench/                    # Client-byte ladder and its baseline
+  e2e/                      # Playwright end-to-end tests
 ```
 
-The live scaffold for this layout is documented in [docs/WORKSPACE.md](docs/WORKSPACE.md).
+Each package's role is documented in [docs/WORKSPACE.md](docs/WORKSPACE.md).
 
 ---
 
@@ -358,9 +440,16 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed rationale.
 1. **Hybrid routing over pure file-based** — explicit manifest avoids hidden
    conventions and enables shell/middleware grouping without directory nesting.
 2. **Per-route render modes** — no global default; each route declares its strategy.
-3. **Server-owned navigation** — client fetches route state JSON from server rather
+3. **Render and hydration are separate axes** — when HTML is generated and how
+   much of it hydrates are chosen independently, per route.
+4. **Server-owned navigation** — client fetches route state JSON from server rather
    than running loaders in the browser; keeps secrets server-side.
-4. **Virtual module generation** — Vite plugin generates entry points from
+5. **Virtual module generation** — Vite plugin generates entry points from
    `import.meta.glob()`, avoiding manual registration.
-5. **Adapter pattern** — platform logic isolated from core; adapters are thin
+6. **Adapter pattern** — platform logic isolated from core; adapters are thin
    request/response translators.
+7. **One contract per operation** — a capability is defined once and every
+   transport is a projection of it, so no transport can skip its validation,
+   middleware, or effect class.
+8. **Private by default** — nothing reaches an agent unless the capability
+   declares that exposure.

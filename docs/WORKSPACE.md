@@ -1,6 +1,6 @@
 # Workspace Shape
 
-This repo implements Phase 1 and Phase 2 (core) of the monorepo layout
+This repo implements the monorepo layout
 described in `VISION_MVP.md`.
 
 ## Toolchain
