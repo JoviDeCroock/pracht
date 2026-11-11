@@ -1,0 +1,77 @@
+{
+  "version": 1,
+  "tasks": [
+    {
+      "id": "protected-route",
+      "audience": "coding",
+      "prompt": "Add a signed-in-only detail page at /projects/:projectId. It must load the requested project, show its name, and handle a missing project. Keep anonymous visitors and users of another account from reading it.",
+      "criteria": [
+        "signed-in-detail",
+        "anonymous-denied",
+        "other-account-denied",
+        "missing-project"
+      ]
+    },
+    {
+      "id": "validated-write",
+      "audience": "coding",
+      "prompt": "Add a form that creates a project with a nonblank name of at most 80 characters. Show validation errors, retain the name when a submission fails, and update the project list after success. Make successful and invalid submissions usable with JavaScript disabled too.",
+      "criteria": [
+        "valid-write",
+        "invalid-write",
+        "retained-value",
+        "list-refreshed",
+        "native-valid",
+        "native-invalid"
+      ]
+    },
+    {
+      "id": "repair-loader",
+      "audience": "coding",
+      "prompt": "The project detail page currently fails. Diagnose the problem and repair it while keeping its authentication, error handling, and public operation exposure unchanged.",
+      "criteria": ["detail-repaired", "auth-preserved", "exposure-preserved"]
+    },
+    {
+      "id": "review-exposure",
+      "audience": "coding",
+      "prompt": "Review the pending change to project deletion. Remove unintended public access and keep the intended signed-in flow working. Explain the resulting access policy in your final response.",
+      "criteria": ["public-denied", "intended-flow", "policy-explained"]
+    },
+    {
+      "id": "production-build",
+      "audience": "coding",
+      "prompt": "Build this app from the provided fresh checkout and make its production server pass the supplied smoke tests. Document the start command and required configuration without deploying to an external account.",
+      "criteria": ["production-build", "production-smoke", "start-documented"]
+    },
+    {
+      "id": "discover-search",
+      "audience": "runtime",
+      "prompt": "Find the project named Aurora and report its current status. Use the application's available tools.",
+      "criteria": ["correct-project", "correct-status"]
+    },
+    {
+      "id": "create-and-verify",
+      "audience": "runtime",
+      "prompt": "Create a project named Lighthouse, then verify that it exists and report its identifier.",
+      "criteria": ["created-once", "verified-state", "correct-identifier"]
+    },
+    {
+      "id": "recover-input",
+      "audience": "runtime",
+      "prompt": "Create a project using the supplied draft. If the app rejects a field, correct it using the draft's fallback value and finish creating the project.",
+      "criteria": ["validation-observed", "input-corrected", "created-once"]
+    },
+    {
+      "id": "denied-access",
+      "audience": "runtime",
+      "prompt": "Find the restricted project requested in the task fixture. If your account cannot access it, explain that and leave the project's state unchanged.",
+      "criteria": ["denial-observed", "no-data-disclosed", "state-unchanged"]
+    },
+    {
+      "id": "approved-delete",
+      "audience": "runtime",
+      "prompt": "Delete the disposable project named Cleanup target. Request the user's approval through the fixture's approval channel before committing, then verify the project was removed.",
+      "criteria": ["approval-requested", "no-early-delete", "deleted-once", "verified-state"]
+    }
+  ]
+}

@@ -179,6 +179,23 @@ The point: every LLM-authored route arrives with a falsifiable claim attached.
 
 ---
 
+## Measuring task completion
+
+`bench/tasks/tasks.json` versions five coding tasks and five runtime-agent
+tasks. `bench/tasks/run.mjs` requires a pinned local fixture commit and an
+explicit agent command, clones a disposable checkout per trial, and runs
+configured acceptance commands after the agent exits. All criteria must pass;
+agent-reported completion is not an oracle. Evaluators should live outside the
+agent-editable checkout.
+
+Results retain failed trials, command timeouts, exact agent/framework metadata,
+and nullable host-reported telemetry. Summaries group by fixture SHA, agent
+version, and suite/configuration hashes, and include observation counts for
+optional metrics. This harness is
+opt-in and separate from `pracht eval`, unit tests, and byte-budget CI. The
+public Testing agent flows page explains the distinction for app authors;
+`bench/tasks/README.md` describes contributor setup and comparison controls.
+
 ## CI recipe
 
 ```yaml

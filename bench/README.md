@@ -122,3 +122,10 @@ the conflict by rebasing and re-running `pnpm bench:update`, never by merging
 the numbers by hand: the gate is exact, so only a fresh measurement of the
 merged tree is right. To quote a new number on a page, add an entry to
 `PUBLISHED` rather than typing it in.
+
+## Agent and developer task completion
+
+`tasks/` contains a separate, opt-in [task benchmark](tasks/README.md) with
+versioned coding/runtime prompts, acceptance criteria, disposable-checkout
+execution, and result summaries. It is independent of the client-byte gate and
+does not invoke a model unless you configure an agent command.

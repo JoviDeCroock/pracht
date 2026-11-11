@@ -134,3 +134,11 @@ Set `"transport": "webmcp"` and a `"webmcpRoute"` to launch Chrome, discover the
 `cancelAfterMs` checks that host cancellation reaches your dispatch. WebMCP scenarios reject headers, confirmation tokens, and `signAs`, and need Chrome 150 or later; pin the binary in CI with `--browser /path/to/chrome`.
 
 To unit-test the dispatch pipeline with `createCapabilityTestHost()`, see the [Testing recipe](/docs/recipes/testing).
+
+## Measure an agent completing a task
+
+A scripted scenario names each capability and its inputs. To measure discovery and recovery, give an agent a task such as “create a project and verify it exists”, let it choose its calls, then check the resulting application state independently.
+
+The Pracht repository includes `bench/tasks/run.mjs` for this separate workflow. It runs a configured agent command in fresh checkouts of a pinned fixture, executes acceptance checks, and records repeated trial results. See the [task benchmark guide](https://github.com/JoviDeCroock/pracht/tree/main/bench/tasks).
+
+Record completion rate, interventions, repair cycles, elapsed time, and tool/token counts when your host exposes them. Keep versions and fixtures fixed, retain failed trials, and compare equivalent tasks. Missing telemetry is unknown, not zero. Continue using `pracht eval` for repeatable protocol regression checks.
