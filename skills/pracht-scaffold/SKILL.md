@@ -1,6 +1,6 @@
 ---
 name: pracht-scaffold
-version: 1.5.0
+version: 1.5.1
 description: |
   Generate pracht routes, shells, middleware, API routes, and capabilities with
   `pracht generate`, editing by hand only when the flags cannot express the
@@ -118,10 +118,10 @@ Before and after scaffolding:
 Only for shapes the CLI cannot express. Read the existing `src/routes.ts` first
 to pick up current shells, middleware, and structure.
 
-**Route** — `head()` plus `Component`; add `loader` only when the route needs
-server data (the CLI omits it unless `--loader` is passed), `ErrorBoundary`
-only if requested, and `getStaticPaths` only for SSG/ISG routes with dynamic
-segments:
+**Route** — `head()` plus `Component`; add `loader` whenever the page needs
+data to render (the CLI omits it unless `--loader` is passed) rather than
+fetching it in a `useEffect`, `ErrorBoundary` only if requested, and
+`getStaticPaths` only for SSG/ISG routes with dynamic segments:
 
 ```tsx
 import type { LoaderArgs, RouteComponentProps } from "@pracht/core";

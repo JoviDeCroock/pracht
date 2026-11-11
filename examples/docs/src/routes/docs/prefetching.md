@@ -5,7 +5,9 @@ lead: "pracht fetches route data before navigation: automatically by default, an
 
 ## How it works
 
-After hydration, pracht watches internal links. When a prefetch triggers, it fetches the route's data (the same JSON a client-side navigation uses) in the background and caches it. When the user clicks, the navigation uses the cached data without a second request.
+After hydration, pracht watches internal links. When a prefetch triggers, it loads the route's code and fetches the route's data (the same JSON a client-side navigation uses) at the same time, in the background. A click then reuses both without a second request.
+
+A navigation that was never prefetched makes the same two requests together, so prefetching moves the work earlier rather than changing it.
 
 Every route defaults to `"intent"`, so most apps configure nothing.
 
@@ -18,6 +20,8 @@ Every route defaults to `"intent"`, so most apps configure nothing.
 | `"viewport"` | Link comes within 200px of the viewport         | Route, link   | A few likely next pages     |
 | `"render"`   | As soon as the link mounts                      | Link          | The one obvious next page   |
 | `"none"`     | Never                                           | Route, link   | Rarely visited pages        |
+
+`"viewport"` and `"render"` load pages nobody has pointed at, and each one runs a loader on your server. Keep them for the few links a visitor is likely to follow rather than every link on a page.
 
 ## Per-route configuration
 
@@ -71,7 +75,7 @@ await prefetch("/products/42");
 await prefetch({ route: "product", params: { id: "42" } }); // typed target
 ```
 
-`prefetch()` loads the route's JS chunks and caches its route-state JSON. It does nothing during SSR, before hydration, or for URLs that match no route.
+`prefetch()` loads the route's and shell's JS chunks and its route-state JSON in one call, into the same cache a link prefetch fills. It does nothing during SSR, before hydration, or for URLs that match no route.
 
 ## Viewport prefetching
 

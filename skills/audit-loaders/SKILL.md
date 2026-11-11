@@ -1,11 +1,12 @@
 ---
 name: audit-loaders
-version: 1.2.0
+version: 1.3.0
 description: |
   Audit pracht loaders for non-serializable data, leaked secrets, unsafe
-  `loaderCache`, browser-only APIs, and missing `AbortSignal` use.
+  `loaderCache`, browser-only APIs, missing `AbortSignal` use, and request
+  waterfalls.
   Use for "audit loaders", "check loader data", "find serialization bugs",
-  "loader security review".
+  "loader security review", "why is my page slow to load".
 allowed-tools:
   - Bash
   - Read
@@ -40,7 +41,7 @@ Shells can export a `loader` too. Read each distinct `shellFile` from the same
 JSON and audit its `loader` like a route's: its return value reaches the
 browser as `shellData` on every page under that shell.
 
-## Step 2: Run the five checks
+## Step 2: Run the six checks
 
 For each `loader` (and `getStaticPaths` when present):
 
@@ -144,6 +145,28 @@ loaders. Use a positive duration only when every field in the returned data can 
 safely reused for that long. Do not confuse `loaderCache` with ISG `revalidate` or
 the short-lived in-memory prefetch cache; they are independent policies.
 
+### 2f. Waterfalls
+
+The router requests a route's loader data and its code together, so data in the
+loader arrives with the page. Flag what defeats that:
+
+- **Page data fetched in the component.** A `useEffect`, or a fetch during
+  render, that loads what the page needs to render: it starts only after the
+  code has loaded and rendered. Move it into the route `loader` (the shell
+  `loader` for layout data). Leave interaction-driven fetches (a search box, a
+  "load more" button) where they are.
+- **Independent calls awaited one by one.** Two `await`s where the second does
+  not use the first's result. Suggest `Promise.all`, keeping any call that does
+  need an earlier result (the session, an id, a permission check) ahead of it.
+- **Slow secondary content blocking the page.** A call the page can render
+  without, awaited in the loader. Suggest `defer()` with `use()` under a
+  `<Suspense>` boundary in the component.
+
+Read each call's arguments before calling two of them independent: a later call
+that takes a value from an earlier one must stay in sequence. Authorization
+belongs in middleware, which finishes before any loader starts, so do not
+suggest moving it into a `Promise.all`.
+
 ## Step 3: Report
 
 Produce a markdown table:
@@ -152,7 +175,7 @@ Produce a markdown table:
 | ----- | ---- | -------- | ------- | ------------- |
 
 Severities: `error` (secret leak, crash), `warn` (serialization risk, missing
-signal), `info` (style nit).
+signal, waterfall), `info` (style nit).
 
 ## Rules
 

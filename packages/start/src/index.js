@@ -1779,6 +1779,12 @@ function createAgentInstructions({
     "- The dev and typecheck scripts generate route, API, and capability types before running. " +
       "`pracht dev` keeps them in sync while you work.",
   );
+  lines.push(
+    "- Load what a page needs to render in its `loader`, not in a `useEffect` or a fetch during " +
+      "render: navigation requests loader data and the route's code together. In a loader, " +
+      "`await` a real prerequisite, then `Promise.all` the calls that do not depend on each " +
+      "other. `defer()` only what the page can render without.",
+  );
 
   if (agentTools) {
     lines.push("");

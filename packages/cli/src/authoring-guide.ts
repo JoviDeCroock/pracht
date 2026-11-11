@@ -32,6 +32,13 @@ in between, so when a page seems out of date, check https://pracht.resynapse.dev
    Never import browser-only APIs there; never return non-serializable loader data.
 5. **Env safety.** Client-visible env vars must be prefixed \`PRACHT_PUBLIC_\`.
    Use the typed \`serverEnv\`/\`publicEnv\` helpers; builds fail on leaks.
+6. **Load page data in the loader.** What a page needs to render comes from its
+   route \`loader\` (shared layout data from the shell \`loader\`), never from a
+   \`useEffect\` or a fetch during render: navigation and prefetch request loader
+   data and the route's code together. In a loader, \`await\` a real prerequisite,
+   then \`Promise.all\` the calls that do not depend on each other. Authorize in
+   middleware, which finishes before any loader starts. \`defer()\` only what the
+   page can render without, and read it with \`use()\` under \`<Suspense>\`.
 
 ## Project layout (manifest apps)
 

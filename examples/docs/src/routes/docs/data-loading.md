@@ -143,6 +143,44 @@ long jobs elsewhere. A rejected promise is logged and never fails the response.
 Loaders never run in the browser, so database connections, API keys, and
 secrets in loader code stay on the server.
 
+### Avoiding waterfalls
+
+Load everything a page needs to render in its loader, not in a `useEffect` or a
+fetch during render. On a client navigation the router requests the loader data
+and the route's code at the same time and keeps the current page on screen
+until both have arrived, so the next page appears complete. Data a component
+fetches after it mounts cannot start until that code has loaded and rendered.
+
+Inside a loader, await what the rest depends on, then start the independent
+calls together:
+
+```ts [src/routes/project.tsx]
+import { notFound } from "@pracht/core";
+import type { LoaderArgs } from "@pracht/core";
+
+export async function loader({ context, params }: LoaderArgs) {
+  // Everything below needs the project, so it comes first.
+  const project = await context.db.projects.find(params.id);
+  if (!project) throw notFound();
+
+  // These need the project but not each other: start both, then await.
+  const [members, activity] = await Promise.all([
+    context.db.members.list(project.teamId),
+    context.db.activity.recent(project.id),
+  ]);
+  return { project, members, activity };
+}
+```
+
+Authorize in [middleware](/docs/middleware) rather than at the top of each
+loader. Middleware finishes before any loader starts, and the route loader and
+[shell loader](/docs/shells#shell-data) then run at the same time. Keep a call
+that needs an earlier result in sequence.
+
+Content the page can show a moment later, such as reviews or recommendations,
+belongs behind its own boundary: see [Deferred values](#deferred-values). To
+start loading before the click, see [Prefetching](/docs/prefetching).
+
 ### Shell loaders
 
 Load data that every page in a shell shows, such as the signed-in user, once in
@@ -167,7 +205,8 @@ group default. Do not set it for per-user data. It is separate from ISG
 
 ### Deferred values
 
-Wrap a slow field in `defer()` so the loader can return without awaiting it:
+Wrap a slow field the page can render without in `defer()`, so the loader
+returns without awaiting it:
 
 ```ts [src/routes/product.tsx]
 import { defer } from "@pracht/core";

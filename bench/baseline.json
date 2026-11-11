@@ -28,42 +28,42 @@
     {
       "rung": "hydration: full",
       "hydration": "full",
-      "bytes": 42539,
+      "bytes": 42488,
       "gzipBytes": 16526,
-      "lazyGzipBytes": 1282,
-      "coldGzipBytes": 17808
+      "lazyGzipBytes": 1280,
+      "coldGzipBytes": 17806
     },
     {
       "rung": "hydration: full, prefetch off",
       "hydration": "full",
-      "bytes": 41511,
-      "gzipBytes": 16127,
+      "bytes": 41460,
+      "gzipBytes": 16126,
       "lazyGzipBytes": 0,
-      "coldGzipBytes": 16127
+      "coldGzipBytes": 16126
     },
     {
       "rung": "hydration: full, navigation guards off",
       "hydration": "full",
-      "bytes": 41696,
-      "gzipBytes": 16284,
+      "bytes": 41645,
+      "gzipBytes": 16282,
       "lazyGzipBytes": 1282,
-      "coldGzipBytes": 17566
+      "coldGzipBytes": 17564
     },
     {
       "rung": "hydration: full, rich data on",
       "hydration": "full",
-      "bytes": 43221,
-      "gzipBytes": 16802,
-      "lazyGzipBytes": 1282,
-      "coldGzipBytes": 18084
+      "bytes": 43170,
+      "gzipBytes": 16799,
+      "lazyGzipBytes": 1281,
+      "coldGzipBytes": 18080
     },
     {
       "rung": "hydration: full + preact/compat",
       "hydration": "full",
-      "bytes": 45013,
-      "gzipBytes": 17288,
-      "lazyGzipBytes": 1283,
-      "coldGzipBytes": 18571
+      "bytes": 44962,
+      "gzipBytes": 17285,
+      "lazyGzipBytes": 1284,
+      "coldGzipBytes": 18569
     }
   ],
   "routeScale": [
@@ -71,19 +71,19 @@
       "routes": 50,
       "rung": "hydration: full, 50 routes",
       "hydration": "full",
-      "bytes": 51543,
-      "gzipBytes": 18224,
+      "bytes": 51493,
+      "gzipBytes": 18213,
       "lazyGzipBytes": 1282,
-      "coldGzipBytes": 19506
+      "coldGzipBytes": 19495
     },
     {
       "routes": 500,
       "rung": "hydration: full, 500 routes",
       "hydration": "full",
-      "bytes": 144503,
-      "gzipBytes": 36821,
-      "lazyGzipBytes": 1283,
-      "coldGzipBytes": 38104
+      "bytes": 144453,
+      "gzipBytes": 36816,
+      "lazyGzipBytes": 1281,
+      "coldGzipBytes": 38097
     }
   ]
 }

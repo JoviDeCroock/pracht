@@ -1,6 +1,6 @@
 ---
 name: migrate-nextjs
-version: 1.8.1
+version: 1.8.2
 description: |
   Migrate a Next.js app (App or Pages Router) to pracht: pages, layouts,
   middleware, API routes, data fetching, metadata, and React to Preact.
@@ -81,6 +81,7 @@ automatic**:
 | `generateStaticParams` | `getStaticPaths()` export | Returns `RouteParams[]` of param objects |
 | `generateMetadata` | `head()` export | Returns `{ title, meta }` |
 | Server Components | `loader()` export | Data fetching moves to the loader; the component is a Preact component |
+| `useEffect` + `fetch`, SWR, or client queries for page data | `loader()` export | Loader data and the route's code load together on navigation; a mount-time fetch waits for the code. `Promise.all` independent calls; `defer()` only secondary content |
 | `"use server"` actions | API routes + `<Form>` / `fetch` | Mutations move to `src/api/*`; return `Response` objects |
 | `"use client"` (few, mostly-server app) | `hydration: "islands"` + `src/islands/` | Only islands ship JS; see Phase 4 |
 | `revalidatePath` / `res.revalidate()` | `webhookRevalidate()` + `POST /__pracht/revalidate` | On-demand ISG; combinable with `timeRevalidate(seconds)` |
