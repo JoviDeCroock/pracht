@@ -1,5 +1,11 @@
 # @pracht/preact-ssr-precompile
 
+## 0.2.0
+
+### Minor Changes
+
+- [`8a6728d`](https://github.com/JoviDeCroock/pracht/commit/8a6728d28aee133f535f8b72df0ff727f0d7b585) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - `@pracht/preact-ssr-precompile` parses with the Rolldown that Vite already ships instead of installing its own copy, so `vite` is now a required peer dependency.
+
 ## 0.1.5
 
 ### Patch Changes

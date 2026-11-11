@@ -1,5 +1,28 @@
 # @pracht/cli
 
+## 1.18.0
+
+### Minor Changes
+
+- [#530](https://github.com/JoviDeCroock/pracht/pull/530) [`0b05d2d`](https://github.com/JoviDeCroock/pracht/commit/0b05d2d5fe24c50f12ff9968647ccfb488220bb1) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Let coding agents read recent server failures and capability traffic from a running local dev server through the authoring MCP.
+
+### Patch Changes
+
+- [#524](https://github.com/JoviDeCroock/pracht/pull/524) [`73b5bc4`](https://github.com/JoviDeCroock/pracht/commit/73b5bc43e41facd33b704bd6b92bc3c2c22b60ec) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - `pracht docs` serves the rewritten documentation, grouped by the new sidebar sections.
+
+- [`04b22e4`](https://github.com/JoviDeCroock/pracht/commit/04b22e4ad68962b53fc3a5182a934373c561d24a) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - `@pracht/cli` no longer depends on `zod`, so apps stop installing it unless they use it themselves.
+
+- [#524](https://github.com/JoviDeCroock/pracht/pull/524) [`d7fb440`](https://github.com/JoviDeCroock/pracht/commit/d7fb4404cca88309c5d6b7bfc9d0e820998c29fb) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Each package's npm page now links to its page on the pracht documentation site.
+
+- [`70ddbbe`](https://github.com/JoviDeCroock/pracht/commit/70ddbbeb8ea5d49334b08dca6a96c315f26a71f7) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Hashed scripts, stylesheets, fonts, and source maps under `/assets/` on Cloudflare and Vercel are served without the document-only security headers, and Vercel now caches them as immutable.
+
+- [#535](https://github.com/JoviDeCroock/pracht/pull/535) [`d8f575b`](https://github.com/JoviDeCroock/pracht/commit/d8f575b333804adfc3a66891a86c9aa42edff6c9) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - The authoring guide, new apps' `AGENTS.md`, and the `audit-loaders`, `migrate-nextjs`, and `pracht-scaffold` skills steer page data into loaders and flag request waterfalls.
+
+- [`1873fc7`](https://github.com/JoviDeCroock/pracht/commit/1873fc743f89300a2cc80a1b6765495f45a902c5) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - `pracht verify webmcp` and `pracht eval` run WebMCP tools on Chrome 157 instead of failing with "parameter 2 is not of type 'object'".
+- Updated dependencies [[`ba4eff3`](https://github.com/JoviDeCroock/pracht/commit/ba4eff3ff5211a5a0cdc5d2240e5cd81ae6fb76d), [`d7fb440`](https://github.com/JoviDeCroock/pracht/commit/d7fb4404cca88309c5d6b7bfc9d0e820998c29fb), [`d7c7242`](https://github.com/JoviDeCroock/pracht/commit/d7c72421a7fe30d9850f7d9b0a35f960caa93e07), [`70ddbbe`](https://github.com/JoviDeCroock/pracht/commit/70ddbbeb8ea5d49334b08dca6a96c315f26a71f7), [`d8f575b`](https://github.com/JoviDeCroock/pracht/commit/d8f575b333804adfc3a66891a86c9aa42edff6c9), [`512a7c3`](https://github.com/JoviDeCroock/pracht/commit/512a7c37a521994c0ba417cc64775af543c3eea6), [`ca58098`](https://github.com/JoviDeCroock/pracht/commit/ca5809819caab260c6e97f66cc136d3e0ffabf7f), [`7092b05`](https://github.com/JoviDeCroock/pracht/commit/7092b058b9c0dc277c335175e09524c40d0c1c84), [`2e23c26`](https://github.com/JoviDeCroock/pracht/commit/2e23c2675e8569ad86c6dd1b8f8b417b1be89e73), [`e48e678`](https://github.com/JoviDeCroock/pracht/commit/e48e678242b91fcc624a65e18bbd5b59a3564fc7), [`12e54fd`](https://github.com/JoviDeCroock/pracht/commit/12e54fd2dd8b32ea0d96ea58194b74ad76090eb8), [`fa59103`](https://github.com/JoviDeCroock/pracht/commit/fa591037277abfb5dc0f54a42812067506ca4a97), [`12e54fd`](https://github.com/JoviDeCroock/pracht/commit/12e54fd2dd8b32ea0d96ea58194b74ad76090eb8), [`fa59103`](https://github.com/JoviDeCroock/pracht/commit/fa591037277abfb5dc0f54a42812067506ca4a97), [`12e54fd`](https://github.com/JoviDeCroock/pracht/commit/12e54fd2dd8b32ea0d96ea58194b74ad76090eb8), [`5f72d18`](https://github.com/JoviDeCroock/pracht/commit/5f72d18aaa8a7911f8ec063944212f4c2049190c)]:
+  - @pracht/capabilities@1.0.0
+  - @pracht/core@1.0.0
+
 ## 1.17.0
 
 ### Minor Changes

@@ -1,5 +1,25 @@
 # create-pracht
 
+## 0.9.0
+
+### Minor Changes
+
+- [`9903b8f`](https://github.com/JoviDeCroock/pracht/commit/9903b8ff8ddc03b94cebb978c5eb48eeedd1c308) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - New apps type-check with `tsrs`, the Rust port of the TypeScript 7 compiler, instead of `typescript`.
+
+- [#529](https://github.com/JoviDeCroock/pracht/pull/529) [`0866283`](https://github.com/JoviDeCroock/pracht/commit/0866283a22088e3f91f6052a9175a07f95036c9a) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - New apps generate route, API, and capability types during setup and before development and typechecking.
+
+### Patch Changes
+
+- [#532](https://github.com/JoviDeCroock/pracht/pull/532) [`ba4eff3`](https://github.com/JoviDeCroock/pracht/commit/ba4eff3ff5211a5a0cdc5d2240e5cd81ae6fb76d) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Render invalid native capability forms with field errors and explicitly retained text, and share grouped validation feedback with enhanced forms.
+
+- [#524](https://github.com/JoviDeCroock/pracht/pull/524) [`d7fb440`](https://github.com/JoviDeCroock/pracht/commit/d7fb4404cca88309c5d6b7bfc9d0e820998c29fb) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Each package's npm page now links to its page on the pracht documentation site.
+
+- [#530](https://github.com/JoviDeCroock/pracht/pull/530) [`0b05d2d`](https://github.com/JoviDeCroock/pracht/commit/0b05d2d5fe24c50f12ff9968647ccfb488220bb1) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Let coding agents read recent server failures and capability traffic from a running local dev server through the authoring MCP.
+
+- [#535](https://github.com/JoviDeCroock/pracht/pull/535) [`d8f575b`](https://github.com/JoviDeCroock/pracht/commit/d8f575b333804adfc3a66891a86c9aa42edff6c9) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - The authoring guide, new apps' `AGENTS.md`, and the `audit-loaders`, `migrate-nextjs`, and `pracht-scaffold` skills steer page data into loaders and flag request waterfalls.
+
+- [#524](https://github.com/JoviDeCroock/pracht/pull/524) [`c65367a`](https://github.com/JoviDeCroock/pracht/commit/c65367a5bb8f6391ab705da957019cb84e5cc4e4) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - The bundled agent skills have shorter trigger-oriented descriptions and corrected details: the dev server port, `pracht generate capability`, session secret rotation, and the `@pracht/query` upgrade inventory.
+
 ## 0.8.0
 
 ### Minor Changes

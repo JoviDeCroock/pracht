@@ -1,5 +1,13 @@
 # @pracht/markdown
 
+## 0.1.7
+
+### Patch Changes
+
+- [#524](https://github.com/JoviDeCroock/pracht/pull/524) [`d7fb440`](https://github.com/JoviDeCroock/pracht/commit/d7fb4404cca88309c5d6b7bfc9d0e820998c29fb) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Each package's npm page now links to its page on the pracht documentation site.
+- Updated dependencies [[`d7fb440`](https://github.com/JoviDeCroock/pracht/commit/d7fb4404cca88309c5d6b7bfc9d0e820998c29fb), [`e48e678`](https://github.com/JoviDeCroock/pracht/commit/e48e678242b91fcc624a65e18bbd5b59a3564fc7)]:
+  - @pracht/content@0.3.0
+
 ## 0.1.6
 
 ### Patch Changes

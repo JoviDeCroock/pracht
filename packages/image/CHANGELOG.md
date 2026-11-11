@@ -1,5 +1,11 @@
 # @pracht/image
 
+## 0.6.1
+
+### Patch Changes
+
+- [#524](https://github.com/JoviDeCroock/pracht/pull/524) [`d7fb440`](https://github.com/JoviDeCroock/pracht/commit/d7fb4404cca88309c5d6b7bfc9d0e820998c29fb) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Each package's npm page now links to its page on the pracht documentation site.
+
 ## 0.6.0
 
 ### Minor Changes
