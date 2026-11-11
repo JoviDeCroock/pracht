@@ -1,5 +1,47 @@
 # @pracht/core
 
+## 1.0.0
+
+### Major Changes
+
+- [`e48e678`](https://github.com/JoviDeCroock/pracht/commit/e48e678242b91fcc624a65e18bbd5b59a3564fc7) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Pracht 1.0: the public API is now stable, and breaking changes are reserved for major releases.
+
+### Minor Changes
+
+- [#522](https://github.com/JoviDeCroock/pracht/pull/522) [`d7c7242`](https://github.com/JoviDeCroock/pracht/commit/d7c72421a7fe30d9850f7d9b0a35f960caa93e07) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Server-rendered and prerendered pages now send a `Link` header listing their stylesheets and font preloads, so CDNs with Early Hints (such as Cloudflare) can start those downloads before the HTML arrives.
+
+- [#518](https://github.com/JoviDeCroock/pracht/pull/518) [`12e54fd`](https://github.com/JoviDeCroock/pracht/commit/12e54fd2dd8b32ea0d96ea58194b74ad76090eb8) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Streamed pages on Preact 11 hydrate as soon as the shell arrives, so they are interactive while slow `<Suspense>` boundaries are still streaming; each boundary hydrates once the document is complete.
+
+### Patch Changes
+
+- [#532](https://github.com/JoviDeCroock/pracht/pull/532) [`ba4eff3`](https://github.com/JoviDeCroock/pracht/commit/ba4eff3ff5211a5a0cdc5d2240e5cd81ae6fb76d) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Render invalid native capability forms with field errors and explicitly retained text, and share grouped validation feedback with enhanced forms.
+
+- [#524](https://github.com/JoviDeCroock/pracht/pull/524) [`d7fb440`](https://github.com/JoviDeCroock/pracht/commit/d7fb4404cca88309c5d6b7bfc9d0e820998c29fb) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Each package's npm page now links to its page on the pracht documentation site.
+
+- [`70ddbbe`](https://github.com/JoviDeCroock/pracht/commit/70ddbbeb8ea5d49334b08dca6a96c315f26a71f7) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Hashed scripts, stylesheets, fonts, and source maps under `/assets/` on Cloudflare and Vercel are served without the document-only security headers, and Vercel now caches them as immutable.
+
+- [#535](https://github.com/JoviDeCroock/pracht/pull/535) [`d8f575b`](https://github.com/JoviDeCroock/pracht/commit/d8f575b333804adfc3a66891a86c9aa42edff6c9) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - The first page load starts the shell chunk alongside the route chunk, and an SPA route's chunk alongside its route-state request, instead of one after the other.
+
+- [#525](https://github.com/JoviDeCroock/pracht/pull/525) [`512a7c3`](https://github.com/JoviDeCroock/pracht/commit/512a7c37a521994c0ba417cc64775af543c3eea6) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Server-rendered documents use less CPU per request, because the HTML is encoded to bytes once instead of being re-validated and re-encoded as a string body.
+
+- [`ca58098`](https://github.com/JoviDeCroock/pracht/commit/ca5809819caab260c6e97f66cc136d3e0ffabf7f) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Hashed scripts, stylesheets, fonts, and source maps under `/assets/` are served with smaller response headers, dropping the document-only security headers and the unused `ETag` and `Last-Modified` validators.
+
+- [#528](https://github.com/JoviDeCroock/pracht/pull/528) [`7092b05`](https://github.com/JoviDeCroock/pracht/commit/7092b058b9c0dc277c335175e09524c40d0c1c84) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Pages with many `<Link>`s render faster on the server.
+
+- [#526](https://github.com/JoviDeCroock/pracht/pull/526) [`2e23c26`](https://github.com/JoviDeCroock/pracht/commit/2e23c2675e8569ad86c6dd1b8f8b417b1be89e73) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - The Node adapter writes server-rendered documents without streaming them back through a web stream, and sends them with `Content-Length` when uncompressed.
+
+- [#518](https://github.com/JoviDeCroock/pracht/pull/518) [`12e54fd`](https://github.com/JoviDeCroock/pracht/commit/12e54fd2dd8b32ea0d96ea58194b74ad76090eb8) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - `useIsHydrated()` no longer stays stuck at its server value inside a `<Suspense>` boundary that resumes hydration after another boundary has already finished.
+
+- [#518](https://github.com/JoviDeCroock/pracht/pull/518) [`fa59103`](https://github.com/JoviDeCroock/pracht/commit/fa591037277abfb5dc0f54a42812067506ca4a97) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - An `<ErrorBoundary>` around a `<Suspense>` boundary now streams on a streamed route instead of failing the page with a 500.
+
+- [#518](https://github.com/JoviDeCroock/pracht/pull/518) [`12e54fd`](https://github.com/JoviDeCroock/pracht/commit/12e54fd2dd8b32ea0d96ea58194b74ad76090eb8) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Streamed `<Suspense>` boundaries no longer lose their server-rendered markup when the browser paints before a boundary's HTML has finished parsing.
+
+- [#518](https://github.com/JoviDeCroock/pracht/pull/518) [`fa59103`](https://github.com/JoviDeCroock/pracht/commit/fa591037277abfb5dc0f54a42812067506ca4a97) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - A streamed route whose shell fails now answers with its error page without crashing the Node process when a deferred value or suspended boundary settles afterwards.
+
+- [`5f72d18`](https://github.com/JoviDeCroock/pracht/commit/5f72d18aaa8a7911f8ec063944212f4c2049190c) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - In development, a component that suspends with no `<Suspense>` boundary above it logs an error naming the page and how to fix it.
+- Updated dependencies [[`ba4eff3`](https://github.com/JoviDeCroock/pracht/commit/ba4eff3ff5211a5a0cdc5d2240e5cd81ae6fb76d), [`d7fb440`](https://github.com/JoviDeCroock/pracht/commit/d7fb4404cca88309c5d6b7bfc9d0e820998c29fb), [`e48e678`](https://github.com/JoviDeCroock/pracht/commit/e48e678242b91fcc624a65e18bbd5b59a3564fc7)]:
+  - @pracht/capabilities@1.0.0
+
 ## 0.21.0
 
 ### Minor Changes

@@ -1,5 +1,19 @@
 # @pracht/capabilities
 
+## 1.0.0
+
+### Major Changes
+
+- [`e48e678`](https://github.com/JoviDeCroock/pracht/commit/e48e678242b91fcc624a65e18bbd5b59a3564fc7) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Pracht 1.0: the public API is now stable, and breaking changes are reserved for major releases.
+
+### Minor Changes
+
+- [#532](https://github.com/JoviDeCroock/pracht/pull/532) [`ba4eff3`](https://github.com/JoviDeCroock/pracht/commit/ba4eff3ff5211a5a0cdc5d2240e5cd81ae6fb76d) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Render invalid native capability forms with field errors and explicitly retained text, and share grouped validation feedback with enhanced forms.
+
+### Patch Changes
+
+- [#524](https://github.com/JoviDeCroock/pracht/pull/524) [`d7fb440`](https://github.com/JoviDeCroock/pracht/commit/d7fb4404cca88309c5d6b7bfc9d0e820998c29fb) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Each package's npm page now links to its page on the pracht documentation site.
+
 ## 0.21.0
 
 ### Minor Changes
