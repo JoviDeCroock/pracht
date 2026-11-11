@@ -139,6 +139,43 @@ test("the generated capabilities client dispatches from the browser", async ({ p
   expect(requests).toContain("/api/capabilities/notes/search");
 });
 
+test("capability form errors stay next to retained fields with JavaScript", async ({ page }) => {
+  await page.goto("/notes");
+  const form = page.getByTestId("create-note-form");
+  await expect(form).toHaveAttribute("data-hydrated", "true");
+  const title = "x".repeat(121);
+  await form.locator('input[name="title"]').fill(title);
+  await form.getByRole("button", { name: "Create note" }).click();
+  await expect(form.locator('input[name="title"]')).toHaveValue(title);
+  await expect(form.locator('input[name="title"]')).toHaveAttribute("aria-invalid", "true");
+  await expect(page.locator("#create-note-title-errors")).toContainText("at most 120");
+  await expect(page).toHaveURL(/\/notes$/);
+});
+
+test("a no-JS visitor can correct a failed capability form and return to notes", async ({
+  browser,
+  baseURL,
+}) => {
+  const context = await browser.newContext({ javaScriptEnabled: false, baseURL });
+  try {
+    const page = await context.newPage();
+    await page.goto("/notes");
+    const title = "x".repeat(121);
+    await page.getByTestId("create-note-form").locator('input[name="title"]').fill(title);
+    await page.getByTestId("create-note-form").getByRole("button").click();
+    await expect(page.getByRole("heading", { name: "Check your note" })).toBeVisible();
+    await expect(page.getByLabel("Title")).toHaveValue(title);
+    await expect(page.locator("#title-errors")).toContainText("at most 120");
+    await expect(page.getByLabel("Body")).toHaveValue("Created from the browser.");
+    await page.getByLabel("Title").fill("A corrected no-JS note");
+    await page.getByRole("button", { name: "Create note" }).click();
+    await expect(page).toHaveURL(/\/notes$/);
+    await expect(page.getByTestId("notes-list")).toContainText("A corrected no-JS note");
+  } finally {
+    await context.close();
+  }
+});
+
 test("useCapability tracks pending state and exposes the result", async ({ page }) => {
   await page.goto("/notes");
   await expect(page.locator('[data-testid="create-note-form"]')).toHaveAttribute(

@@ -1,5 +1,6 @@
 import { defineCapability, type CapabilityRunArgs } from "@pracht/capabilities";
 import { createNote } from "../server/notes-store.ts";
+import { invalidNoteForm } from "../server/note-form.tsx";
 
 interface CreateInput {
   title: string;
@@ -38,6 +39,7 @@ export default defineCapability({
     http: true,
     mcp: true,
   },
+  form: { retain: ["title", "body"], redirectTo: "/notes", onInvalid: invalidNoteForm },
   async run({ input }: CapabilityRunArgs<CreateInput>) {
     return { note: createNote(input.title, input.body) };
   },

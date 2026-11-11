@@ -218,7 +218,7 @@ if (confirmationToken) {
 
 ### From a form
 
-Point `<Form>` at a capability so the human form and the agent tool share one contract. Fields are coerced onto the input schema, and without JavaScript the endpoint redirects back:
+Point `<Form>` at a capability so the human form and the agent tool share one contract. Fields are coerced onto the input schema. Successful native submissions redirect back; configure [form feedback](/docs/recipes/forms#capability-form-feedback) to show a retry form after invalid input.
 
 ```tsx [src/routes/notes.tsx]
 import { Form } from "@pracht/core";

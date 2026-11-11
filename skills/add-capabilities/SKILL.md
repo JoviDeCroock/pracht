@@ -1,6 +1,6 @@
 ---
 name: add-capabilities
-version: 1.3.0
+version: 1.3.1
 description: |
   Expose an app operation as a typed pracht capability served over HTTP, WebMCP,
   and remote MCP, with `agents` trust config, typed clients, and `pracht eval`
@@ -339,6 +339,10 @@ Unresolvable in TS? Add `"@pracht/vite-plugin/virtual"` to tsconfig `types`.
   `useCapability()` dispatches on interaction, never during render.
 - After a successful non-`read` call the route's data revalidates
   automatically (`revalidate: false` opts out).
+- `capabilityFormFeedback(error)` groups field errors. For no-JS retries use
+  `form: { retain: ["title"], redirectTo: "/notes", onInvalid }`; retain no
+  secrets or private data. See
+  <https://pracht.resynapse.dev/docs/recipes/forms#capability-form-feedback>.
 - Capability modules are server-only: importing one from client code is a build
   error, because nothing would strip `run()` and its database client out of the
   browser bundle.
