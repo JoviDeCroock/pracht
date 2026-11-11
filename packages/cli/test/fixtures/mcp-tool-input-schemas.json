@@ -49,6 +49,27 @@
       }
     }
   },
+  "get_runtime_diagnostics": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "properties": {
+      "cwd": {
+        "description": "Absolute path to the pracht app root. Defaults to the server's working directory.",
+        "type": "string"
+      },
+      "url": {
+        "type": "string",
+        "description": "Loopback URL printed by pracht dev, including the Vite base if configured, e.g. http://localhost:3000/ or http://127.0.0.1:3000/app/."
+      },
+      "limit": {
+        "description": "Maximum recent errors and capability events to return (default 20 each).",
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 50
+      }
+    },
+    "required": ["url"]
+  },
   "doctor": {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "type": "object",
