@@ -57,7 +57,7 @@
     "@pracht/adapter-node": "workspace:^",
     "@pracht/capabilities": "workspace:^",
     "@pracht/preact-ssr-precompile": "workspace:^",
-    "@prefresh/vite": "^2.4.12",
+    "@prefresh/vite": "^4.0.1",
     "es-module-lexer": "^1.7.0"
   },
   "peerDependencies": {
