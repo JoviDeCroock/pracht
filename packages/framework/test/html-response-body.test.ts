@@ -14,6 +14,16 @@ describe("htmlResponse", () => {
     );
   });
 
+  it("sends the same body for a large document that holds a character outside Latin-1", async () => {
+    const html = `${"<td>3ac95df5-df42-4757-88d3-b673664e036f</td>".repeat(200)}<a>View → 🙂</a>`;
+
+    const response = htmlResponse(html);
+
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(
+      new Uint8Array(await new Response(html).arrayBuffer()),
+    );
+  });
+
   it("keeps the status and caller headers", async () => {
     const response = htmlResponse("<p>missing</p>", 404, { "x-test": "1" });
 

@@ -38,6 +38,44 @@ document that conversion cost more CPU than rendering the page, and dropping it
 cut server CPU per request by about 18% on Node 24. Streamed documents are
 unaffected: they already enqueue encoded chunks.
 
+The encode itself is `encodeDocument()` in `document-encode.ts`. One character
+outside Latin-1 — an arrow, a curly quote, an emoji — makes the whole
+concatenated document a two-byte string, and Node's `TextEncoder` converts
+those one code unit at a time: about 580 µs for a 281 KB document on Node
+24.22, against 58 µs for the same document in ASCII. On Node, a document of at
+least 1,024 code units that holds such a character is instead copied out as
+UTF-16 and converted with `node:buffer`'s `transcode`, which produces the same
+bytes in about 93 µs. On a 1,000-row page that raised throughput from about
+515 to 700 requests per second with plain anchors and from about 395 to 485
+with `<Link>`.
+
+The path is chosen by a regular expression for a code unit above U+00FF. V8
+rejects it without scanning a one-byte string, so ASCII and Latin-1 documents
+pay nothing and stay on `TextEncoder`, which is the faster of the two for
+them. A two-byte document is scanned up to its first such character, so the
+gain depends on where that is:
+
+| 281 KB document            | Node 24.22: before → after | Node 22.22: before → after |
+| -------------------------- | -------------------------- | -------------------------- |
+| First row holds an arrow   | 579 → 93 µs                | 234 → 72 µs                |
+| Only the last character    | 576 → 257 µs               | 225 → 240 µs               |
+| ASCII                      | 58 → 56 µs                 | 22 → 22 µs                 |
+| Lone surrogate, mid-document | 579 → 652 µs             | 233 → 289 µs               |
+
+The last row is the cost of the fallback: `transcode` throws on a lone
+surrogate, so that document pays for the copy and the failed conversion before
+`TextEncoder` encodes it with U+FFFD as it always has. A two-byte string whose
+characters all fit Latin-1 (a slice of a wider string) pays the full scan and
+then `TextEncoder`.
+
+Only Node is measured, so only Node takes the path: it needs a
+`navigator.userAgent` that starts with `Node.js/`, and every other runtime
+skips the scan as well. `node:buffer` is read through
+`process.getBuiltinModule` on the first document long enough to qualify, so
+the module loads unchanged on Workers, Deno, and Bun, and falls back to
+`TextEncoder` on a Node built without ICU, where `transcode` is absent, or
+started without the global `navigator`.
+
 The Node adapter then writes those bytes directly (`takeDocumentBody()` in
 `@pracht/core/server`, internal) instead of reading the body back through a web
 stream, and sends `Content-Length` when the response is not compressed and the

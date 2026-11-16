@@ -1,3 +1,4 @@
+import { encodeDocument } from "./document-encode.ts";
 import { collectFontHeadFragments } from "./font.ts";
 import { escapeHtml } from "./html-escape.ts";
 import {
@@ -469,8 +470,6 @@ function joinDocumentLines(parts: string[], indent: string): string {
     .join("\n");
 }
 
-const htmlEncoder = new TextEncoder();
-
 /** The encoded body of each document `htmlResponse()` built; see `takeDocumentBody`. */
 const documentBodies = new WeakMap<Response, Uint8Array>();
 
@@ -479,7 +478,7 @@ export function htmlResponse(html: string, status = 200, initHeaders?: HeadersIn
   // converted to a USVString (a full scan, and a flatten of the concatenated
   // document) and then encoded again when the body is read, which costs more
   // than rendering a large document. A byte body is read as is.
-  const body = htmlEncoder.encode(html);
+  const body = encodeDocument(html);
   const response = ownResponse(
     new Response(body, { status, headers: htmlResponseHeaders(initHeaders) }),
   );
