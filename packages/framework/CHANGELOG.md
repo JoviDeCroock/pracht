@@ -1,5 +1,11 @@
 # @pracht/core
 
+## 1.0.1
+
+### Patch Changes
+
+- [#538](https://github.com/JoviDeCroock/pracht/pull/538) [`3b98066`](https://github.com/JoviDeCroock/pracht/commit/3b98066d7dad355698c84bdbf7c143b813744a5e) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Vercel edge deploys build again: the generated server module no longer uses a top-level `await`, which Vercel's edge bundler rejected.
+
 ## 1.0.0
 
 ### Major Changes
