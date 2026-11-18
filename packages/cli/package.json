@@ -1,6 +1,6 @@
 {
   "name": "@pracht/cli",
-  "version": "1.18.0",
+  "version": "1.18.1",
   "description": "CLI for developing, building, validating, inspecting, and scaffolding Pracht apps.",
   "mcpName": "io.github.JoviDeCroock/pracht",
   "keywords": [
