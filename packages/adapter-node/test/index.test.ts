@@ -133,6 +133,15 @@ describe("createNodeServerEntryModule", () => {
     expect(listenIndex).toBeGreaterThan(configureIndex);
   });
 
+  it("waits for the server startup check before it creates the server", () => {
+    const source = createNodeServerEntryModule();
+
+    expect(source).toContain('import { serverStartupCheck } from "@pracht/core/server";');
+    const checkIndex = source.indexOf("await serverStartupCheck();");
+    expect(checkIndex).toBeGreaterThan(-1);
+    expect(source.indexOf("createServer(handler)")).toBeGreaterThan(checkIndex);
+  });
+
   it("stubs configureServer out when the option is not set", () => {
     const source = createNodeServerEntryModule();
     expect(source).toContain("const configurePrachtServer = undefined;");

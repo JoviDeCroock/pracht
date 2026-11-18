@@ -281,7 +281,7 @@ or `setCapabilityApprovalPrincipalResolver()` both phases run as `"anonymous"`.
 Register a `CapabilityApprovalStore` for exactly-once commits, and
 `confirmation: { mode: "human" }` for a real human decision — that mode needs
 an end-user identity (a principal resolver, or `agents.mcp.auth` on remote MCP)
-or the server refuses to start, and refuses destructive calls without a store;
+or the build fails and the server refuses every request, and refuses destructive calls without a store;
 a Web Bot Auth key alone never counts.
 
 `createSqlApprovalStore({ execute })` from `@pracht/core/server` is the

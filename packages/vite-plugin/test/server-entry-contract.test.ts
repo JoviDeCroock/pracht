@@ -1,5 +1,6 @@
 import { readServerEntry, type PrachtAdapter } from "@pracht/core/adapter";
 import { init, parse } from "es-module-lexer";
+import { parseAst } from "vite";
 import { beforeAll, describe, expect, it } from "vitest";
 
 import { cloudflareAdapter } from "../../adapter-cloudflare/src/index.ts";
@@ -38,6 +39,32 @@ function readContractExports(source: string): Record<string, unknown> {
     if (match) values[name] = JSON.parse(match[1]!);
   }
   return values;
+}
+
+/** Source text of every `await` that runs at the module's top level. */
+function topLevelAwaits(source: string): string[] {
+  const found: string[] = [];
+  const visit = (node: unknown): void => {
+    if (Array.isArray(node)) return node.forEach(visit);
+    if (typeof node !== "object" || node === null) return;
+    const { type, start, end } = node as { type?: string; start: number; end: number };
+    if (
+      type === "FunctionDeclaration" ||
+      type === "FunctionExpression" ||
+      type === "ArrowFunctionExpression"
+    ) {
+      return;
+    }
+    if (
+      type === "AwaitExpression" ||
+      (type === "ForOfStatement" && (node as { await?: boolean }).await)
+    ) {
+      found.push(source.slice(start, end));
+    }
+    for (const value of Object.values(node)) visit(value);
+  };
+  visit(parseAst(source).body);
+  return found;
 }
 
 beforeAll(async () => {
@@ -82,6 +109,25 @@ describe("generated server entries", () => {
     };
     createPrachtServerModuleSource({ adapter: spy }, { buildId: "build-2" });
     expect(received).toEqual({ buildId: "build-2" });
+  });
+
+  // Vercel bundles an edge function to CommonJS, which has no top-level
+  // `await`; the deploy fails with "Top-level await is currently not supported
+  // with the \"cjs\" output format". The Node and Netlify entries run as Node
+  // ESM and await on purpose.
+  it.each(adapters.filter(([label]) => !label.includes("node") && label !== "netlify"))(
+    "%s: has no top-level await",
+    (_label, create) => {
+      const source = createPrachtServerModuleSource({ adapter: create() }, { buildId: "b" });
+      expect(topLevelAwaits(source)).toEqual([]);
+    },
+  );
+
+  it("registers the human-approval check instead of awaiting it", () => {
+    const source = createPrachtServerModuleSource({ adapter: vercelAdapter() }, { buildId: "b" });
+    expect(source).toContain(
+      "export const startupCheck = setServerStartupCheck(assertHumanApprovalIdentity(resolvedApp, registry));",
+    );
   });
 
   it("keeps the legacy headers-manifest export for adapters that read the shared form", () => {

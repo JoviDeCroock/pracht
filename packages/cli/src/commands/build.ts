@@ -709,6 +709,8 @@ async function runBuildSteps(
     const serverMod = readServerEntry(await import(pathToFileURL(serverEntry).href), {
       legacyBuildId: requestedBuildId,
     });
+    // Human approval with no end-user identity fails the build here.
+    await serverMod.startupCheck;
     assertServerEntryAdapter(serverMod, buildAdapter?.id);
     buildTarget = serverMod.adapterId;
     const buildBase = typeof serverMod.buildBase === "string" ? serverMod.buildBase : "/";

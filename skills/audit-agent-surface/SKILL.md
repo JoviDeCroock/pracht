@@ -182,7 +182,7 @@ With `agents.mcp.auth`, check:
   `createMemoryApprovalStore()` in a deployed multi-replica app does not, and
   neither does a hand-rolled store over Cloudflare KV.
 - `confirmation: { mode: "human" }` without an end-user principal (a
-  resolver, or `agents.mcp.auth` on MCP) stops the server at startup, and
+  resolver, or `agents.mcp.auth` on MCP) fails the build and every request, and
   without a store refuses destructive calls — check both exist. Web Bot Auth
   alone never counts: it names the agent.
 
