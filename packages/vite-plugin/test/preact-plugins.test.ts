@@ -94,7 +94,9 @@ describe("createPreactPlugins", () => {
     expect(warn).not.toHaveBeenCalled();
   });
 
-  it("includes prefresh for Fast Refresh", () => {
-    expect(createPreactPlugins().map((candidate) => candidate.name)).toContain("prefresh");
+  // Fast Refresh registration is `pracht:fast-refresh`'s, one pass over every
+  // client module; Vite's own Oxc pass would only register JSX files.
+  it("leaves Oxc's refresh registration off", () => {
+    expect(config("serve").oxc).toEqual({ jsx: { runtime: "automatic", importSource: "preact" } });
   });
 });

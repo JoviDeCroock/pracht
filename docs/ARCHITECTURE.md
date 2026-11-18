@@ -628,11 +628,49 @@ The server build sets `copyPublicDir: false`: `dist/server/` is build tooling,
 never an asset root, so duplicating `public/` there would only make every asset
 plugin run a second, discarded pass.
 
+### Fast Refresh
+
+`pracht:fast-refresh` (`packages/vite-plugin/src/fast-refresh.ts`) refreshes
+every module the browser runs, in three stages and without Babel:
+
+1. `prefresh-rolldown` keeps each `createContext()` on a stable key.
+2. Oxc's refresh transform registers the module's components and signs its
+   hooks.
+3. `prefresh-wrapper` binds the registrations to the module id and makes the
+   module accept its own update.
+
+Stages 1 and 3 come from `@prefresh/vite`, which ships them as Vite plugins
+and leaves stage 2 to Vite's own Oxc pass. Pracht takes the two as functions
+and runs all three itself, as one `post` plugin on the dev server:
+
+- Vite's Oxc pass registers only a file that is JSX or imports the JSX
+  runtime. A custom hook in a `.ts` file or a component written with `h()`
+  would go unsigned, and an edit that reorders its hooks would keep the old
+  state. Registering every script module signs those as well.
+- Every upstream filter wants an id that ends in a script extension. A route
+  or shell module reaches the browser as `home.tsx?pracht-client`, and a
+  compiled format as `post.mdx`, so those run under the synthetic id
+  `toPrachtClientPrefreshId()` builds, after `pracht:client-module-transform`
+  has stripped the server-only exports.
+- None of `@prefresh/vite`'s plugins is registered with Vite, so its Babel
+  fallback never runs, `createContext()` is left alone in SSR modules and in
+  builds, and its `optimizeDeps` hints (unresolvable from the app root in a
+  strict install) are never issued. The plugin hands the stage plugins the
+  resolved config itself.
+
+The plugin skips `node_modules` and SSR transforms. It skips every module
+when the resolved config has `server.hmr: false`, since nothing would define
+`$RefreshReg$` in the browser, and on a dev server in production mode, where
+the context stage turns itself off. `@prefresh/vite` is imported on the first
+module that needs it, so `pracht build` never loads it. A module the
+registration pass cannot parse is served as it came in and reloads the page
+when edited.
+
 ### Optional server JSX precompile
 
 `pracht({ precompileSsrJsx: true })` inserts `@pracht/preact-ssr-precompile`
 before pracht's Preact plugins (`packages/vite-plugin/src/preact-plugins.ts`:
-Oxc automatic JSX, React aliases, dev DevTools hookup, prefresh) for SSR
+Oxc automatic JSX, React aliases, dev DevTools hookup, Fast Refresh) for SSR
 transforms. It parses with the `parseSync` Vite re-exports, so it never installs
 a second Rolldown. The transform rewrites
 safe native DOM JSX into `preact/jsx-runtime` `jsxTemplate()` calls, matching the

@@ -1,4 +1,3 @@
-import prefresh from "@prefresh/vite";
 import type { Plugin, Rolldown } from "vite";
 
 import { PRACHT_CLIENT_MODULE_ID, PRACHT_ISLANDS_CLIENT_MODULE_ID } from "./plugin-assets.ts";
@@ -13,9 +12,6 @@ const REACT_ALIASES = {
   "react/jsx-runtime": "preact/jsx-runtime",
   react: "preact/compat",
 };
-
-/** Parser features prefresh's Babel pass must accept in application source. */
-const PREFRESH_PARSER_PLUGINS = ["importMeta", "explicitResourceManagement", "topLevelAwait"];
 
 type WarningHandler = NonNullable<Rolldown.InputOptions["onwarn"]>;
 
@@ -39,8 +35,8 @@ const DEV_CLIENT_ENTRY_IDS = new Set([PRACHT_CLIENT_MODULE_ID, PRACHT_ISLANDS_CL
 
 /**
  * The Preact integration pracht needs from Vite: the automatic JSX runtime
- * through Vite's own Oxc transform, the React aliases, Preact DevTools in
- * development, and Fast Refresh.
+ * through Vite's own Oxc transform, the React aliases, and Preact DevTools in
+ * development. Fast Refresh is `createFastRefreshPlugin()` in `fast-refresh.ts`.
  */
 export function createPreactPlugins(): Plugin[] {
   return [
@@ -79,6 +75,5 @@ export function createPreactPlugins(): Plugin[] {
         },
       },
     },
-    prefresh({ parserPlugins: PREFRESH_PARSER_PLUGINS }) as Plugin,
   ];
 }
