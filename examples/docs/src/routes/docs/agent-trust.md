@@ -241,7 +241,7 @@ export async function POST({ request, context }: ApiRouteArgs) {
 
 Before enabling a store:
 
-- `mode: "human"` needs an end-user identity: a principal resolver, or `agents.mcp.auth` on MCP. With neither, the server refuses to start and `pracht build` and `pracht verify` fail. A Web Bot Auth key does not count.
+- `mode: "human"` needs an end-user identity: a principal resolver, or `agents.mcp.auth` on MCP. With neither, `pracht build` and `pracht verify` fail, the Node server refuses to start, and other runtimes refuse every request. A Web Bot Auth key does not count.
 - Prepare and commit must reach the same store, or the commit is refused.
 - `createMemoryApprovalStore()` is for tests and development: it is lost on restart and not shared across replicas.
 - Records hold the input and the raw principal. Gate review endpoints and delete records after expiry.

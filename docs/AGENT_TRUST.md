@@ -368,11 +368,17 @@ the verified OAuth subject on remote MCP. A request that resolves neither is
 refused with `403 confirmation_unavailable` before any proposal is recorded or
 token minted. The configuration-level form of the same rule
 (`humanApprovalPreconditionError()`: human mode with no resolver registered and
-no `agents.mcp.auth`) stops the server at startup: the generated server module
-awaits `assertHumanApprovalIdentity()`, which first imports every capability
-module and the middleware applied to capabilities and the capability API chain
-(where a resolver may be registered), then throws. Because `pracht build`
-imports the built server module, the build fails too, and `pracht verify`
+no `agents.mcp.auth`) is the server module's startup check. The generated
+module registers `assertHumanApprovalIdentity()` with
+`setServerStartupCheck()` rather than awaiting it at the top level — Vercel
+bundles edge functions to CommonJS, which rejects a top-level `await`. The
+check first imports every capability module and the middleware applied to
+capabilities and the capability API chain (where a resolver may be
+registered), then throws. `pracht build` awaits the module's `startupCheck`
+export after importing the built server, so the build fails; the Node entry
+awaits `serverStartupCheck()` before it listens, so the process exits; and
+`handlePrachtRequest()` awaits the pending check, so on every other runtime
+each request fails with the same error. `pracht verify`
 reports an error when it finds no `setCapabilityApprovalPrincipalResolver(`
 call. An app without capabilities is exempt. The remote MCP endpoint still
 answers `-32603` (and logs the reason once) for its other unmet preconditions.

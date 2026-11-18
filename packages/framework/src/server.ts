@@ -128,8 +128,10 @@ export {
   setCapabilityApprovalPrincipalResolver,
   setCapabilityApprovalStore,
 } from "./runtime-approval.ts";
-/** @internal Awaited by the generated server module at startup. */
+/** @internal Registered by the generated server module as its startup check. */
 export { assertHumanApprovalIdentity } from "./runtime-approval.ts";
+/** @internal The generated server module's startup check; see runtime-startup.ts. */
+export { serverStartupCheck, setServerStartupCheck } from "./runtime-startup.ts";
 export type {
   MemoryApprovalStoreOptions,
   SqlApprovalStoreDialect,

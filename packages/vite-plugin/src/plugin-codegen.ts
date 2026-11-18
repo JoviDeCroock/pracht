@@ -701,7 +701,7 @@ export function createPrachtServerModuleSource(
 
   const source = [
     prachtImports,
-    'import { assertHumanApprovalIdentity, registerServerIslands, setIslandsClientEntryUrl } from "@pracht/core/server";',
+    'import { assertHumanApprovalIdentity, registerServerIslands, setIslandsClientEntryUrl, setServerStartupCheck } from "@pracht/core/server";',
     ...(registersServerIslands
       ? [
           'import { registerServerIslandModules, setServerIslandsClientEntryUrl } from "@pracht/core/server";',
@@ -735,8 +735,10 @@ export function createPrachtServerModuleSource(
     "applyRouteHints(resolvedApp, routeLoaderHints, routeHeadHints, routeStaticPathsHints);",
     `export const apiRoutes = resolveApiRoutes(Object.keys(apiModules), ${JSON.stringify(resolved.apiDir)});`,
     "// Human approval without an end-user identity would refuse every destructive",
-    "// call, so it stops the server here: in dev, in the build, and at startup.",
-    "await assertHumanApprovalIdentity(resolvedApp, registry);",
+    "// call, so it fails the build, the Node server's startup, and every request.",
+    // Registered rather than awaited: Vercel bundles edge functions to CommonJS,
+    // which rejects a top-level `await`.
+    "export const startupCheck = setServerStartupCheck(assertHumanApprovalIdentity(resolvedApp, registry));",
     // The server entry contract `pracht build` reads through `readServerEntry()`
     // from `@pracht/core/adapter`.
     `export const contract = ${SERVER_ENTRY_CONTRACT};`,

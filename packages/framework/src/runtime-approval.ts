@@ -46,7 +46,7 @@ export const setCapabilityApprovalPrincipalResolver =
   ) => void;
 
 /**
- * Startup gate awaited by the generated server module: human approval with
+ * Startup check the generated server module registers: human approval with
  * nothing to identify the end user throws. An app the build proves has no
  * agent surface cannot configure human approval, so the check, and the
  * approval code it reaches, leave that app's server bundle.

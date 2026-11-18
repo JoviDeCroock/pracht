@@ -91,6 +91,7 @@ export function createNodeServerEntryModule(
     'import { dirname, resolve } from "node:path";',
     'import { fileURLToPath, pathToFileURL } from "node:url";',
     'import { createNodeRequestHandler } from "@pracht/adapter-node";',
+    'import { serverStartupCheck } from "@pracht/core/server";',
     contextImport,
     configureServerImport,
     "",
@@ -136,6 +137,9 @@ export function createNodeServerEntryModule(
     "",
     "const entryHref = process.argv[1] ? pathToFileURL(process.argv[1]).href : null;",
     "if (entryHref && import.meta.url === entryHref) {",
+    "  // A failed startup check (human approval with no end-user identity) stops",
+    "  // the process here instead of serving requests that would all fail.",
+    "  await serverStartupCheck();",
     "  const server = createServer(handler);",
     ...(keepAliveTimeoutMs === undefined
       ? []

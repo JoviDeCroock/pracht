@@ -1202,6 +1202,7 @@ serializeAppRoutes: function
 serializeCapabilities: function
 serializeEventStreamMessage: function
 serveISGSnapshot: function
+serverStartupCheck: function
 setCapabilityApprovalPrincipalResolver: const
 setCapabilityApprovalStore: function
 setCapabilityAuditHook: function
@@ -1209,6 +1210,7 @@ setCapabilityConfirmationSecret: function
 setIslandsClientEntryUrl: function
 setServerEnv: function
 setServerIslandsClientEntryUrl: function
+setServerStartupCheck: function
 shareHeadersManifest: function
 staticByteRange: function
 staticContentType: function

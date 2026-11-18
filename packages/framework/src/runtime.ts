@@ -3,6 +3,7 @@ import { matchIndexedResolvedRoute } from "./route-matching.ts";
 import { getServerIslandsRuntime } from "./server-islands-runtime.ts";
 import { PRACHT_SERVER_ISLAND_ENDPOINT } from "./server-islands-shared.ts";
 import { SAFE_METHODS } from "./runtime-constants.ts";
+import { pendingServerStartupCheck } from "./runtime-startup.ts";
 import {
   normalizeResponseHeaders,
   withDefaultSecurityHeaders,
@@ -49,6 +50,8 @@ export type { HandlePrachtRequestOptions };
 export async function handlePrachtRequest<TContext>(
   options: HandlePrachtRequestOptions<TContext>,
 ): Promise<Response> {
+  const startup = pendingServerStartupCheck();
+  if (startup) await startup;
   // A redirect answering pracht's own fetch (an enhanced form, an islands
   // navigation) names its target instead, so the browser loads the target
   // itself: a one-time redirect is never replayed and another origin is never
